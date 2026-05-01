@@ -1,0 +1,99 @@
+{
+  "app": {
+    "title": "前端构建产物部署",
+    "projects": "项目",
+    "history": "历史记录",
+    "settings": "设置",
+    "newProject": "新建项目"
+  },
+  "projects": {
+    "title": "项目列表",
+    "empty": "暂无项目",
+    "emptyDesc": "点击右上角「新建项目」按钮开始",
+    "versions": "{{count}} 个版本",
+    "updated": "更新于 {{date}}"
+  },
+  "versions": {
+    "title": "版本列表",
+    "empty": "暂无版本",
+    "emptyDesc": "上传第一个产物开始使用",
+    "production": "正式版本",
+    "staging": "测试版本",
+    "setProduction": "设为正式",
+    "upload": "上传新版本",
+    "preview": "预览",
+    "deployUrl": "部署地址",
+    "deployHint": "设为正式版本后可通过此地址访问",
+    "delete": "删除"
+  },
+  "upload": {
+    "title": "上传新版本",
+    "dropzone": "拖拽 .zip 文件到此处",
+    "dropzoneDesc": "最大 500MB，支持 .zip 或文件夹上传",
+    "selectZip": "选择 .zip",
+    "selectFolder": "选择文件夹",
+    "releaseNotes": "版本说明",
+    "releaseNotesPlaceholder": "描述本次构建的变更...",
+    "cancel": "取消",
+    "submit": "开始部署"
+  },
+  "create": {
+    "title": "新建项目",
+    "name": "项目名称",
+    "namePlaceholder": "例如: 我的网站",
+    "slug": "项目标识",
+    "slugPlaceholder": "例如: my-site",
+    "slugHint": "用于部署路径: /deploy/my-site/",
+    "description": "项目描述",
+    "descPlaceholder": "可选的项目描述",
+    "cancel": "取消",
+    "create": "创建"
+  },
+  "history": {
+    "title": "历史记录",
+    "desc": "所有项目的部署操作日志",
+    "empty": "暂无记录",
+    "emptyDesc": "创建项目或上传版本后，操作记录将显示在此处",
+    "project.create": "创建了项目",
+    "project.delete": "删除了项目",
+    "version.upload": "上传了版本",
+    "version.activate": "将版本设为正式",
+    "version.delete": "删除了版本",
+    "toProject": "到项目",
+    "ofProject": "的项目"
+  },
+  "settings": {
+    "title": "项目设置",
+    "desc": "配置部署行为",
+    "selectProject": "选择项目",
+    "selectProjectPlaceholder": "选择一个项目...",
+    "spaMode": "SPA 模式",
+    "spaModeDesc": "启用后，非文件路径将回退到 index.html 以支持客户端路由",
+    "routingType": "路由类型",
+    "routingHash": "Hash 路由",
+    "routingHashDesc": "URL 使用 # 片段（如 /deploy/slug/#/page）",
+    "routingPath": "路径路由",
+    "routingPathDesc": "URL 使用普通路径（如 /deploy/slug/page）",
+    "save": "保存设置",
+    "saved": "设置已保存",
+    "dangerZone": "危险操作",
+    "deleteProject": "删除项目",
+    "deleteProjectDesc": "移除项目及所有版本，此操作不可撤销"
+  },
+  "common": {
+    "loading": "加载中...",
+    "delete": "删除",
+    "copy": "复制",
+    "copied": "已复制",
+    "confirm": "确认",
+    "deleteProjectConfirm": "确定删除项目「{{name}}」及其所有版本？",
+    "deleteVersionConfirm": "确定删除版本「{{name}}」？",
+    "created": "已创建",
+    "deleted": "已删除",
+    "uploaded": "上传成功",
+    "activated": "已设为正式",
+    "failed": "操作失败",
+    "copyFailed": "复制失败",
+    "close": "关闭"
+  }
+}

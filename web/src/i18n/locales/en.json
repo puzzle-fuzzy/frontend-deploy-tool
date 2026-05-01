@@ -1,0 +1,99 @@
+{
+  "app": {
+    "title": "Dist Deploy",
+    "projects": "Projects",
+    "history": "History",
+    "settings": "Settings",
+    "newProject": "New Project"
+  },
+  "projects": {
+    "title": "Projects",
+    "empty": "No projects yet",
+    "emptyDesc": "Click \"New Project\" in the top-right to get started",
+    "versions": "{{count}} version(s)",
+    "updated": "Updated {{date}}"
+  },
+  "versions": {
+    "title": "Versions",
+    "empty": "No versions yet",
+    "emptyDesc": "Upload the first artifact to get started",
+    "production": "PRODUCTION",
+    "staging": "STAGING",
+    "setProduction": "Set Production",
+    "upload": "Upload New Version",
+    "preview": "Preview",
+    "deployUrl": "Deploy URL",
+    "deployHint": "Set a version as production to access via this URL",
+    "delete": "Delete"
+  },
+  "upload": {
+    "title": "Upload New Version",
+    "dropzone": "Drop .zip file here",
+    "dropzoneDesc": "Max 500MB. Supported: .zip or folder upload",
+    "selectZip": "Select .zip",
+    "selectFolder": "Select Folder",
+    "releaseNotes": "Release Notes",
+    "releaseNotesPlaceholder": "Describe the changes in this build...",
+    "cancel": "Cancel",
+    "submit": "Initiate Deployment"
+  },
+  "create": {
+    "title": "New Project",
+    "name": "Project Name",
+    "namePlaceholder": "e.g. My Website",
+    "slug": "Project Slug",
+    "slugPlaceholder": "e.g. my-site",
+    "slugHint": "Used as deploy path: /deploy/my-site/",
+    "description": "Description",
+    "descPlaceholder": "Optional description",
+    "cancel": "Cancel",
+    "create": "Create"
+  },
+  "history": {
+    "title": "History",
+    "desc": "Deployment event log across all projects",
+    "empty": "No events yet",
+    "emptyDesc": "Events will appear when you create projects or upload versions",
+    "project.create": "Project created",
+    "project.delete": "Project deleted",
+    "version.upload": "Version uploaded",
+    "version.activate": "Set as production",
+    "version.delete": "Version deleted",
+    "toProject": "to project",
+    "ofProject": "of project"
+  },
+  "settings": {
+    "title": "Project Settings",
+    "desc": "Configure deployment behavior",
+    "selectProject": "Select Project",
+    "selectProjectPlaceholder": "Choose a project...",
+    "spaMode": "SPA Mode",
+    "spaModeDesc": "When enabled, non-file paths fall back to index.html for client-side routing",
+    "routingType": "Routing Type",
+    "routingHash": "Hash Routing",
+    "routingHashDesc": "URLs use # fragment (e.g. /deploy/slug/#/page)",
+    "routingPath": "Path Routing",
+    "routingPathDesc": "URLs use normal paths (e.g. /deploy/slug/page)",
+    "save": "Save Settings",
+    "saved": "Settings saved",
+    "dangerZone": "Danger Zone",
+    "deleteProject": "Delete Project",
+    "deleteProjectDesc": "Remove project and all versions. This cannot be undone"
+  },
+  "common": {
+    "loading": "Loading...",
+    "delete": "Delete",
+    "copy": "Copy",
+    "copied": "Copied",
+    "confirm": "Confirm",
+    "deleteProjectConfirm": "Delete project \"{{name}}\" and all its versions?",
+    "deleteVersionConfirm": "Delete version \"{{name}}\"?",
+    "created": "Created",
+    "deleted": "Deleted",
+    "uploaded": "Upload successful",
+    "activated": "Set as production",
+    "failed": "Failed",
+    "copyFailed": "Copy failed",
+    "close": "Close"
+  }
+}
