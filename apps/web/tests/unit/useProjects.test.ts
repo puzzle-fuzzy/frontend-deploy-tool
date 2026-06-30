@@ -62,6 +62,37 @@ describe('useProjects', () => {
     expect(api.listProjects).toHaveBeenCalledTimes(2);
   });
 
+  it('tracks the in-flight version id during activate', async () => {
+    const target = project('a', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
+    vi.mocked(api.listProjects).mockResolvedValue([target]);
+    let resolveActivate!: (value: { ok: boolean }) => void;
+    vi.mocked(api.activateVersion).mockReturnValue(
+      new Promise<{ ok: boolean }>((resolve) => {
+        resolveActivate = resolve;
+      })
+    );
+
+    const { result } = renderHook(() => useProjects());
+    await waitFor(() => expect(result.current.projects).toHaveLength(1));
+    act(() => {
+      result.current.selectProject(result.current.projects[0]);
+    });
+
+    expect(result.current.pendingVersionId).toBeNull();
+    act(() => {
+      void result.current.activateVersion('v1');
+    });
+    expect(result.current.pendingVersionId).toBe('v1');
+
+    await act(async () => {
+      resolveActivate({ ok: true });
+    });
+    await waitFor(() => expect(result.current.pendingVersionId).toBeNull());
+  });
+
   it('deletes a version and refreshes the list', async () => {
     const target = project('a', {
       versions: [version('v1')],

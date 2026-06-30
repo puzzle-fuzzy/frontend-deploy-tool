@@ -33,6 +33,7 @@ export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+  const [pendingVersionId, setPendingVersionId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -84,12 +85,15 @@ export function useProjects() {
   const activateVersion = useCallback(
     async (versionId: string) => {
       if (!selectedProject) return;
+      setPendingVersionId(versionId);
       try {
         await api.activateVersion(selectedProject.id, versionId);
         toast(t('common.activated'));
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      } finally {
+        setPendingVersionId(null);
       }
     },
     [selectedProject, refresh, toast, t]
@@ -98,12 +102,15 @@ export function useProjects() {
   const deleteVersion = useCallback(
     async (versionId: string) => {
       if (!selectedProject) return;
+      setPendingVersionId(versionId);
       try {
         await api.deleteVersion(selectedProject.id, versionId);
         toast(t('common.deleted'));
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      } finally {
+        setPendingVersionId(null);
       }
     },
     [selectedProject, refresh, toast, t]
@@ -118,6 +125,7 @@ export function useProjects() {
     projects,
     loading,
     selectedProject,
+    pendingVersionId,
     selectProject,
     refresh,
     activateVersion,

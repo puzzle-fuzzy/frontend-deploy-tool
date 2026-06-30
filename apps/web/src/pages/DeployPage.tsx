@@ -19,6 +19,7 @@ export function DeployPage() {
     projects,
     loading,
     selectedProject,
+    pendingVersionId,
     selectProject,
     refresh,
     activateVersion,
@@ -83,6 +84,7 @@ export function DeployPage() {
 
                 <VersionList
                   project={selectedProject}
+                  pendingVersionId={pendingVersionId}
                   onActivate={activateVersion}
                   onDelete={deleteVersion}
                 />

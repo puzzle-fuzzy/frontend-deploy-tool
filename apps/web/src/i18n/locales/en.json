@@ -86,6 +86,7 @@
     "copy": "Copy",
     "copied": "Copied",
     "confirm": "Confirm",
+    "cancel": "Cancel",
     "deleteProjectConfirm": "Delete project \"{{name}}\" and all its versions?",
     "deleteVersionConfirm": "Delete version \"{{name}}\"?",
     "created": "Created",
