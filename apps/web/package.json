@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "test": "bun -e \"console.log('No frontend tests configured yet')\"",
+    "test": "vitest",
     "typecheck": "tsc -b"
   },
   "dependencies": {
@@ -34,6 +34,9 @@
     "@eslint/js": "catalog:",
     "@rolldown/plugin-babel": "catalog:",
     "@tailwindcss/vite": "catalog:",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/babel__core": "catalog:",
     "@types/node": "catalog:",
     "@types/react": "catalog:",
@@ -44,9 +47,11 @@
     "eslint-plugin-react-hooks": "catalog:",
     "eslint-plugin-react-refresh": "catalog:",
     "globals": "catalog:",
+    "jsdom": "^29.1.1",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
     "typescript-eslint": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "^4.1.9"
   }
 }

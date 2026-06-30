@@ -140,16 +140,16 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Frontend Architecture
 
-- [ ] Split `web/src/pages/DeployPage.tsx`.
-  - [ ] `features/projects/ProjectList.tsx`
-  - [ ] `features/projects/CreateProjectDialog.tsx`
-  - [ ] `features/projects/useProjects.ts`
-  - [ ] `features/versions/VersionList.tsx`
-  - [ ] `features/versions/UploadVersionDialog.tsx`
-  - [ ] `features/settings/ProjectSettingsDialog.tsx`
-  - [ ] `features/deploy/DeployUrl.tsx`
-  - [ ] `features/theme/ThemeToggle.tsx`
-  - [ ] `features/i18n/LanguageToggle.tsx`
+- [x] Split `web/src/pages/DeployPage.tsx`.
+  - [x] `features/projects/ProjectList.tsx`
+  - [x] `features/projects/CreateProjectDialog.tsx`
+  - [x] `features/projects/useProjects.ts`
+  - [x] `features/versions/VersionList.tsx`
+  - [x] `features/versions/UploadVersionDialog.tsx`
+  - [x] `features/settings/ProjectSettingsDialog.tsx`
+  - [x] `features/deploy/DeployUrl.tsx`
+  - [x] `features/theme/ThemeToggle.tsx`
+  - [x] `features/i18n/LanguageToggle.tsx`
 - [ ] Move shared frontend code under `web/src/shared`.
   - [ ] `shared/api`
   - [ ] `shared/types`
@@ -160,7 +160,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Fix `i18n/index.ts`.
   - [x] Fix all page components.
 - [ ] Introduce a real client state strategy.
-  - [ ] Start with focused hooks.
+  - [x] Start with focused hooks.
   - [ ] Consider TanStack Query later if cache invalidation grows.
 - [ ] Improve UI states.
   - [ ] Loading.
@@ -175,14 +175,14 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Frontend Testing
 
-- [ ] Add Vitest.
-- [ ] Add React Testing Library.
-- [ ] Add frontend unit tests.
-  - [ ] API client behavior.
-  - [ ] Project list rendering.
-  - [ ] Settings dialog save payload.
-  - [ ] Version list active state.
-  - [ ] Upload dialog file selection behavior.
+- [x] Add Vitest.
+- [x] Add React Testing Library.
+- [x] Add frontend unit tests.
+  - [x] API client behavior.
+  - [x] Project list rendering.
+  - [x] Settings dialog save payload.
+  - [x] Version list active state.
+  - [x] Upload dialog file selection behavior.
 - [ ] Add browser-level tests later.
   - [ ] Prefer Playwright when core flows stabilize.
   - [ ] Cover create project, upload version, activate version, and preview link.
@@ -420,6 +420,6 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Safe filesystem utilities.
 - [ ] Phase 3: Add backend tests with `hono/testing`.
 - [x] Phase 4: Switch frontend API usage toward `hono/client`.
-- [ ] Phase 5: Split frontend feature modules and add Vitest tests.
+- [x] Phase 5: Split frontend feature modules and add Vitest tests.
 - [ ] Phase 6: Improve deployment packaging and documentation.
 - [ ] Phase 7: Start enterprise features only after the core is tested and stable.
