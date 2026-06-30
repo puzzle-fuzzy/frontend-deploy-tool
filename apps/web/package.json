@@ -27,7 +27,8 @@
     "react-router": "catalog:",
     "shadcn": "catalog:",
     "tailwind-merge": "catalog:",
-    "tw-animate-css": "catalog:"
+    "tw-animate-css": "catalog:",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@babel/core": "catalog:",

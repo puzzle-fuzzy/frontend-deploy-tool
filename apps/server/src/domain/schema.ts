@@ -1,4 +1,11 @@
-import type { Data, HistoryEvent, Project } from '@deploykit/shared';
+import {
+  type Data,
+  historyEventSchema,
+  type Project,
+  settingsSchema,
+} from '@deploykit/shared';
+import { z } from 'zod';
+import { DEFAULT_PROJECT_SETTINGS } from './project';
 
 /**
  * The schema version this build reads and writes. Old data files lacking a
@@ -12,63 +19,86 @@ export interface MigrationResult {
   migrated: boolean;
 }
 
-type RawVersion = { id?: unknown; active?: unknown } & Record<string, unknown>;
-type RawProject = {
-  versions?: RawVersion[];
-  activeVersionId?: unknown;
-} & Record<string, unknown>;
+/**
+ * Lenient schema describing any historical on-disk shape (v0 or v1). Tolerates a
+ * missing `schemaVersion`, the legacy per-version `active` flag, a missing
+ * `activeVersionId`, and missing `settings`/optional text fields. Used only to
+ * parse persisted data before normalizing it to the current shape.
+ */
+const legacyDataSchema = z.object({
+  schemaVersion: z.number().optional(),
+  projects: z.array(
+    z.object({
+      id: z.string(),
+      name: z.string(),
+      slug: z.string(),
+      description: z.string().default(''),
+      createdAt: z.string().default(''),
+      updatedAt: z.string().default(''),
+      versions: z
+        .array(
+          z.object({
+            id: z.string(),
+            name: z.string().default(''),
+            description: z.string().default(''),
+            createdAt: z.string().default(''),
+            active: z.boolean().optional(),
+          })
+        )
+        .default([]),
+      activeVersionId: z.string().nullable().optional(),
+      settings: settingsSchema.optional(),
+    })
+  ),
+  history: z.array(historyEventSchema).default([]),
+});
+
+export function createEmptyData(): Data {
+  return { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [], history: [] };
+}
 
 /**
- * Brings an arbitrary parsed payload up to {@link CURRENT_SCHEMA_VERSION}.
- * Idempotent and non-mutating: data already current passes through unchanged,
- * and the input object is never modified. Each `version < N` step upgrades
- * exactly one schema version, so future migrations just append a step. Backup
- * and persistence are the caller's job.
+ * Brings an arbitrary parsed payload up to {@link CURRENT_SCHEMA_VERSION} using a
+ * lenient zod parse followed by a typed transform. Idempotent, non-mutating, and
+ * assertion-free. Backup and persistence are the caller's job.
  */
 export function migrate(raw: unknown): MigrationResult {
-  const input = (raw ?? {}) as {
-    schemaVersion?: unknown;
-    projects?: unknown;
-    history?: unknown;
-  };
-  const inputVersion =
-    typeof input.schemaVersion === 'number' ? input.schemaVersion : 0;
+  const parsed = legacyDataSchema.safeParse(raw);
+  if (!parsed.success) return { data: createEmptyData(), migrated: false };
 
-  const rawProjects = (
-    Array.isArray(input.projects) ? input.projects : []
-  ) as RawProject[];
-  const history = (
-    Array.isArray(input.history) ? input.history : []
-  ) as HistoryEvent[];
+  const input = parsed.data;
+  const inputVersion = input.schemaVersion ?? 0;
 
-  let version = inputVersion;
-  let projects: Project[];
+  const projects: Project[] = input.projects.map((p) => {
+    const versions = p.versions.map((v) => ({
+      id: v.id,
+      name: v.name,
+      description: v.description,
+      createdAt: v.createdAt,
+    }));
+    const activeVersionId =
+      p.activeVersionId ??
+      p.versions.find((v) => v.active === true)?.id ??
+      null;
+    return {
+      id: p.id,
+      name: p.name,
+      slug: p.slug,
+      description: p.description,
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+      versions,
+      activeVersionId,
+      settings: p.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
+    };
+  });
 
-  // v0 -> v1: derive `project.activeVersionId` from the per-version `active`
-  // flag, then strip that flag from every version. Builds fresh objects so the
-  // input is left untouched and re-running on partially-migrated data is safe.
-  if (version < 1) {
-    projects = rawProjects.map((project) => {
-      const versions = Array.isArray(project.versions) ? project.versions : [];
-      const activeId = versions.find((v) => v.active === true)?.id ?? null;
-      const cleanVersions = versions.map((v) => {
-        const clone = { ...v };
-        delete clone.active;
-        return clone;
-      });
-      return {
-        ...project,
-        activeVersionId: project.activeVersionId ?? activeId,
-        versions: cleanVersions,
-      };
-    }) as unknown as Project[];
-    version = 1;
-  } else {
-    projects = rawProjects as unknown as Project[];
-  }
-
+  const version =
+    inputVersion < CURRENT_SCHEMA_VERSION
+      ? CURRENT_SCHEMA_VERSION
+      : inputVersion;
   return {
-    data: { schemaVersion: version, projects, history },
+    data: { schemaVersion: version, projects, history: input.history },
     migrated: version !== inputVersion,
   };
 }
