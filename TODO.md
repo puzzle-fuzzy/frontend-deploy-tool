@@ -64,7 +64,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Max file count.
   - [ ] Max path length.
 - [ ] Add safer static serving headers.
-  - [ ] Correct `Content-Type`.
+  - [x] Correct `Content-Type`.
   - [ ] Cache policy for hashed assets.
   - [ ] No-cache policy for HTML.
   - [ ] Optional security headers for the management UI.
@@ -89,7 +89,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `server/src/routes/deploy.ts`: deployment static route.
   - [ ] `server/src/utils/id.ts`: ID generation.
   - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
-  - [ ] `server/src/utils/mime.ts`: MIME lookup.
+  - [x] `server/src/utils/mime.ts`: MIME lookup.
 - [ ] Introduce explicit domain invariants.
   - [ ] Prefer `project.activeVersionId` over `version.active`.
   - [ ] A project can have zero or one active version.

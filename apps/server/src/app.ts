@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { Data, HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
+import { getMimeType } from "./utils/mime";
 import { safeJoin } from "./utils/safePath";
 import {
   existsSync,
@@ -12,7 +13,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join } from "node:path";
+import { dirname, join } from "node:path";
 
 export interface AppConfig {
   dataFile: string;
@@ -22,38 +23,8 @@ export interface AppConfig {
 
 const DEFAULT_SETTINGS: Settings = { spaMode: false, routingType: "path" };
 
-const MIME_TYPES: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".js": "application/javascript; charset=utf-8",
-  ".mjs": "application/javascript; charset=utf-8",
-  ".json": "application/json; charset=utf-8",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".svg": "image/svg+xml",
-  ".ico": "image/x-icon",
-  ".webp": "image/webp",
-  ".woff": "font/woff",
-  ".woff2": "font/woff2",
-  ".ttf": "font/ttf",
-  ".eot": "application/vnd.ms-fontobject",
-  ".map": "application/json",
-  ".webm": "video/webm",
-  ".mp4": "video/mp4",
-  ".wasm": "application/wasm",
-  ".xml": "application/xml",
-  ".txt": "text/plain; charset=utf-8",
-  ".pdf": "application/pdf",
-};
-
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
-}
-
-function getMimeType(filePath: string): string {
-  return MIME_TYPES[extname(filePath).toLowerCase()] || "application/octet-stream";
 }
 
 function loadData(dataFile: string): Data {
