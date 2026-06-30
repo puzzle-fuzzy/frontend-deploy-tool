@@ -75,7 +75,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `server/src/app.ts`: create and compose the Hono app.
   - [ ] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
   - [ ] `server/src/config.ts`: environment and path configuration.
-  - [ ] `server/src/domain/project.ts`: domain types and constants.
+  - [x] `server/src/domain/project.ts`: domain types and constants.
   - [ ] `server/src/domain/version.ts`: version types and state rules.
   - [ ] `server/src/repositories/projectRepository.ts`: repository interface.
   - [ ] `server/src/repositories/jsonProjectRepository.ts`: JSON-backed implementation.
@@ -125,7 +125,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Use temporary data and storage directories per test.
   - [x] Assert response status and JSON body shape.
 - [ ] Add service-level tests.
-  - [ ] Slug validation.
+  - [x] Slug validation.
   - [ ] Active version invariant.
   - [x] Safe path rejection.
   - [ ] JSON repository atomic writes.

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { Data, HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
+import { DEFAULT_PROJECT_SETTINGS, isValidProjectSlug } from "./domain/project";
 import { getMimeType } from "./utils/mime";
 import { safeJoin } from "./utils/safePath";
 import {
@@ -21,8 +22,6 @@ export interface AppConfig {
   publicDir: string;
 }
 
-const DEFAULT_SETTINGS: Settings = { spaMode: false, routingType: "path" };
-
 function generateId(): string {
   return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
 }
@@ -32,7 +31,7 @@ function loadData(dataFile: string): Data {
   try {
     const raw = JSON.parse(readFileSync(dataFile, "utf-8"));
     for (const project of raw.projects ?? []) {
-      if (!project.settings) project.settings = { ...DEFAULT_SETTINGS };
+      if (!project.settings) project.settings = { ...DEFAULT_PROJECT_SETTINGS };
     }
     return { projects: raw.projects ?? [], history: raw.history ?? [] };
   } catch {
@@ -92,10 +91,6 @@ function storageFile(absolutePath: string): Response | null {
   return new Response(Bun.file(absolutePath), { headers: { "Content-Type": getMimeType(absolutePath) } });
 }
 
-function isValidSlug(slug: string): boolean {
-  return /^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/.test(slug);
-}
-
 function parseSettings(input: unknown): Settings | null {
   if (!input || typeof input !== "object") return null;
   const body = input as Partial<Settings>;
@@ -121,7 +116,7 @@ export function createApp(config: AppConfig) {
 
     if (!name) return c.json({ error: "Project name is required" }, 400);
     if (!slug) return c.json({ error: "Project slug is required" }, 400);
-    if (!isValidSlug(slug)) {
+    if (!isValidProjectSlug(slug)) {
       return c.json({ error: "Project slug must be 3-64 lowercase letters, numbers, or hyphens" }, 400);
     }
 
@@ -136,7 +131,7 @@ export function createApp(config: AppConfig) {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       versions: [],
-      settings: { ...DEFAULT_SETTINGS },
+      settings: { ...DEFAULT_PROJECT_SETTINGS },
     };
     data.projects.push(project);
     recordEvent(data, "project.create", project);
