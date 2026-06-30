@@ -107,9 +107,9 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Hono Client Contract
 
-- [ ] Move route definitions into a typed Hono app export.
-- [ ] Use `hono/client` on the frontend instead of handwritten fetch wrappers where possible.
-- [ ] Keep a separate upload client path if progress events still require `XMLHttpRequest`.
+- [x] Move route definitions into a typed Hono app export.
+- [x] Use `hono/client` on the frontend instead of handwritten fetch wrappers where possible.
+- [x] Keep a separate upload client path if progress events still require `XMLHttpRequest`.
 - [x] Share API types from the backend package instead of duplicating `Project`, `Version`, and `Settings` manually.
 - [x] Add contract tests for key endpoints.
   - [x] Project creation.
@@ -419,7 +419,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Repositories.
   - [ ] Safe filesystem utilities.
 - [ ] Phase 3: Add backend tests with `hono/testing`.
-- [ ] Phase 4: Switch frontend API usage toward `hono/client`.
+- [x] Phase 4: Switch frontend API usage toward `hono/client`.
 - [ ] Phase 5: Split frontend feature modules and add Vitest tests.
 - [ ] Phase 6: Improve deployment packaging and documentation.
 - [ ] Phase 7: Start enterprise features only after the core is tested and stable.

@@ -6,38 +6,6 @@ import { testClient } from 'hono/testing';
 import { createApp } from '../../src/app';
 
 let tempDir: string;
-type ClientEndpoint<TPayload> = (payload: TPayload) => Promise<Response>;
-type TestClient = ReturnType<typeof testClient> & {
-  api: {
-    projects: {
-      $post: ClientEndpoint<{
-        json: { name: string; slug: string; description: string };
-      }>;
-      ':id': {
-        settings: {
-          $patch: ClientEndpoint<{
-            param: { id: string };
-            json: { spaMode: boolean; routingType: 'hash' | 'path' };
-          }>;
-        };
-        versions: {
-          $post: ClientEndpoint<{
-            param: { id: string };
-            form: { folderFiles: File; versionDesc: string };
-          }>;
-          $get: ClientEndpoint<{ param: { id: string } }>;
-          ':versionId': {
-            activate: {
-              $put: ClientEndpoint<{
-                param: { id: string; versionId: string };
-              }>;
-            };
-          };
-        };
-      };
-    };
-  };
-};
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-test-'));
@@ -54,7 +22,7 @@ function createTestClient() {
       storageDir: join(tempDir, 'storage'),
       publicDir: join(tempDir, 'public'),
     })
-  ) as TestClient;
+  );
 }
 
 async function createProject(client: ReturnType<typeof createTestClient>) {
@@ -87,13 +55,15 @@ test('updates project settings through the settings endpoint', async () => {
 test('rejects activating an unknown version without changing the active version', async () => {
   const client = createTestClient();
   const project = await createProject(client);
+  // The upload route's form input is not validator-typed (the frontend uploads
+  // via XHR for progress), so exercise it through the typed client with a cast.
   const version = await client.api.projects[':id'].versions.$post({
     param: { id: project.id },
     form: {
       folderFiles: new File(['<html></html>'], 'index.html'),
       versionDesc: 'first build',
     },
-  });
+  } as { param: { id: string }; form: unknown });
 
   expect(version.status).toBe(201);
   const createdVersion = await version.json();

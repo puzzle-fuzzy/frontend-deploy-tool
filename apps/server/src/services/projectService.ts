@@ -7,16 +7,9 @@ import {
 import { ApiError } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
+import type { ProjectService } from './contracts';
 
-export interface ProjectService {
-  listProjects(): Project[];
-  createProject(body: unknown): Project;
-  getProject(id: string): Project;
-  findBySlug(slug: string): Project | undefined;
-  updateProjectSettings(id: string, settings: Settings): Project;
-  deleteProject(id: string): Project;
-  listHistory(limit?: string): HistoryEvent[];
-}
+export type { ProjectService } from './contracts';
 
 export function createProjectService(repo: ProjectRepository): ProjectService {
   return {

@@ -1,35 +1,50 @@
+import type { ApiApp } from '@deploykit/server/api';
+import { hc } from 'hono/client';
 import type { Project, Settings } from '../types';
 
-const BASE = '';
+// Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
+const client = hc<ApiApp>('');
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, init);
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(body || res.statusText);
-  }
-  return res.json();
+/** Throws the server's error body (matching the previous fetch-wrapper contract). */
+async function checkOk(res: {
+  ok: boolean;
+  statusText: string;
+  text: () => Promise<string>;
+}): Promise<void> {
+  if (!res.ok) throw new Error((await res.text()) || res.statusText);
 }
 
 export const api = {
-  listProjects: () => request<Project[]>('/api/projects'),
+  listProjects: async (): Promise<Project[]> => {
+    const res = await client.api.projects.$get();
+    await checkOk(res);
+    return res.json();
+  },
 
-  createProject: (data: { name: string; slug: string; description: string }) =>
-    request<Project>('/api/projects', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    }),
+  createProject: async (data: {
+    name: string;
+    slug: string;
+    description: string;
+  }): Promise<Project> => {
+    const res = await client.api.projects.$post({ json: data });
+    await checkOk(res);
+    return res.json();
+  },
 
-  deleteProject: (id: string) =>
-    request<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
+  deleteProject: async (id: string): Promise<{ ok: boolean }> => {
+    const res = await client.api.projects[':id'].$delete({ param: { id } });
+    await checkOk(res);
+    return res.json();
+  },
 
-  updateSettings: (id: string, settings: Settings) =>
-    request<Project>(`/api/projects/${id}/settings`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(settings),
-    }),
+  updateSettings: async (id: string, settings: Settings): Promise<Project> => {
+    const res = await client.api.projects[':id'].settings.$patch({
+      param: { id },
+      json: settings,
+    });
+    await checkOk(res);
+    return res.json();
+  },
 
   uploadVersion: (
     projectId: string,
@@ -47,7 +62,7 @@ export const api = {
       form.append('versionDesc', description);
 
       const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${BASE}/api/projects/${projectId}/versions`);
+      xhr.open('POST', `/api/projects/${projectId}/versions`);
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {
@@ -67,15 +82,25 @@ export const api = {
       xhr.send(form);
     }),
 
-  activateVersion: (projectId: string, versionId: string) =>
-    request<{ ok: boolean }>(
-      `/api/projects/${projectId}/versions/${versionId}/activate`,
-      { method: 'PUT' }
-    ),
+  activateVersion: async (
+    projectId: string,
+    versionId: string
+  ): Promise<{ ok: boolean }> => {
+    const res = await client.api.projects[':id'].versions[
+      ':versionId'
+    ].activate.$put({ param: { id: projectId, versionId } });
+    await checkOk(res);
+    return res.json();
+  },
 
-  deleteVersion: (projectId: string, versionId: string) =>
-    request<{ ok: boolean }>(
-      `/api/projects/${projectId}/versions/${versionId}`,
-      { method: 'DELETE' }
-    ),
+  deleteVersion: async (
+    projectId: string,
+    versionId: string
+  ): Promise<{ ok: boolean }> => {
+    const res = await client.api.projects[':id'].versions[':versionId'].$delete(
+      { param: { id: projectId, versionId } }
+    );
+    await checkOk(res);
+    return res.json();
+  },
 };

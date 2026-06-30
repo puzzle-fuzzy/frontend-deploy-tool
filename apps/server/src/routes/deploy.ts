@@ -1,15 +1,15 @@
-import type { Hono } from 'hono';
+import { Hono } from 'hono';
 import { serveArtifactFile } from '../services/artifactService';
+import type { ProjectService } from '../services/contracts';
 import { resolveDeployTarget } from '../services/deployResolver';
-import type { ProjectService } from '../services/projectService';
 
-export function registerDeployRoutes(
-  app: Hono,
-  deps: { projectService: ProjectService; storageDir: string }
-): void {
+export function createDeployRoutes(deps: {
+  projectService: ProjectService;
+  storageDir: string;
+}) {
   const { projectService, storageDir } = deps;
 
-  app.get('/deploy/*', (c) => {
+  return new Hono().get('/deploy/*', (c) => {
     const fullPath = c.req.path.replace('/deploy/', '');
     const parts = fullPath.split('/').filter(Boolean);
     const slug = parts[0];

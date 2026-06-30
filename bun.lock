@@ -24,9 +24,11 @@
       "name": "@deploykit/web",
       "version": "0.0.0",
       "dependencies": {
+        "@deploykit/server": "workspace:*",
         "@deploykit/shared": "workspace:*",
         "class-variance-authority": "catalog:",
         "clsx": "catalog:",
+        "hono": "catalog:",
         "i18next": "catalog:",
         "i18next-browser-languagedetector": "catalog:",
         "lucide-react": "catalog:",

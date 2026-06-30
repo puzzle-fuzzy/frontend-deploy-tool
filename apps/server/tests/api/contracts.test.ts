@@ -257,6 +257,20 @@ test('returns 404 for an unknown deploy slug', async () => {
   expect(res.status).toBe(404);
 });
 
+test('does not add security headers to API or deploy responses', async () => {
+  const apiRes = await app.request('/api/projects');
+  expect(apiRes.headers.get('x-frame-options')).toBeNull();
+
+  const deployRes = await app.request('/deploy/unknown-slug/');
+  expect(deployRes.headers.get('x-frame-options')).toBeNull();
+});
+
+test('adds security headers to management UI responses', async () => {
+  const res = await app.request('/');
+  expect(res.headers.get('x-frame-options')).toBe('SAMEORIGIN');
+  expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+});
+
 test('records project and version events in history', async () => {
   const project = await createProject(app);
   await uploadVersion(app, project.id);

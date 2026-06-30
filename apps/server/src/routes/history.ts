@@ -1,13 +1,10 @@
-import type { Hono } from 'hono';
-import type { ProjectService } from '../services/projectService';
+import { Hono } from 'hono';
+import type { ProjectService } from '../services/contracts';
 
-export function registerHistoryRoutes(
-  app: Hono,
-  deps: { projectService: ProjectService }
-): void {
+export function createHistoryRoutes(deps: { projectService: ProjectService }) {
   const { projectService } = deps;
 
-  app.get('/api/history', (c) => {
-    return c.json(projectService.listHistory(c.req.query('limit')));
-  });
+  return new Hono().get('/api/history', (c) =>
+    c.json(projectService.listHistory(c.req.query('limit')))
+  );
 }

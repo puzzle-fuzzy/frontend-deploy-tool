@@ -1,39 +1,42 @@
-import { join } from 'node:path';
-import type { Hono } from 'hono';
-import { removeDir } from '../services/artifactService';
-import type { VersionService } from '../services/versionService';
+import { Hono } from 'hono';
+import type { VersionService } from '../services/contracts';
 
-export function registerVersionRoutes(
-  app: Hono,
-  deps: { versionService: VersionService; storageDir: string }
-): void {
-  const { versionService, storageDir } = deps;
+export function createVersionRoutes(deps: {
+  versionService: VersionService;
+  /** Removes the on-disk artifacts for a deleted version. */
+  removeVersionDir: (projectId: string, versionId: string) => void;
+}) {
+  const { versionService, removeVersionDir } = deps;
 
-  app.post('/api/projects/:id/versions', async (c) => {
-    const projectId = c.req.param('id');
-    const formData = await c.req.formData();
-    const versionDesc = ((formData.get('versionDesc') as string) || '').trim();
-    const file = formData.get('file') as File | null;
-    const folderFiles = formData.getAll('folderFiles') as File[];
+  return new Hono()
+    .post('/api/projects/:id/versions', async (c) => {
+      const projectId = c.req.param('id');
+      const formData = await c.req.formData();
+      const versionDesc = (
+        (formData.get('versionDesc') as string) || ''
+      ).trim();
+      const file = formData.get('file') as File | null;
+      const folderFiles = formData.getAll('folderFiles') as File[];
 
-    const result = await versionService.uploadVersion(projectId, {
-      versionDesc,
-      file,
-      folderFiles,
+      const result = await versionService.uploadVersion(projectId, {
+        versionDesc,
+        file,
+        folderFiles,
+      });
+      return c.json(result, 201);
+    })
+    .put('/api/projects/:id/versions/:versionId/activate', (c) => {
+      versionService.activateVersion(
+        c.req.param('id'),
+        c.req.param('versionId')
+      );
+      return c.json({ ok: true });
+    })
+    .delete('/api/projects/:id/versions/:versionId', (c) => {
+      const projectId = c.req.param('id');
+      const versionId = c.req.param('versionId');
+      versionService.deleteVersion(projectId, versionId);
+      removeVersionDir(projectId, versionId);
+      return c.json({ ok: true });
     });
-    return c.json(result, 201);
-  });
-
-  app.put('/api/projects/:id/versions/:versionId/activate', (c) => {
-    versionService.activateVersion(c.req.param('id'), c.req.param('versionId'));
-    return c.json({ ok: true });
-  });
-
-  app.delete('/api/projects/:id/versions/:versionId', (c) => {
-    const projectId = c.req.param('id');
-    const versionId = c.req.param('versionId');
-    versionService.deleteVersion(projectId, versionId);
-    removeDir(join(storageDir, projectId, versionId));
-    return c.json({ ok: true });
-  });
 }

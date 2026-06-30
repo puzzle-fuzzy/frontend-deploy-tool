@@ -12,9 +12,11 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@deploykit/server": "workspace:*",
     "@deploykit/shared": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "hono": "catalog:",
     "i18next": "catalog:",
     "i18next-browser-languagedetector": "catalog:",
     "lucide-react": "catalog:",

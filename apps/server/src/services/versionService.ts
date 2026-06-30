@@ -17,21 +17,9 @@ import {
   removeDir,
   writeFolderFiles,
 } from './artifactService';
+import type { VersionService } from './contracts';
 
-export interface UploadVersionInput {
-  versionDesc: string;
-  file: File | null;
-  folderFiles: File[];
-}
-
-export interface VersionService {
-  uploadVersion(
-    projectId: string,
-    input: UploadVersionInput
-  ): Promise<{ version: { id: string; name: string } }>;
-  activateVersion(projectId: string, versionId: string): void;
-  deleteVersion(projectId: string, versionId: string): void;
-}
+export type { UploadVersionInput, VersionService } from './contracts';
 
 export function createVersionService(
   repo: ProjectRepository,
