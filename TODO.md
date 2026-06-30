@@ -87,7 +87,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `server/src/routes/versions.ts`: version API routes.
   - [ ] `server/src/routes/history.ts`: history API routes.
   - [ ] `server/src/routes/deploy.ts`: deployment static route.
-  - [ ] `server/src/utils/id.ts`: ID generation.
+  - [x] `server/src/utils/id.ts`: ID generation.
   - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
   - [x] `server/src/utils/mime.ts`: MIME lookup.
 - [ ] Introduce explicit domain invariants.

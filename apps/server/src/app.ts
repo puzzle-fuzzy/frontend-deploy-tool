@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { Data, HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
 import { DEFAULT_PROJECT_SETTINGS, isValidProjectSlug } from "./domain/project";
+import { createId } from "./utils/id";
 import { getMimeType } from "./utils/mime";
 import { safeJoin } from "./utils/safePath";
 import {
@@ -20,10 +21,6 @@ export interface AppConfig {
   dataFile: string;
   storageDir: string;
   publicDir: string;
-}
-
-function generateId(): string {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2, 8);
 }
 
 function loadData(dataFile: string): Data {
@@ -51,7 +48,7 @@ function recordEvent(
   version?: { id: string; name: string },
 ) {
   data.history.unshift({
-    id: generateId(),
+    id: createId(),
     action,
     projectId: project.id,
     projectName: project.name,
@@ -124,7 +121,7 @@ export function createApp(config: AppConfig) {
     if (data.projects.some((p) => p.slug === slug)) return c.json({ error: "Project slug already exists" }, 400);
 
     const project: Project = {
-      id: generateId(),
+      id: createId(),
       name,
       slug,
       description,
@@ -182,7 +179,7 @@ export function createApp(config: AppConfig) {
     const file = formData.get("file") as File | null;
     const folderFiles = formData.getAll("folderFiles") as File[];
 
-    const versionId = generateId();
+    const versionId = createId();
     const versionName = versionId.substring(0, 7);
     const versionDir = join(config.storageDir, id, versionId);
     mkdirSync(versionDir, { recursive: true });

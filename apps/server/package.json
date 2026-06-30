@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@deploykit/shared": "workspace:*",
-    "hono": "catalog:"
+    "hono": "catalog:",
+    "nanoid": "catalog:"
   }
 }
