@@ -1,6 +1,6 @@
 # DeployKit Dashboard
 
-前端产物部署系统的管理界面，基于 React 19 + Vite 8 + shadcn/ui 构建的单页应用。
+`@deploykit/web` — 前端产物部署系统的管理界面。React 19 + Vite 8 + shadcn/ui 构建的单页应用。
 
 ## 架构
 
@@ -9,102 +9,107 @@
    |                                  |
    |── /api/* ── Vite proxy ─────────>│── API 处理
    |                                  |
-   |── 页面路由 (hash) ──────────────>│ (纯客户端，不经过服务器)
+   |── 页面路由 (hash) ──────────────>│ （纯客户端，不经过服务器）
    |   #/projects/{id}                |
 ```
 
-1. 开发时 Vite 代理 `/api` 请求到后端 `localhost:3000`
-2. 生产构建输出到 `../server/public/`，由后端统一托管，无 CORS 问题
+1. 开发时 Vite 代理 `/api` 到后端 `localhost:3000`
+2. 生产构建输出到 `apps/web/dist/`；根目录 `bun run build` 会将其打包到 `apps/server/public/`，由后端同源托管
 3. 页面路由使用 URL hash（`#/projects/{id}`），纯客户端状态
+4. API 客户端使用 `hono/client`，类型由后端 `ApiApp` 推导
 
 ## 功能特性
 
-- **项目管理** — 创建、删除项目，slug 自动格式化（小写字母数字+连字符）
-- **版本上传** — 支持 ZIP 文件选择和文件夹上传（`webkitdirectory`），支持拖拽上传
-- **上传进度** — 使用 XMLHttpRequest 追踪上传百分比
-- **版本管理** — 激活/删除版本，预览指定版本，复制部署链接
+- **项目管理** — 创建/删除项目，slug 自动格式化
+- **版本上传** — ZIP 选择 / 文件夹上传（`webkitdirectory`）/ 拖拽上传，带进度
+- **版本管理** — 激活/删除版本、预览指定版本、复制部署链接
 - **SPA 配置** — 为部署的项目配置 SPA fallback（hash/path 模式）
-- **明暗主题** — 亮色/暗色主题切换，oklch 色彩系统
-- **中英文** — 内置中文和英文界面，自动检测浏览器语言
-- **操作历史** — 查看所有项目操作记录
+- **明暗主题** — 亮色/暗色切换
+- **中英文** — 自动检测浏览器语言
 
 ## 技术栈
 
-- **框架**: React 19 + React Compiler（自动 memoization）
-- **构建工具**: Vite 8
-- **语言**: TypeScript
-- **UI**: shadcn/ui (Radix) + Tailwind CSS v4
-- **图标**: lucide-react
-- **国际化**: i18next + react-i18next
-- **字体**: JetBrains Maple Mono
+- **框架**：React 19 + React Compiler
+- **构建**：Vite 8 + TypeScript
+- **UI**：shadcn/ui (Radix) + Tailwind CSS v4
+- **图标**：lucide-react
+- **国际化**：i18next + react-i18next
+- **API**：`hono/client`（类型化）；上传使用 `XMLHttpRequest` 以追踪进度
+- **字体**：JetBrains Maple Mono
 
 ## 快速开始
 
 ```bash
+# 在仓库根目录
 bun install
-bun run dev
+bun run dev:web
 ```
 
-前端开发服务器运行在 `http://localhost:5173`，API 请求自动代理到 `localhost:3000`。
-
-> 需要先启动后端服务：`cd ../server && bun run dev`
+开发服务器运行在 `http://localhost:5173`，`/api` 自动代理到 `localhost:3000`。需同时运行后端：另开终端 `bun run dev:server`。
 
 ## 构建
 
 ```bash
+# 在仓库根目录
 bun run build
 ```
 
-构建产物直接输出到 `../server/public/`，供后端直接托管。
+构建产物输出到 `apps/web/dist/`，根目录打包脚本会同步到 `apps/server/public/`。
 
 ## 项目结构
 
 ```
-web/
-├── src/
-│   ├── main.tsx                        # 应用入口
-│   ├── App.tsx                         # 根组件（Provider + 页面）
-│   ├── index.css                       # Tailwind v4 + 明暗主题变量
-│   ├── types/index.ts                  # TypeScript 类型（Project, Version, Settings, HistoryEvent）
-│   ├── pages/
-│   │   ├── DeployPage.tsx              # 主页面（左右布局：项目列表 + 版本面板）
-│   │   ├── CreateProjectDialog.tsx     # 创建项目对话框
-│   │   ├── UploadDialog.tsx            # 上传版本对话框（ZIP / 文件夹）
-│   │   └── SettingsDialog.tsx          # 项目设置（SPA 模式、路由、删除）
-│   ├── lib/
-│   │   ├── api.ts                      # API 客户端（fetch + XHR 上传进度）
-│   │   ├── format.ts                   # 日期格式化
-│   │   ├── toast.tsx                   # Toast 通知 Provider
-│   │   └── utils.ts                    # cn() 工具（clsx + tailwind-merge）
-│   ├── i18n/
-│   │   ├── index.ts                    # i18next 初始化（语言检测）
-│   │   └── locales/
-│   │       ├── zh.json                 # 中文翻译
-│   │       └── en.json                 # 英文翻译
-│   └── components/ui/                  # shadcn/ui 组件（13 个）
-├── vite.config.ts                      # Vite 配置（代理 + 构建输出）
-├── components.json                     # shadcn/ui 配置
-└── package.json
+src/
+├── main.tsx                          # 应用入口
+├── App.tsx                           # Provider（Tooltip / Toast）+ DeployPage
+├── index.css                         # Tailwind v4 + 明暗主题变量
+├── config.ts                         # publicBaseURL（部署链接基础 URL）
+├── types/index.ts                    # 类型（来自 @deploykit/shared）
+├── pages/
+│   └── DeployPage.tsx                # 页面外壳：组合各功能模块
+├── features/                         # 功能模块
+│   ├── projects/
+│   │   ├── useProjects.ts            # 项目状态 + hash 路由 + 操作
+│   │   ├── ProjectList.tsx           # 左栏：项目列表
+│   │   └── CreateProjectDialog.tsx
+│   ├── versions/
+│   │   ├── VersionList.tsx           # 版本列表 + 激活/删除/预览
+│   │   └── UploadVersionDialog.tsx   # 上传（ZIP / 文件夹，带进度）
+│   ├── settings/ProjectSettingsDialog.tsx
+│   ├── deploy/DeployUrl.tsx          # 部署链接 + 复制 + 打开
+│   ├── theme/ (useTheme.ts, ThemeToggle.tsx)
+│   └── i18n/LanguageToggle.tsx
+├── lib/
+│   ├── api.ts                        # hono/client 类型化客户端（上传用 XHR）
+│   ├── format.ts                     # 日期格式化
+│   ├── toast.tsx / toast-context.ts  # Toast 通知
+│   └── utils.ts                      # cn()
+├── i18n/ (index.ts, locales/{zh,en}.json)
+└── components/ui/                    # shadcn/ui 组件
 ```
 
 ## API 客户端
 
-`src/lib/api.ts` 提供两种通信方式：
-
-- **fetch** — 用于所有 CRUD 操作（项目/版本增删改查、设置更新）
-- **XMLHttpRequest** — 用于版本上传，支持 `upload.onprogress` 追踪上传进度
-
-所有 API 调用使用相对路径（`BASE = ""`），开发时由 Vite 代理，生产时同源访问。
+[lib/api.ts](src/lib/api.ts) 通过 `hono/client` 暴露类型化方法（`listProjects`、`createProject`、`updateSettings`、`activateVersion`、`deleteVersion`、`deleteProject`）；响应类型由后端路由推导。`uploadVersion` 保留 `XMLHttpRequest` 实现，用于 `upload.onprogress` 进度事件。所有调用同源（`hc('')`），错误时抛出服务端响应体。
 
 ## 脚本
 
 | 命令 | 说明 |
 |------|------|
-| `bun run dev` | 启动开发服务器 (Vite) |
-| `bun run build` | 构建生产版本（输出到 `../server/public/`） |
+| `bun run dev` | 启动开发服务器（Vite） |
+| `bun run build` | 构建生产版本（输出到 `dist/`） |
 | `bun run preview` | 预览构建产物 |
-| `bun run lint` | 代码检查 |
-| `bun test` | 运行测试 |
+| `bun run lint` | ESLint |
+| `bun run test` | Vitest |
+| `bun run typecheck` | `tsc -b` |
+
+## 测试
+
+```bash
+bun test                    # 在 apps/web（Vitest + React Testing Library）
+```
+
+单元测试见 [tests/unit](tests/unit)：`useProjects`（加载/激活/删除 + 刷新）、`ProjectList`、`VersionList`、`ProjectSettingsDialog`、`UploadVersionDialog`。
 
 ## License
 

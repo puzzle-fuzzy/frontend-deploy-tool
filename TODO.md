@@ -309,24 +309,24 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Build And Deployment Flow
 
-- [ ] Decouple web build output from `server/public`.
-  - [ ] Current `web/vite.config.ts` writes directly to `../server/public`.
-  - [ ] Prefer package-local `web/dist`.
-  - [ ] Add a packaging step that copies or mounts web assets into the server distribution.
-- [ ] Add clear local development modes.
-  - [ ] Backend only.
-  - [ ] Frontend dev server with API proxy.
-  - [ ] Production-like local server serving built web assets.
+- [x] Decouple web build output from `server/public`.
+  - [x] Current `web/vite.config.ts` writes directly to `../server/public`.
+  - [x] Prefer package-local `web/dist`.
+  - [x] Add a packaging step that copies or mounts web assets into the server distribution.
+- [x] Add clear local development modes.
+  - [x] Backend only.
+  - [x] Frontend dev server with API proxy.
+  - [x] Production-like local server serving built web assets.
 - [x] Add environment configuration.
   - [x] `PORT`
   - [x] `DATA_FILE`
   - [x] `STORAGE_DIR`
   - [x] `PUBLIC_DIR`
   - [x] `PUBLIC_BASE_URL`
-- [ ] Add project base path guidance for deployed Vite apps.
-  - [ ] Hash router apps work naturally.
-  - [ ] Path router apps must build with a compatible `base`.
-  - [ ] Document `/deploy/:slug/` and `/deploy/:slug/:versionId/` behavior.
+- [x] Add project base path guidance for deployed Vite apps.
+  - [x] Hash router apps work naturally.
+  - [x] Path router apps must build with a compatible `base`.
+  - [x] Document `/deploy/:slug/` and `/deploy/:slug/:versionId/` behavior.
 
 ## Data Model Evolution
 
@@ -385,20 +385,20 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Documentation
 
-- [ ] Rewrite all README files in UTF-8.
-- [ ] Add architecture documentation.
-  - [ ] System overview.
-  - [ ] Backend module boundaries.
-  - [ ] API contract.
-  - [ ] Storage layout.
-- [ ] Add development guide.
-  - [ ] Bun workspace commands.
-  - [ ] Test commands.
-  - [ ] Local upload and preview workflow.
-- [ ] Add Vite app deployment guide.
-  - [ ] Recommended Vite `base` settings.
-  - [ ] Hash router vs path router.
-  - [ ] SPA fallback behavior.
+- [x] Rewrite all README files in UTF-8.
+- [x] Add architecture documentation.
+  - [x] System overview.
+  - [x] Backend module boundaries.
+  - [x] API contract.
+  - [x] Storage layout.
+- [x] Add development guide.
+  - [x] Bun workspace commands.
+  - [x] Test commands.
+  - [x] Local upload and preview workflow.
+- [x] Add Vite app deployment guide.
+  - [x] Recommended Vite `base` settings.
+  - [x] Hash router vs path router.
+  - [x] SPA fallback behavior.
 
 ## Suggested Execution Order
 
@@ -421,5 +421,5 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Phase 3: Add backend tests with `hono/testing`.
 - [x] Phase 4: Switch frontend API usage toward `hono/client`.
 - [x] Phase 5: Split frontend feature modules and add Vitest tests.
-- [ ] Phase 6: Improve deployment packaging and documentation.
+- [x] Phase 6: Improve deployment packaging and documentation.
 - [ ] Phase 7: Start enterprise features only after the core is tested and stable.

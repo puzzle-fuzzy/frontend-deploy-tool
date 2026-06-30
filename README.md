@@ -7,7 +7,7 @@
 ```
 浏览器 ──── http://localhost:3000 ────> Bun 服务器 (Hono)
    |                                      |
-   |── 管理面板 (/) ────────────────────>|── 托管 React SPA (server/public/)
+   |── 管理面板 (/) ────────────────────>|── 托管 React SPA (apps/server/public/)
    |                                      |
    |── API (/api/*) ─────────────────────>|── data.json 读写
    |                                      |── .voasx/storage/ 文件操作
@@ -17,7 +17,7 @@
 ```
 
 1. Bun 运行 Hono 服务，`data.json` 存储元数据，`.voasx/storage/` 存储部署产物
-2. 前端管理面板（React SPA）构建后输出到 `server/public/`，由同一服务托管
+2. 前端管理面板（React SPA）构建后输出到 `apps/web/dist/`，由根目录打包脚本同步到 `apps/server/public/`，再由同一服务托管
 3. 用户通过管理面板上传 ZIP 或文件夹，服务端自动解压、扁平化并记录版本
 4. 部署访问通过 `/deploy/{slug}/` 路径提供静态文件，支持 SPA fallback
 
@@ -34,84 +34,123 @@
 
 ## 快速开始
 
+前置：安装 [Bun](https://bun.sh)，然后在仓库根目录执行：
+
 ```bash
-# 启动后端（含前端托管）
-cd server
 bun install
-bun run dev
 ```
 
-访问管理面板：http://localhost:3000
+### 开发模式
 
-### 前端开发
+| 命令 | 说明 |
+|------|------|
+| `bun run dev:server` | 仅后端（API + 部署访问）。`apps/server/public/` 为空时不含管理面板 |
+| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5173`），`/api` 自动代理到 `localhost:3000` |
+| `bun run dev` | 同 `dev:server` |
 
-如需单独开发前端面板：
+全栈开发：开两个终端分别运行 `bun run dev:server` 与 `bun run dev:web`。
 
-```bash
-cd web
-bun install
-bun run dev
-```
-
-前端开发服务器运行在 `localhost:5173`，API 请求自动代理到 `localhost:3000`。
-
-### 构建前端
+### 生产构建
 
 ```bash
-cd web
 bun run build
 ```
 
-构建产物直接输出到 `../server/public/`，后端自动托管。
+构建流程：
+
+1. 构建所有工作区包（`@deploykit/shared`、`@deploykit/server`、`@deploykit/web`）
+2. Web 构建产物输出到 `apps/web/dist/`
+3. 打包脚本（`bun run package`）将 `apps/web/dist/` 同步到 `apps/server/public/`
+
+构建完成后，运行后端即可托管管理面板（生产模式）：
+
+```bash
+bun run dev:server   # 或 bun run apps/server/src/index.ts
+```
+
+访问管理面板：`http://localhost:3000`
+
+## 工作区结构
+
+本项目是一个 Bun 工作区（`apps/*` + `packages/*`）。
+
+```
+deploykit/
+├── apps/
+│   ├── server/                    # @deploykit/server — Hono + Bun 后端
+│   │   ├── src/
+│   │   │   ├── index.ts           # 运行入口（Bun.serve）
+│   │   │   ├── app.ts             # Hono 应用组装（createApp）
+│   │   │   ├── api.ts             # /api 路由的 typed 导出（供前端 hono/client）
+│   │   │   ├── config.ts          # 环境与路径配置
+│   │   │   ├── errors.ts          # ApiError
+│   │   │   ├── domain/            # 纯领域规则（project/version/history）
+│   │   │   ├── repositories/      # 持久化接口 + JSON 实现（原子写入）
+│   │   │   ├── services/          # 用例（project/version/artifact/deploy）
+│   │   │   ├── routes/            # HTTP 路由（projects/versions/history/deploy）
+│   │   │   └── utils/             # id、mime、safePath
+│   │   ├── tests/                 # API 契约测试 + 服务/领域单元测试
+│   │   ├── data.json              # 项目元数据（gitignore）
+│   │   ├── public/                # 管理面板（由打包脚本同步，gitignore）
+│   │   └── .voasx/storage/        # 部署产物（gitignore）
+│   │       └── {projectId}/{versionId}/
+│   └── web/                       # @deploykit/web — React 管理面板
+│       ├── src/
+│       │   ├── main.tsx           # 应用入口
+│       │   ├── App.tsx            # Provider + DeployPage
+│       │   ├── pages/DeployPage.tsx   # 页面外壳
+│       │   ├── features/          # 功能模块（projects/versions/settings/deploy/theme/i18n）
+│       │   ├── lib/api.ts         # hono/client 类型化客户端（上传用 XHR）
+│       │   ├── components/ui/     # shadcn/ui 组件
+│       │   └── i18n/              # i18next（中/英）
+│       ├── dist/                  # 构建产物（gitignore）
+│       └── tests/unit/            # Vitest + RTL 单元测试
+├── packages/
+│   └── shared/                    # @deploykit/shared — 跨包领域类型
+├── docs/                          # 架构与开发文档
+├── scripts/package-web.ts         # web → server 打包脚本
+└── package.json                   # 工作区根
+```
 
 ## 技术栈
 
-**后端** (server/)
+**后端** ([apps/server](apps/server))
 - Hono + Bun
-- 文件系统存储（`data.json` + `.voasx/storage/`）
+- JSON 文件持久化（原子写入）+ 文件系统存储
+- 类型化路由导出（`ApiApp`）驱动前端 `hono/client`
 
-**前端** (web/)
+**前端** ([apps/web](apps/web))
 - React 19 + React Compiler
-- Vite 8
-- TypeScript
+- Vite 8 + TypeScript
 - shadcn/ui (Radix) + Tailwind CSS v4
-- i18next 国际化（中/英）
-- lucide-react 图标
+- i18next 国际化（中/英）、lucide-react 图标
+- `hono/client` 类型化 API 客户端
 
-## 项目结构
+## 配置（环境变量）
 
-```
-frontend-deploy-tool/
-├── server/                    # 后端服务
-│   ├── main.ts                # 完整后端（API 路由 + 部署服务 + 静态托管）
-│   ├── data.json              # 项目元数据、版本信息、操作历史
-│   ├── public/                # 管理界面（由 web/ 构建输出）
-│   └── .voasx/storage/        # 部署产物存储
-│       └── {projectId}/
-│           └── {versionId}/
-└── web/                       # 前端管理面板
-    ├── src/
-    │   ├── pages/
-    │   │   ├── DeployPage.tsx          # 主页面（项目列表 + 版本面板）
-    │   │   ├── CreateProjectDialog.tsx  # 创建项目对话框
-    │   │   ├── UploadDialog.tsx         # 上传版本对话框
-    │   │   └── SettingsDialog.tsx       # 项目设置对话框
-    │   ├── lib/
-    │   │   ├── api.ts                   # API 客户端（fetch + XHR 上传进度）
-    │   │   ├── toast.tsx                # Toast 通知
-    │   │   └── utils.ts                 # 工具函数
-    │   ├── i18n/locales/
-    │   │   ├── zh.json                  # 中文翻译
-    │   │   └── en.json                  # 英文翻译
-    │   ├── types/index.ts               # TypeScript 类型定义
-    │   └── components/ui/               # shadcn/ui 组件
-    ├── vite.config.ts                   # Vite 配置（代理 + 构建输出到 server/public）
-    └── components.json                  # shadcn/ui 配置
-```
+后端配置通过环境变量覆盖（见 [apps/server/.env.example](apps/server/.env.example)，默认值定义在 `apps/server/src/config.ts`）：
+
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3000` | 服务监听端口 |
+| `DATA_FILE` | `apps/server/data.json` | 元数据文件路径 |
+| `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物存储目录 |
+| `PUBLIC_DIR` | `apps/server/public` | 管理面板静态文件目录 |
+| `PUBLIC_BASE_URL` | （同源） | 部署链接的公开基础 URL |
+| `MAX_ZIP_SIZE` | `104857600` (100MB) | 单个 ZIP 上传上限（字节） |
+| `MAX_EXTRACTED_SIZE` | `104857600` (100MB) | 解压/文件夹上传总大小上限 |
+| `MAX_FILE_COUNT` | `1000` | 单次上传文件数量上限 |
+| `MAX_PATH_LENGTH` | `1000` | 单个相对路径长度上限（字符） |
+
+前端（[apps/web/.env.example](apps/web/.env.example)）：
+
+| 变量 | 说明 |
+|------|------|
+| `VITE_PUBLIC_BASE_URL` | 部署链接的公开基础 URL；不设则使用前端当前源（同源） |
 
 ## API 接口
 
-所有接口前缀为 `/api`，无认证。
+所有接口前缀为 `/api`，无认证。错误响应格式：`{ "error": "message" }`。请求/响应类型由后端路由推导，前端经 `hono/client` 自动获得类型。
 
 ### 项目
 
@@ -120,14 +159,14 @@ frontend-deploy-tool/
 | GET | `/api/projects` | 获取项目列表 | — |
 | POST | `/api/projects` | 创建项目 | `{ name, slug, description }` |
 | DELETE | `/api/projects/:id` | 删除项目及其文件 | — |
-| PATCH | `/api/projects/:id` | 更新项目设置 | `{ spaMode, routingType }` |
+| PATCH | `/api/projects/:id/settings` | 更新项目设置 | `{ spaMode, routingType }` |
+| GET | `/api/projects/:id/versions` | 获取项目（含版本列表） | — |
 
 ### 版本
 
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
-| GET | `/api/projects/:id/versions` | 获取项目及版本列表 | — |
-| POST | `/api/projects/:id/versions` | 上传新版本 | `FormData(file/zip)` |
+| POST | `/api/projects/:id/versions` | 上传新版本 | `FormData`（`file` 或 `folderFiles[]`） |
 | PUT | `/api/projects/:id/versions/:vid/activate` | 设为正式版本 | — |
 | DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件 | — |
 
@@ -135,44 +174,31 @@ frontend-deploy-tool/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/history?limit=50` | 获取操作历史 |
+| GET | `/api/history?limit=50` | 获取操作历史（上限 200） |
 
 ### 部署访问
 
-- **正式版本**: `http://localhost:3000/deploy/{slug}/`
-- **指定版本**: `http://localhost:3000/deploy/{slug}/{versionId}/`
+- **正式版本**: `/deploy/{slug}/`
+- **指定版本**: `/deploy/{slug}/{versionId}/`
 
-## 数据存储
+详细指导见 [docs/vite-deployment.md](docs/vite-deployment.md)。
 
-| 文件/目录 | 说明 |
-|-----------|------|
-| `server/data.json` | 项目元数据、版本信息、操作历史 |
-| `server/.voasx/storage/{projectId}/{versionId}/` | 部署产物文件 |
-| `server/public/` | 管理面板（由 `web/` 构建输出） |
+## 测试
 
-## 上传处理
+```bash
+bun run test          # 全部（shared / server / web）
+```
 
-- **ZIP 上传** — 服务端写入临时文件，通过 `tar` 解压，自动扁平化嵌套目录，清理 `__MACOSX` 元数据
-- **文件夹上传** — 通过 `webkitdirectory` 属性选择，保留相对路径写入
-- **自动激活** — 项目第一个上传的版本自动设为正式版本
-- **上传进度** — 前端使用 XMLHttpRequest 追踪上传百分比
+- 后端：`bun test`（[apps/server/tests](apps/server/tests)）— API 契约 + 服务/领域单元测试
+- 前端：Vitest + React Testing Library（[apps/web/tests/unit](apps/web/tests/unit)）
 
-## 使用场景
+质量脚本：`bun run typecheck`、`bun run lint`、`bun run check`（Biome）、`bun run format`。
 
-1. **前端团队** — 快速部署测试环境，每个 PR 对应一个版本
-2. **个人开发者** — 管理多个静态网站，统一入口访问
-3. **设计评审** — 上传设计稿版本，团队在线预览
+## 文档
 
-## 配置
-
-默认配置硬编码在 `server/main.ts` 中：
-
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| PORT | `3000` | 服务监听端口 |
-| DATA_FILE | `server/data.json` | 元数据文件路径 |
-| STORAGE_DIR | `server/.voasx/storage/` | 部署产物存储目录 |
-| PUBLIC_DIR | `server/public/` | 管理面板静态文件目录 |
+- [docs/architecture.md](docs/architecture.md) — 系统总览、后端模块边界、API 契约、存储布局
+- [docs/development.md](docs/development.md) — 工作区命令、测试、本地上传/预览流程
+- [docs/vite-deployment.md](docs/vite-deployment.md) — 部署 Vite 应用的 `base`、hash/path 路由、SPA fallback
 
 ## License
 

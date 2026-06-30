@@ -11,7 +11,9 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
   ],
   build: {
-    outDir: path.resolve(__dirname, '../server/public'),
+    // Package-local output; the root `build` script packages this into
+    // apps/server/public so the backend can serve the management UI.
+    outDir: path.resolve(__dirname, 'dist'),
     emptyOutDir: true,
   },
   resolve: {

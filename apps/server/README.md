@@ -1,131 +1,116 @@
 # DeployKit Server
 
-前端产物部署服务，基于 Hono + Bun 构建。负责托管上传的前端构建产物并通过 URL 分发，整个后端集中在单个文件中。
+`@deploykit/server` — 基于 Hono + Bun 的前端产物部署服务。负责托管上传的前端构建产物并通过 URL 分发，并托管管理面板。
 
 ## 架构
 
 ```
 HTTP 请求
    |
-   +-- /api/* ──────────> API 路由（项目/版本 CRUD）
-   |                         |-- data.json 读写
+   +-- /api/* ──────────> API 路由（projects / versions / history）
+   |                         |-- domain/ 纯规则
+   |                         |-- services/ 用例
+   |                         |-- repositories/ JSON 持久化（data.json，原子写入）
    |                         |-- .voasx/storage/ 文件操作
    |
-   +-- /deploy/:slug/* ─> 部署路由
-   |                         |-- 解析 slug → 项目 → 活跃版本
-   |                         |-- 从 .voasx/storage/ 提供静态文件
-   |                         |-- SPA fallback (可选)
+   +-- /deploy/:slug/* ─> 部署路由（deployResolver + artifactService）
+   |                         |-- 解析 slug → 项目 → 版本
+   |                         |-- 从 .voasx/storage/ 安全地提供静态文件
+   |                         |-- SPA fallback（可选）
    |
-   +-- /* ──────────────> 管理面板 (public/index.html)
+   +-- /* ──────────────> 管理面板 (public/index.html) + 安全响应头
 ```
+
+应用组装见 [src/app.ts](src/app.ts) 的 `createApp(config)`；运行入口为 [src/index.ts](src/index.ts)（`Bun.serve`）。`createApp` 与启动分离，便于使用 `hono/testing` 直接测试。
 
 ## 功能特性
 
-- **项目 CRUD** — 创建、删除项目，slug 校验（3-64 位小写字母数字+连字符）
-- **版本上传** — 支持 ZIP 文件和文件夹两种上传方式，自动解压和扁平化
-- **一键激活** — 激活版本后立即可通过 `/deploy/{slug}/` 访问，项目同时只保留一个正式版本
-- **指定版本预览** — 通过 `/deploy/{slug}/{versionId}/` 访问任意版本
-- **SPA fallback** — 可配置 hash/path 两种路由模式，path 模式自动 fallback 到 index.html
-- **操作历史** — 自动记录所有创建、删除、激活操作（上限 200 条）
-- **路径安全** — 部署路由包含路径遍历检查，确保文件访问不超出版本目录
-- **MIME 类型** — 内置完整 MIME 类型映射，覆盖常见静态资源格式
+- **项目 CRUD** — 创建、删除项目；slug 校验（3–64 位小写字母/数字/连字符）
+- **版本上传** — 支持 ZIP 与文件夹两种方式，自动解压、扁平化、清理 `__MACOSX`
+- **一键激活** — 激活版本后立即可通过 `/deploy/{slug}/` 访问；项目同时只保留一个正式版本
+- **指定版本预览** — `/deploy/{slug}/{versionId}/`
+- **SPA fallback** — 每个项目可配置 hash/path 两种路由模式
+- **操作历史** — 记录所有创建、删除、激活、上传操作（上限 200）
+- **路径安全** — `safeJoin` 拦截路径遍历；上传有大小/数量/路径长度上限
+- **类型化路由** — [src/api.ts](src/api.ts) 导出 `ApiApp`，供前端 `hono/client` 自动推导请求/响应类型
+
+## 模块边界
+
+```
+src/
+├── index.ts                  # 运行入口（Bun.serve）
+├── app.ts                    # createApp：组装 API/部署路由 + 静态托管 + onError
+├── api.ts                    # createApiApp + 导出 type ApiApp（Bun/Node 无关）
+├── config.ts                 # 环境变量解析（AppConfig / ServerConfig）
+├── errors.ts                 # ApiError（onError 转为 { error } 响应）
+├── domain/                   # 纯领域规则（project / version / history）
+├── repositories/             # ProjectRepository 接口 + JSON 实现（原子写入）
+├── services/                 # 用例 + 契约（contracts.ts：Bun 无关的服务接口）
+│   ├── projectService.ts     # 项目用例
+│   ├── versionService.ts     # 版本上传/激活/删除
+│   ├── artifactService.ts    # 解压/扁平化/大小/服务文件
+│   └── deployResolver.ts     # /deploy/* 路径解析（纯函数）
+├── routes/                   # HTTP 路由（chained Hono sub-apps）
+│   ├── projects.ts  versions.ts  history.ts   # /api（Bun 无关）
+│   └── deploy.ts                                       # /deploy
+└── utils/                    # id（nanoid）、mime、safePath
+```
+
+依赖方向（无环）：`config → errors → domain → utils → repositories → services → routes → app → index`。
 
 ## 快速开始
 
 ```bash
+# 在仓库根目录
 bun install
-bun run dev
+bun run dev:server          # 仅后端
 ```
 
-服务默认运行在 `http://localhost:3000`。
+服务默认运行在 `http://localhost:3000`。如需管理面板，先在仓库根目录运行 `bun run build`，打包脚本会将前端构建同步到 `apps/server/public/`。
 
-如需配合前端开发，先构建前端面板：
+## 配置
 
-```bash
-cd ../web && bun run build
-```
+通过环境变量覆盖（见 [.env.example](.env.example)，默认值在 [src/config.ts](src/config.ts)）：
 
-构建产物会自动输出到 `server/public/`。
-
-## 技术栈
-
-- **运行时**: Bun
-- **框架**: Hono
-- **存储**: `data.json`（元数据）+ 文件系统（部署产物）
-- **ZIP 解压**: `tar` 命令（Bun.spawn）
-
-## 项目结构
-
-```
-server/
-├── main.ts              # 完整后端（类型定义 + API 路由 + 部署服务 + 启动入口）
-├── data.json            # 项目元数据、版本信息、操作历史
-├── public/              # 管理界面（由 ../web/ 构建输出）
-└── .voasx/
-    └── storage/         # 上传的版本文件
-        └── {projectId}/
-            └── {versionId}/
-```
-
-> 整个后端集中在 `main.ts` 一个文件中，包含所有类型定义、工具函数、API 路由、部署文件服务和启动逻辑。
-
-## API
-
-所有接口前缀为 `/api`，无认证。错误响应格式：`{ "error": "message" }`。
-
-| 方法 | 路由 | 说明 | 请求体 |
-|------|------|------|--------|
-| GET | `/api/projects` | 项目列表 | — |
-| POST | `/api/projects` | 创建项目 | `{ name, slug, description }` |
-| DELETE | `/api/projects/:id` | 删除项目及其文件 | — |
-| PATCH | `/api/projects/:id` | 更新 SPA 设置 | `{ spaMode, routingType }` |
-| GET | `/api/projects/:id/versions` | 获取项目及版本列表 | — |
-| POST | `/api/projects/:id/versions` | 上传版本 | `FormData` (file 或 folderFiles[]) |
-| PUT | `/api/projects/:id/versions/:vid/activate` | 激活版本 | — |
-| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件 | — |
-| GET | `/api/history?limit=50` | 操作历史 | — |
+| 变量 | 默认值 | 说明 |
+|------|--------|------|
+| `PORT` | `3000` | 监听端口 |
+| `DATA_FILE` | `apps/server/data.json` | 元数据文件 |
+| `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物目录 |
+| `PUBLIC_DIR` | `apps/server/public` | 管理面板静态目录 |
+| `PUBLIC_BASE_URL` | （同源） | 部署链接公开基础 URL |
+| `MAX_ZIP_SIZE` / `MAX_EXTRACTED_SIZE` / `MAX_FILE_COUNT` / `MAX_PATH_LENGTH` | 100MB / 100MB / 1000 / 1000 | 上传上限 |
 
 ## 部署路由
 
 - `/deploy/:slug/` — 当前激活版本
-- `/deploy/:slug/:vid/` — 指定版本预览
+- `/deploy/:slug/:versionId/` — 指定版本预览
 
-### SPA Fallback
+启用 SPA 模式后，请求文件不存在会返回 `index.html`，支持前端路由框架。
 
-当项目启用 SPA 模式时，请求的文件不存在会自动返回 `index.html`，支持前端路由框架（React Router、Vue Router 等）。
+### Slug 校验
 
-### Slug 校验规则
-
-- 格式：`/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/`
-- 长度：3-64 个字符
-- 字符：小写字母、数字、连字符，不以连字符开头或结尾
-- 唯一性：slug 不可重复
+- 正则：`/^[a-z0-9][a-z0-9-]{1,62}[a-z0-9]$/`
+- 长度 3–64，小写字母/数字/连字符，不以连字符开头或结尾，且全局唯一
 
 ## 上传处理
 
-**ZIP 上传：**
-1. 写入临时文件 `{versionId}.zip`
-2. 通过 `tar -xf` 解压
-3. 删除临时文件
-4. 扁平化处理：如果解压后有嵌套目录包含 `index.html`，自动上移一层
-5. 清理 `__MACOSX` 元数据目录
+- **ZIP**：写入临时文件 → `tar -xf` 解压 → 删除临时 → 大小校验 → 扁平化（嵌套目录含 `index.html` 时上移一层）→ 清理 `__MACOSX`
+- **文件夹**：保留 `webkitRelativePath` 相对路径写入，再执行扁平化
+- **自动激活**：项目的第一个版本自动设为正式版本
+- 任一阶段失败都会清理版本目录并返回 `500 File processing failed: ...`
 
-**文件夹上传：**
-1. 保留 `webkitRelativePath` 相对路径写入文件
-2. 执行同样的扁平化处理
+## API
 
-**自动激活：** 项目的第一个版本自动设为正式版本。
+见根 [README](../../README.md#api-接口)。错误格式：`{ "error": "message" }`。
 
-## 配置
+## 测试
 
-默认配置硬编码在 `main.ts` 中：
+```bash
+bun test                    # 在 apps/server
+```
 
-| 参数 | 默认值 | 说明 |
-|------|--------|------|
-| PORT | `3000` | 服务监听端口 |
-| DATA_FILE | `server/data.json` | 元数据文件路径 |
-| STORAGE_DIR | `server/.voasx/storage/` | 部署产物存储目录 |
-| PUBLIC_DIR | `server/public/` | 管理面板静态文件目录 |
+覆盖：API 契约（`tests/api`）、服务/领域/工具单元测试（`tests/services`）。
 
 ## License
 
