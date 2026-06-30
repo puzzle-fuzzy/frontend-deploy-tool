@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "DeployKit backend service",
   "type": "module",
-  "main": "main.ts",
+  "main": "src/index.ts",
   "scripts": {
-    "dev": "bun run main.ts",
-    "start": "bun run main.ts",
+    "dev": "bun run src/index.ts",
+    "start": "bun run src/index.ts",
     "build": "bun run typecheck",
     "typecheck": "bun x tsc --noEmit",
     "test": "bun test"

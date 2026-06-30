@@ -71,22 +71,22 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Backend Architecture
 
-- [ ] Replace `server/main.ts` single-file backend with focused modules.
-  - [ ] `server/src/app.ts`: create and compose the Hono app.
-  - [ ] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
+- [x] Replace `server/main.ts` single-file backend with focused modules.
+  - [x] `server/src/app.ts`: create and compose the Hono app.
+  - [x] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
   - [x] `server/src/config.ts`: environment and path configuration.
   - [x] `server/src/domain/project.ts`: domain types and constants.
   - [x] `server/src/domain/version.ts`: version types and state rules.
-  - [ ] `server/src/repositories/projectRepository.ts`: repository interface.
-  - [ ] `server/src/repositories/jsonProjectRepository.ts`: JSON-backed implementation.
-  - [ ] `server/src/services/projectService.ts`: project use cases.
-  - [ ] `server/src/services/versionService.ts`: version upload, delete, and activation use cases.
-  - [ ] `server/src/services/artifactService.ts`: artifact write, extract, flatten, delete, and serve helpers.
-  - [ ] `server/src/services/deployResolver.ts`: map `/deploy/*` requests to safe artifact files.
-  - [ ] `server/src/routes/projects.ts`: project API routes.
-  - [ ] `server/src/routes/versions.ts`: version API routes.
-  - [ ] `server/src/routes/history.ts`: history API routes.
-  - [ ] `server/src/routes/deploy.ts`: deployment static route.
+  - [x] `server/src/repositories/projectRepository.ts`: repository interface.
+  - [x] `server/src/repositories/jsonProjectRepository.ts`: JSON-backed implementation.
+  - [x] `server/src/services/projectService.ts`: project use cases.
+  - [x] `server/src/services/versionService.ts`: version upload, delete, and activation use cases.
+  - [x] `server/src/services/artifactService.ts`: artifact write, extract, flatten, delete, and serve helpers.
+  - [x] `server/src/services/deployResolver.ts`: map `/deploy/*` requests to safe artifact files.
+  - [x] `server/src/routes/projects.ts`: project API routes.
+  - [x] `server/src/routes/versions.ts`: version API routes.
+  - [x] `server/src/routes/history.ts`: history API routes.
+  - [x] `server/src/routes/deploy.ts`: deployment static route.
   - [x] `server/src/utils/id.ts`: ID generation.
   - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
   - [x] `server/src/utils/mime.ts`: MIME lookup.
@@ -128,11 +128,11 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Slug validation.
   - [x] Active version invariant.
   - [x] Safe path rejection.
-  - [ ] JSON repository atomic writes.
+  - [x] JSON repository atomic writes.
 - [ ] Add artifact tests.
-  - [ ] Folder upload path normalization.
+  - [x] Folder upload path normalization.
   - [ ] ZIP extraction failure cleanup.
-  - [ ] SPA fallback returns `index.html`.
+  - [x] SPA fallback returns `index.html`.
   - [ ] Missing file returns 404 when SPA mode is off.
 - [ ] Add a backend test script.
   - [ ] `bun test`

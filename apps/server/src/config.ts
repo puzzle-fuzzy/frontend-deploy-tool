@@ -1,5 +1,16 @@
 import { join } from 'node:path';
-import type { AppConfig } from './app';
+
+export interface AppConfig {
+  dataFile: string;
+  storageDir: string;
+  publicDir: string;
+  publicBaseURL?: string;
+  // Upload limits
+  maxZipSize?: number;
+  maxExtractedSize?: number;
+  maxFileCount?: number;
+  maxPathLength?: number;
+}
 
 export interface ServerConfig extends AppConfig {
   port: number;
