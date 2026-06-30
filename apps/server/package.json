@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@deploykit/shared": "workspace:*",
+    "fflate": "catalog:",
     "hono": "catalog:",
     "nanoid": "catalog:"
   }

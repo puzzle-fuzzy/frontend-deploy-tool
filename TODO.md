@@ -49,14 +49,14 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [x] Add safe path utilities.
   - [x] `safeJoin(root, relativePath)` must resolve and verify the final path remains inside `root`.
   - [x] Reject absolute paths, `..`, empty unsafe paths, and Windows drive path escapes.
-- [ ] Harden folder upload.
-  - [ ] Validate every `webkitRelativePath` before writing.
-  - [ ] Normalize path separators.
-  - [ ] Reject hidden system metadata where appropriate.
-- [ ] Harden ZIP extraction.
-  - [ ] Do not trust `tar -xf` blindly.
-  - [ ] Detect path traversal entries.
-  - [ ] Reject or ignore symlinks.
+- [x] Harden folder upload.
+  - [x] Validate every `webkitRelativePath` before writing.
+  - [x] Normalize path separators.
+  - [x] Reject hidden system metadata where appropriate.
+- [x] Harden ZIP extraction.
+  - [x] Do not trust `tar -xf` blindly.
+  - [x] Detect path traversal entries.
+  - [x] Reject or ignore symlinks.
   - [x] Clean temporary files in both success and failure paths.
 - [x] Add upload limits.
   - [x] Max ZIP size.

@@ -26,6 +26,7 @@
       "eslint": "^10.2.1",
       "eslint-plugin-react-hooks": "^7.1.1",
       "eslint-plugin-react-refresh": "^0.5.2",
+      "fflate": "^0.8.2",
       "globals": "^17.5.0",
       "hono": "^4.12.15",
       "i18next": "^26.0.8",

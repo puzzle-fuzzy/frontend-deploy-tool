@@ -2,28 +2,72 @@ import {
   existsSync,
   mkdirSync,
   readdirSync,
+  readFileSync,
   renameSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { unzip } from 'fflate';
 import { ApiError, ErrorCode } from '../errors';
 import { getMimeType } from '../utils/mime';
 import { safeJoin } from '../utils/safePath';
 
-/** Extracts a zip archive into `destDir` using the system `tar`. */
+/**
+ * OS-generated metadata that is never part of a real build artifact. Skipped
+ * during extraction/upload so deployed sites stay clean.
+ */
+const SYSTEM_METADATA = new Set([
+  '.DS_Store',
+  'Thumbs.db',
+  'ehthumbs.db',
+  'desktop.ini',
+  '__MACOSX',
+  '.Spotlight-V100',
+  '.Trashes',
+  '.fseventsd',
+]);
+
+/** True for entries that are OS metadata (e.g. `.DS_Store`, `__MACOSX/...`, `._cache`). */
+function isSystemMetadata(relativePath: string): boolean {
+  const segments = relativePath.split('/');
+  for (const segment of segments) {
+    if (SYSTEM_METADATA.has(segment)) return true;
+    if (segment.startsWith('._')) return true; // macOS AppleDouble resource forks
+  }
+  return false;
+}
+
+/**
+ * Extracts a zip archive into `destDir` using a pure-JS decoder (no shell-out
+ * to `tar`, which can't read zips on GNU tar and would create symlinks). Each
+ * entry is validated with `safeJoin` (rejecting absolute/`..` traversal) before
+ * writing, and OS metadata entries are skipped. Symlinks cannot be created
+ * because only file bytes are written.
+ */
 export async function extractZip(
   zipPath: string,
   destDir: string
 ): Promise<void> {
   mkdirSync(destDir, { recursive: true });
-  const proc = Bun.spawn({
-    cmd: ['tar', '-xf', zipPath, '-C', destDir],
-    cwd: import.meta.dir,
-    stderr: 'pipe',
-  });
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) throw new Error('Zip extraction failed');
+
+  const entries = await new Promise<Record<string, Uint8Array>>(
+    (resolve, reject) => {
+      unzip(new Uint8Array(readFileSync(zipPath)), (err, data) => {
+        if (err) reject(new Error('Zip extraction failed'));
+        else resolve(data);
+      });
+    }
+  );
+
+  for (const [entryPath, bytes] of Object.entries(entries)) {
+    if (entryPath.endsWith('/') || isSystemMetadata(entryPath)) continue; // directory marker or junk
+    const target = safeJoin(destDir, entryPath);
+    if (!target) throw new Error(`Unsafe zip entry: ${entryPath}`);
+    mkdirSync(dirname(target), { recursive: true });
+    writeFileSync(target, bytes);
+  }
 }
 
 /**
@@ -70,9 +114,9 @@ export function getDirectorySize(dirPath: string): number {
 
 /**
  * Writes uploaded folder files into `destDir`, preserving each file's relative
- * path. Returns the total bytes written. Throws `ApiError` (400) when a path
- * exceeds `maxPathLength`, and a plain `Error` for unsafe (traversal) paths so
- * the caller can map it to a 500 — matching the original behavior.
+ * directory structure. Returns the total bytes written. OS metadata entries are
+ * skipped. Throws `ApiError` (400) when a path exceeds `maxPathLength`, and a
+ * plain `Error` for unsafe (traversal) paths so the caller can map it to a 500.
  */
 export async function writeFolderFiles(
   destDir: string,
@@ -82,9 +126,14 @@ export async function writeFolderFiles(
   let totalSize = 0;
 
   for (const f of files) {
-    const relativePath = (
-      (f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name
-    ).replaceAll('/', '\\');
+    const rawPath =
+      (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
+      f.name;
+    // Normalize to POSIX separators (handle Windows backslashes) and drop any
+    // leading separator so the path stays relative.
+    const relativePath = rawPath.replaceAll('\\', '/').replace(/^\/+/, '');
+
+    if (!relativePath || isSystemMetadata(relativePath)) continue;
 
     if (maxPathLength && relativePath.length > maxPathLength) {
       throw new ApiError(

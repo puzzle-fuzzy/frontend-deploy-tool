@@ -17,7 +17,10 @@
       "Bash(python3 -c \"import json;d=json.load\\(open\\('package.json'\\)\\)['scripts'];[print\\(k\\) for k in ['dev','dev:web','dev:server','build','package','test','lint','typecheck','format','check']]\")",
       "Bash(sed -i '' \"s/import { ApiError } from '..\\\\/errors';/import { ApiError, ErrorCode } from '..\\\\/errors';/\" src/routes/projects.ts)",
       "Bash(sed -i '' \"s/throw new ApiError\\('Invalid settings payload'\\)/throw new ApiError\\(ErrorCode.INVALID_SETTINGS, 'Invalid settings payload'\\)/g\" src/routes/projects.ts)",
-      "Bash(bun --filter @deploykit/web test)"
+      "Bash(bun --filter @deploykit/web test)",
+      "Bash(python3 -c \"import json;print\\(list\\(json.load\\(open\\('package.json'\\)\\)['scripts'].keys\\(\\)\\)\\)\")",
+      "Bash(bun -e \"import\\('fflate'\\).then\\(m => console.log\\('fflate loaded:', !!m.unzip, !!m.zip\\)\\)\")",
+      "Bash(bun -e \"import\\('fflate'\\).then\\(m => console.log\\('fflate loaded: unzip=', !!m.unzip, 'zip=', !!m.zip\\)\\)\")"
     ]
   }
 }
