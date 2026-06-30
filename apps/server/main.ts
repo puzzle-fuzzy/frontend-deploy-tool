@@ -1,14 +1,11 @@
-import { join } from "node:path";
 import { createApp } from "./src/app";
+import { loadConfig } from "./src/config";
 
-const port = Number(process.env.PORT ?? 3000);
-const dataFile = process.env.DATA_FILE ?? join(import.meta.dir, "data.json");
-const storageDir = process.env.STORAGE_DIR ?? join(import.meta.dir, ".voasx", "storage");
-const publicDir = process.env.PUBLIC_DIR ?? join(import.meta.dir, "public");
+const config = loadConfig({ appDir: import.meta.dir });
 
 Bun.serve({
-  port,
-  fetch: createApp({ dataFile, storageDir, publicDir }).fetch,
+  port: config.port,
+  fetch: createApp(config).fetch,
 });
 
-console.log(`DeployKit server is running at http://localhost:${port}`);
+console.log(`DeployKit server is running at http://localhost:${config.port}`);

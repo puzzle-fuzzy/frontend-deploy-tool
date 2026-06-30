@@ -74,7 +74,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Replace `server/main.ts` single-file backend with focused modules.
   - [ ] `server/src/app.ts`: create and compose the Hono app.
   - [ ] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
-  - [ ] `server/src/config.ts`: environment and path configuration.
+  - [x] `server/src/config.ts`: environment and path configuration.
   - [x] `server/src/domain/project.ts`: domain types and constants.
   - [ ] `server/src/domain/version.ts`: version types and state rules.
   - [ ] `server/src/repositories/projectRepository.ts`: repository interface.
@@ -318,10 +318,10 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Frontend dev server with API proxy.
   - [ ] Production-like local server serving built web assets.
 - [ ] Add environment configuration.
-  - [ ] `PORT`
-  - [ ] `DATA_FILE`
-  - [ ] `STORAGE_DIR`
-  - [ ] `PUBLIC_DIR`
+  - [x] `PORT`
+  - [x] `DATA_FILE`
+  - [x] `STORAGE_DIR`
+  - [x] `PUBLIC_DIR`
   - [ ] `PUBLIC_BASE_URL`
 - [ ] Add project base path guidance for deployed Vite apps.
   - [ ] Hash router apps work naturally.
