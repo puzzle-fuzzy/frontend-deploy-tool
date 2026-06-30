@@ -5,13 +5,24 @@ import type { Project, Settings } from '../types';
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
 
-/** Throws the server's error body (matching the previous fetch-wrapper contract). */
+/** Extracts the human-readable message from a `{ error: { message } }` body. */
+function extractMessage(text: string): string {
+  try {
+    return JSON.parse(text)?.error?.message ?? text;
+  } catch {
+    return text;
+  }
+}
+
+/** Throws the server's error message when the response is not ok. */
 async function checkOk(res: {
   ok: boolean;
   statusText: string;
   text: () => Promise<string>;
 }): Promise<void> {
-  if (!res.ok) throw new Error((await res.text()) || res.statusText);
+  if (res.ok) return;
+  const text = await res.text();
+  throw new Error(extractMessage(text) || res.statusText);
 }
 
 export const api = {
@@ -74,7 +85,9 @@ export const api = {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(JSON.parse(xhr.responseText));
         } else {
-          reject(new Error(xhr.responseText || 'Upload failed'));
+          reject(
+            new Error(extractMessage(xhr.responseText) || 'Upload failed')
+          );
         }
       };
 

@@ -150,7 +150,7 @@ deploykit/
 
 ## API 接口
 
-所有接口前缀为 `/api`，无认证。错误响应格式：`{ "error": "message" }`。请求/响应类型由后端路由推导，前端经 `hono/client` 自动获得类型。
+所有接口前缀为 `/api`，无认证。错误响应格式：`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见 `apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经 `hono/client` 自动获得类型。
 
 ### 项目
 

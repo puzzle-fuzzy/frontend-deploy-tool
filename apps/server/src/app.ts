@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { serveStatic } from 'hono/bun';
 import { createApiApp } from './api';
 import type { AppConfig } from './config';
-import { ApiError } from './errors';
+import { ApiError, ErrorCode } from './errors';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import { createProjectService } from './services/projectService';
@@ -42,13 +42,24 @@ export function createApp(config: AppConfig) {
       createDeployRoutes({ projectService, storageDir: config.storageDir })
     )
     .onError((err, c) => {
-      // Convert service errors into the existing `{ error }` JSON shape; all other
-      // errors fall back to Hono's default behavior (500 "Internal Server Error").
+      // Convert service errors into `{ error: { code, message } }`; all other
+      // errors become a generic 500 with the same shape.
       if (err instanceof ApiError) {
-        return c.json({ error: err.message }, err.status);
+        return c.json(
+          { error: { code: err.code, message: err.message } },
+          err.status
+        );
       }
       console.error(err);
-      return c.text('Internal Server Error', 500);
+      return c.json(
+        {
+          error: {
+            code: ErrorCode.INTERNAL_ERROR,
+            message: 'Internal Server Error',
+          },
+        },
+        500
+      );
     })
     .use('/*', async (c, next) => {
       await next();

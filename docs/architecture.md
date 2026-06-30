@@ -43,7 +43,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 ### 错误传递
 
-服务层抛出 `ApiError(status, message)`；`app.onError` 将其转为 `{ "error": message }` 响应，其他异常降级为 Hono 默认 500。路由不对服务调用包 `try/catch`（上传的清理与 500 包装在 `versionService.uploadVersion` 内）。
+服务层抛出 `ApiError(code, message, status)`（`code` 取自 `errors.ts` 的 `ErrorCode`）；`app.onError` 将其转为 `{ "error": { "code", "message" } }` 响应，其他异常降级为 `INTERNAL_ERROR` 500。路由不对服务调用包 `try/catch`（上传的清理与 500 包装在 `versionService.uploadVersion` 内）。
 
 ### 路径安全
 
@@ -59,7 +59,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 ## API 契约
 
-请求/响应类型由路由处理器的 `c.json(...)` 与 `hono/validator` 推导；前端经 `hono/client` 自动获得类型，无需手写。完整端点表见根 [README](../README.md#api-接口)。错误统一为 `{ "error": string }`。上传端点使用 `multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。
+请求/响应类型由路由处理器的 `c.json(...)` 与 `hono/validator` 推导；前端经 `hono/client` 自动获得类型，无需手写。完整端点表见根 [README](../README.md#api-接口)。错误统一为 `{ "error": { "code": ErrorCode, "message": string } }`。上传端点使用 `multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。
 
 ## 存储布局
 

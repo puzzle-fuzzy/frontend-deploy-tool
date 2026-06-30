@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { parseSettings } from '../domain/project';
-import { ApiError } from '../errors';
+import { ApiError, ErrorCode } from '../errors';
 import type { ProjectService } from '../services/contracts';
 
 export function createProjectRoutes(deps: {
@@ -28,7 +28,11 @@ export function createProjectRoutes(deps: {
       .patch('/api/projects/:id', async (c) => {
         const body = await c.req.json();
         const settings = parseSettings(body.settings ?? body);
-        if (!settings) throw new ApiError('Invalid settings payload');
+        if (!settings)
+          throw new ApiError(
+            ErrorCode.INVALID_SETTINGS,
+            'Invalid settings payload'
+          );
         const project = projectService.updateProjectSettings(
           c.req.param('id'),
           settings
@@ -39,7 +43,11 @@ export function createProjectRoutes(deps: {
         '/api/projects/:id/settings',
         validator('json', (value) => {
           const settings = parseSettings(value);
-          if (!settings) throw new ApiError('Invalid settings payload');
+          if (!settings)
+            throw new ApiError(
+              ErrorCode.INVALID_SETTINGS,
+              'Invalid settings payload'
+            );
           return settings;
         }),
         (c) => {

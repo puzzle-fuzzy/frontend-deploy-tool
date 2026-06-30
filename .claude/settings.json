@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(rm main.ts)",
+      "Bash(ls *.ts)",
+      "Bash(echo \"=== exit: $? ===\")",
+      "Bash(bun --filter @deploykit/server test)",
+      "Bash(curl -sS -X POST http://localhost:3999/api/projects -H 'Content-Type: application/json' -d '{\"name\":\"Demo\",\"slug\":\"demo-app\",\"description\":\"d\"}')",
+      "Bash(python3 -c 'import sys,json;print\\([e[\"action\"] for e in json.load\\(sys.stdin\\)]\\)')",
+      "Bash(grep -rn validator __TRACKED_VAR__/types/index.d.ts)",
+      "Bash(cd /Users/yxswy/Documents/frontend-deploy-tool/apps/web *)",
+      "Read(//Users/yxswy/**)",
+      "Bash(bun --filter @deploykit/web build)",
+      "Bash(bun run *)",
+      "Bash(bunx vitest *)",
+      "Bash(python3 -c \"import json;json.load\\(open\\('apps/web/src/i18n/locales/zh.json'\\)\\);print\\('valid JSON, encoding OK'\\)\")",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('package.json'\\)\\)['scripts'];[print\\(k\\) for k in ['dev','dev:web','dev:server','build','package','test','lint','typecheck','format','check']]\")",
+      "Bash(sed -i '' \"s/import { ApiError } from '..\\\\/errors';/import { ApiError, ErrorCode } from '..\\\\/errors';/\" src/routes/projects.ts)",
+      "Bash(sed -i '' \"s/throw new ApiError\\('Invalid settings payload'\\)/throw new ApiError\\(ErrorCode.INVALID_SETTINGS, 'Invalid settings payload'\\)/g\" src/routes/projects.ts)",
+      "Bash(bun --filter @deploykit/web test)"
+    ]
+  }
+}

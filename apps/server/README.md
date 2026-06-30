@@ -102,7 +102,7 @@ bun run dev:server          # 仅后端
 
 ## API
 
-见根 [README](../../README.md#api-接口)。错误格式：`{ "error": "message" }`。
+见根 [README](../../README.md#api-接口)。错误格式：`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码定义在 [src/errors.ts](src/errors.ts) 的 `ErrorCode`）。
 
 ## 测试
 

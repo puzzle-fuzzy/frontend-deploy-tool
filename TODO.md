@@ -99,8 +99,8 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Validate JSON bodies before passing to services.
   - [ ] Validate route params.
   - [ ] Return consistent API errors.
-- [ ] Standardize API error format.
-  - [ ] Example: `{ "error": { "code": "PROJECT_NOT_FOUND", "message": "Project not found" } }`.
+- [x] Standardize API error format.
+  - [x] Example: `{ "error": { "code": "PROJECT_NOT_FOUND", "message": "Project not found" } }`.
 - [x] Separate app creation from server startup.
   - [x] Required for `hono/testing`.
   - [x] Tests should import `createApp()` without opening a port.

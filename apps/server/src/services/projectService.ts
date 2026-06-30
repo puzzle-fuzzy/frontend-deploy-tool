@@ -4,7 +4,7 @@ import {
   DEFAULT_PROJECT_SETTINGS,
   isValidProjectSlug,
 } from '../domain/project';
-import { ApiError } from '../errors';
+import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import type { ProjectService } from './contracts';
@@ -27,17 +27,29 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       const slug = ((raw.slug as string) || '').trim().toLowerCase();
       const description = ((raw.description as string) || '').trim();
 
-      if (!name) throw new ApiError('Project name is required');
-      if (!slug) throw new ApiError('Project slug is required');
+      if (!name)
+        throw new ApiError(
+          ErrorCode.PROJECT_NAME_REQUIRED,
+          'Project name is required'
+        );
+      if (!slug)
+        throw new ApiError(
+          ErrorCode.PROJECT_SLUG_REQUIRED,
+          'Project slug is required'
+        );
       if (!isValidProjectSlug(slug)) {
         throw new ApiError(
+          ErrorCode.PROJECT_SLUG_INVALID,
           'Project slug must be 3-64 lowercase letters, numbers, or hyphens'
         );
       }
 
       const data = repo.load();
       if (data.projects.some((p) => p.slug === slug)) {
-        throw new ApiError('Project slug already exists');
+        throw new ApiError(
+          ErrorCode.PROJECT_SLUG_TAKEN,
+          'Project slug already exists'
+        );
       }
 
       const project: Project = {
@@ -58,7 +70,12 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
 
     getProject(id: string): Project {
       const project = repo.load().projects.find((p) => p.id === id);
-      if (!project) throw new ApiError('Project not found', 404);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
       return project;
     },
 
@@ -69,7 +86,12 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
     updateProjectSettings(id: string, settings: Settings): Project {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === id);
-      if (!project) throw new ApiError('Project not found', 404);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
 
       project.settings = settings;
       project.updatedAt = new Date().toISOString();
@@ -80,7 +102,12 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
     deleteProject(id: string): Project {
       const data = repo.load();
       const idx = data.projects.findIndex((p) => p.id === id);
-      if (idx === -1) throw new ApiError('Project not found', 404);
+      if (idx === -1)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
 
       const removed = data.projects.splice(idx, 1)[0];
       appendHistoryEvent(data, 'project.delete', removed);

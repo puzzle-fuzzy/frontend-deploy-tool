@@ -80,7 +80,12 @@ test('rejects project creation for a missing name', async () => {
     body: JSON.stringify({ slug: 'demo-app' }),
   });
   expect(res.status).toBe(400);
-  expect(await res.json()).toEqual({ error: 'Project name is required' });
+  expect(await res.json()).toEqual({
+    error: {
+      code: 'PROJECT_NAME_REQUIRED',
+      message: 'Project name is required',
+    },
+  });
 });
 
 test('rejects project creation for an invalid slug', async () => {
@@ -91,7 +96,11 @@ test('rejects project creation for an invalid slug', async () => {
   });
   expect(res.status).toBe(400);
   expect(await res.json()).toEqual({
-    error: 'Project slug must be 3-64 lowercase letters, numbers, or hyphens',
+    error: {
+      code: 'PROJECT_SLUG_INVALID',
+      message:
+        'Project slug must be 3-64 lowercase letters, numbers, or hyphens',
+    },
   });
 });
 
@@ -103,7 +112,12 @@ test('rejects a duplicate project slug', async () => {
     body: JSON.stringify({ name: 'Other', slug: 'demo-app' }),
   });
   expect(res.status).toBe(400);
-  expect(await res.json()).toEqual({ error: 'Project slug already exists' });
+  expect(await res.json()).toEqual({
+    error: {
+      code: 'PROJECT_SLUG_TAKEN',
+      message: 'Project slug already exists',
+    },
+  });
 });
 
 test('updates settings through the dedicated settings endpoint', async () => {
@@ -142,7 +156,9 @@ test('rejects an invalid settings payload with 400', async () => {
     body: JSON.stringify({ spaMode: 'not-a-boolean' }),
   });
   expect(res.status).toBe(400);
-  expect(await res.json()).toEqual({ error: 'Invalid settings payload' });
+  expect(await res.json()).toEqual({
+    error: { code: 'INVALID_SETTINGS', message: 'Invalid settings payload' },
+  });
 });
 
 test('returns 404 when updating settings for an unknown project', async () => {
@@ -152,7 +168,9 @@ test('returns 404 when updating settings for an unknown project', async () => {
     body: JSON.stringify({ spaMode: true, routingType: 'hash' }),
   });
   expect(res.status).toBe(404);
-  expect(await res.json()).toEqual({ error: 'Project not found' });
+  expect(await res.json()).toEqual({
+    error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found' },
+  });
 });
 
 test('uploads a folder version that becomes the active version', async () => {
@@ -178,7 +196,9 @@ test('rejects a non-zip single file upload with 400', async () => {
     body: form,
   });
   expect(res.status).toBe(400);
-  expect(await res.json()).toEqual({ error: 'Please upload a .zip file' });
+  expect(await res.json()).toEqual({
+    error: { code: 'INVALID_UPLOAD', message: 'Please upload a .zip file' },
+  });
 
   // No version should be recorded after the failed upload.
   const after = await getProject(app, project.id);
@@ -295,7 +315,10 @@ test('cleans up and returns 500 when zip extraction fails', async () => {
   });
   expect(res.status).toBe(500);
   expect(await res.json()).toEqual({
-    error: 'File processing failed: Zip extraction failed',
+    error: {
+      code: 'FILE_PROCESSING_FAILED',
+      message: 'File processing failed: Zip extraction failed',
+    },
   });
 
   // The failed version must not be recorded.

@@ -7,7 +7,7 @@ import {
   statSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { ApiError } from '../errors';
+import { ApiError, ErrorCode } from '../errors';
 import { getMimeType } from '../utils/mime';
 import { safeJoin } from '../utils/safePath';
 
@@ -88,6 +88,7 @@ export async function writeFolderFiles(
 
     if (maxPathLength && relativePath.length > maxPathLength) {
       throw new ApiError(
+        ErrorCode.PATH_TOO_LONG,
         `Path too long. Maximum path length is ${maxPathLength} characters.`
       );
     }
