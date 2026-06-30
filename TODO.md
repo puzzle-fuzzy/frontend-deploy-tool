@@ -213,12 +213,12 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [x] Add formatting.
   - [x] Choose Biome or Prettier.
   - [x] Add root format and check scripts.
-- [ ] Add CI later.
-  - [ ] Install with Bun.
-  - [ ] Typecheck.
-  - [ ] Lint.
-  - [ ] Unit tests.
-  - [ ] Build server and web.
+- [x] Add CI later.
+  - [x] Install with Bun.
+  - [x] Typecheck.
+  - [x] Lint.
+  - [x] Unit tests.
+  - [x] Build server and web.
 
 ## Workspace Layout Migration
 
