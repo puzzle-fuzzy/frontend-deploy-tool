@@ -183,7 +183,7 @@ test('uploads a folder version that becomes the active version', async () => {
 
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(1);
-  expect(after.versions[0].active).toBe(true);
+  expect(after.activeVersionId).toBe(after.versions[0].id);
 });
 
 test('rejects a non-zip single file upload with 400', async () => {
@@ -205,7 +205,7 @@ test('rejects a non-zip single file upload with 400', async () => {
   expect(after.versions).toHaveLength(0);
 });
 
-test('activating a version swaps the active flag', async () => {
+test('activating a version sets it as the active version', async () => {
   const project = await createProject(app);
   await uploadVersion(app, project.id, '<html>v1</html>');
   await uploadVersion(app, project.id, '<html>v2</html>');
@@ -218,9 +218,7 @@ test('activating a version swaps the active flag', async () => {
   expect(res.status).toBe(200);
 
   const after = await getProject(app, project.id);
-  const active = after.versions.filter((v) => v.active);
-  expect(active).toHaveLength(1);
-  expect(active[0].id).toBe(second.id);
+  expect(after.activeVersionId).toBe(second.id);
 });
 
 test('deleting the active version promotes a replacement', async () => {
@@ -237,7 +235,7 @@ test('deleting the active version promotes a replacement', async () => {
 
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(1);
-  expect(after.versions[0].active).toBe(true);
+  expect(after.activeVersionId).toBe(after.versions[0].id);
 });
 
 test('serves the active version via /deploy/:slug/', async () => {

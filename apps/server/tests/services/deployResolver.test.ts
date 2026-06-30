@@ -17,15 +17,10 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     createdAt: '',
     updatedAt: '',
     versions: [
-      { id: versionA, name: 'a', description: '', createdAt: '', active: true },
-      {
-        id: versionB,
-        name: 'b',
-        description: '',
-        createdAt: '',
-        active: false,
-      },
+      { id: versionA, name: 'a', description: '', createdAt: '' },
+      { id: versionB, name: 'b', description: '', createdAt: '' },
     ],
+    activeVersionId: versionA,
     settings: { spaMode: false, routingType: 'path' },
     ...overrides,
   };
@@ -79,15 +74,8 @@ describe('resolveDeployTarget', () => {
 
   test('returns no-active when no explicit id is given and no version is active', () => {
     const project = makeProject({
-      versions: [
-        {
-          id: versionA,
-          name: 'a',
-          description: '',
-          createdAt: '',
-          active: false,
-        },
-      ],
+      versions: [{ id: versionA, name: 'a', description: '', createdAt: '' }],
+      activeVersionId: null,
     });
     const target = resolveDeployTarget(storageDir, project, [
       'p',

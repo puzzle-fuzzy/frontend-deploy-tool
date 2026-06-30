@@ -91,7 +91,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
   - [x] `server/src/utils/mime.ts`: MIME lookup.
 - [ ] Introduce explicit domain invariants.
-  - [ ] Prefer `project.activeVersionId` over `version.active`.
+  - [x] Prefer `project.activeVersionId` over `version.active`.
   - [x] A project can have zero or one active version.
   - [ ] A version must belong to exactly one project.
   - [ ] Slug must be unique.
@@ -330,11 +330,11 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Data Model Evolution
 
-- [ ] Define schema versioning for metadata.
-  - [ ] `schemaVersion`.
-  - [ ] Migration functions.
-  - [ ] Backup before migration.
-- [ ] Replace duplicated `version.active` with `project.activeVersionId`.
+- [x] Define schema versioning for metadata.
+  - [x] `schemaVersion`.
+  - [x] Migration functions.
+  - [x] Backup before migration.
+- [x] Replace duplicated `version.active` with `project.activeVersionId`.
 - [ ] Add version metadata.
   - [ ] Size.
   - [ ] File count.

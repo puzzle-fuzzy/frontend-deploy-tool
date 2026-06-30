@@ -6,12 +6,11 @@ import type { Project, Version } from '@/types';
 
 vi.mock('@/lib/api');
 
-const version = (id: string, active = false): Version => ({
+const version = (id: string): Version => ({
   id,
   name: id,
   description: '',
   createdAt: '',
-  active,
 });
 
 const project = (id: string, overrides: Partial<Project> = {}): Project => ({
@@ -22,6 +21,7 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   createdAt: '',
   updatedAt: '',
   versions: [],
+  activeVersionId: null,
   settings: { spaMode: false, routingType: 'path' },
   ...overrides,
 });
@@ -41,7 +41,10 @@ describe('useProjects', () => {
   });
 
   it('activates a version and refreshes the list', async () => {
-    const target = project('a', { versions: [version('v1', true)] });
+    const target = project('a', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
     vi.mocked(api.listProjects).mockResolvedValue([target]);
     vi.mocked(api.activateVersion).mockResolvedValue({ ok: true });
 
@@ -60,7 +63,10 @@ describe('useProjects', () => {
   });
 
   it('deletes a version and refreshes the list', async () => {
-    const target = project('a', { versions: [version('v1', true)] });
+    const target = project('a', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
     vi.mocked(api.listProjects).mockResolvedValue([target]);
     vi.mocked(api.deleteVersion).mockResolvedValue({ ok: true });
 

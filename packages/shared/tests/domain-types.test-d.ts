@@ -10,7 +10,6 @@ const version: Version = {
   name: 'v1',
   description: 'Initial build',
   createdAt: '2026-06-30T00:00:00.000Z',
-  active: true,
 };
 
 const project: Project = {
@@ -21,6 +20,7 @@ const project: Project = {
   createdAt: '2026-06-30T00:00:00.000Z',
   updatedAt: '2026-06-30T00:00:00.000Z',
   versions: [version],
+  activeVersionId: version.id,
   settings,
 };
 

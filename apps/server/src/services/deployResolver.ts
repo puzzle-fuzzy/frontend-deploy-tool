@@ -31,7 +31,9 @@ export function resolveDeployTarget(
     versionId = parts[1];
     filePath = parts.slice(2).join('/');
   } else {
-    const active = project.versions.find((v) => v.active);
+    const active = project.versions.find(
+      (v) => v.id === project.activeVersionId
+    );
     if (!active) return { kind: 'no-active' };
     versionId = active.id;
     filePath = parts.slice(1).join('/');

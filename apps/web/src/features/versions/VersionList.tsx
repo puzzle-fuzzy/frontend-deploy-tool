@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { publicBaseURL } from '@/config';
 import { formatDate } from '@/lib/format';
-import type { Project } from '@/types';
+import type { Project, Version } from '@/types';
 
 interface Props {
   project: Project;
@@ -15,6 +15,7 @@ interface Props {
 
 export function VersionList({ project, onActivate, onDelete }: Props) {
   const { t } = useTranslation();
+  const isActive = (v: Version) => project.activeVersionId === v.id;
 
   return (
     <ScrollArea className="flex-1">
@@ -36,7 +37,7 @@ export function VersionList({ project, onActivate, onDelete }: Props) {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <code className="text-xs font-mono">{v.name}</code>
-                  {v.active && (
+                  {isActive(v) && (
                     <Badge
                       variant="secondary"
                       className="text-[10px] px-1.5 py-0"
@@ -51,7 +52,7 @@ export function VersionList({ project, onActivate, onDelete }: Props) {
                 </p>
               </div>
               <div className="flex items-center gap-1 ml-3">
-                {!v.active && (
+                {!isActive(v) && (
                   <Button
                     variant="outline"
                     size="xs"
