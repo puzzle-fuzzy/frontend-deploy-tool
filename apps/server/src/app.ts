@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
+import type { Data, HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
 import {
   existsSync,
   mkdirSync,
@@ -16,45 +17,6 @@ export interface AppConfig {
   dataFile: string;
   storageDir: string;
   publicDir: string;
-}
-
-interface Settings {
-  spaMode: boolean;
-  routingType: "hash" | "path";
-}
-
-interface Version {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: string;
-  active: boolean;
-}
-
-interface Project {
-  id: string;
-  name: string;
-  slug: string;
-  description: string;
-  createdAt: string;
-  updatedAt: string;
-  versions: Version[];
-  settings: Settings;
-}
-
-interface HistoryEvent {
-  id: string;
-  action: "project.create" | "project.delete" | "version.upload" | "version.activate" | "version.delete";
-  projectId: string;
-  projectName: string;
-  versionId: string;
-  versionName: string;
-  timestamp: string;
-}
-
-interface Data {
-  projects: Project[];
-  history: HistoryEvent[];
 }
 
 const DEFAULT_SETTINGS: Settings = { spaMode: false, routingType: "path" };

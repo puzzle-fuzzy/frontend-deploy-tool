@@ -18,6 +18,7 @@
     "bun-types": "catalog:"
   },
   "dependencies": {
+    "@deploykit/shared": "workspace:*",
     "hono": "catalog:"
   }
 }

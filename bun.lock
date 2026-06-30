@@ -9,6 +9,7 @@
       "name": "@deploykit/server",
       "version": "1.0.0",
       "dependencies": {
+        "@deploykit/shared": "workspace:*",
         "hono": "catalog:",
       },
       "devDependencies": {
@@ -19,6 +20,7 @@
       "name": "@deploykit/web",
       "version": "0.0.0",
       "dependencies": {
+        "@deploykit/shared": "workspace:*",
         "class-variance-authority": "catalog:",
         "clsx": "catalog:",
         "i18next": "catalog:",

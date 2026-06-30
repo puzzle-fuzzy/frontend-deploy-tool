@@ -9,7 +9,7 @@
   "scripts": {
     "build": "bun run typecheck",
     "typecheck": "bun x tsc --noEmit",
-    "test": "bun -e \"console.log('No shared tests configured yet')\""
+    "test": "bun run typecheck"
   },
   "devDependencies": {
     "typescript": "catalog:"

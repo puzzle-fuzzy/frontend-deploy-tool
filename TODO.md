@@ -110,7 +110,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Move route definitions into a typed Hono app export.
 - [ ] Use `hono/client` on the frontend instead of handwritten fetch wrappers where possible.
 - [ ] Keep a separate upload client path if progress events still require `XMLHttpRequest`.
-- [ ] Share API types from the backend package instead of duplicating `Project`, `Version`, and `Settings` manually.
+- [x] Share API types from the backend package instead of duplicating `Project`, `Version`, and `Settings` manually.
 - [ ] Add contract tests for key endpoints.
   - [ ] Project creation.
   - [ ] Settings update.
@@ -199,7 +199,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [x] Rename packages consistently.
   - [x] `@deploykit/server`
   - [x] `@deploykit/web`
-  - [ ] Optional future package: `@deploykit/shared`
+  - [x] Optional future package: `@deploykit/shared`
 - [x] Align package managers.
   - [x] Remove `packageManager: pnpm@...`.
   - [x] Use Bun consistently.
