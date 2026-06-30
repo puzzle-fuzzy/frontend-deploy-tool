@@ -27,8 +27,12 @@ afterEach(() => {
 
 function fileWithRelativePath(content: string, relativePath: string): File {
   const f = new File([content], relativePath.split('/').pop() ?? relativePath);
-  (f as File & { webkitRelativePath?: string }).webkitRelativePath =
-    relativePath;
+  // `webkitRelativePath` is readonly on File (set by the browser); define it
+  // directly so the synthesized upload behaves like a directory-picker file.
+  Object.defineProperty(f, 'webkitRelativePath', {
+    value: relativePath,
+    configurable: true,
+  });
   return f;
 }
 

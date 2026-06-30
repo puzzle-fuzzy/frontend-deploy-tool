@@ -120,6 +120,16 @@ test('rejects a duplicate project slug', async () => {
   });
 });
 
+test('rejects a malformed route id with 400 INVALID_PARAMS', async () => {
+  const res = await app.request('/api/projects/!!!/versions/some-id/activate', {
+    method: 'PUT',
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: { code: 'INVALID_PARAMS', message: 'Invalid id parameter' },
+  });
+});
+
 test('updates settings through the dedicated settings endpoint', async () => {
   const project = await createProject(app);
   const res = await app.request(`/api/projects/${project.id}/settings`, {

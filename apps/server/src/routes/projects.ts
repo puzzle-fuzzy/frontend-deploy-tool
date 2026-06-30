@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { parseSettings } from '../domain/project';
+import { parseCreateProject, parseIdParam } from '../domain/schemas';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectService } from '../services/contracts';
 
@@ -14,18 +15,19 @@ export function createProjectRoutes(deps: {
   return (
     new Hono()
       .get('/api/projects', (c) => c.json(projectService.listProjects()))
-      .post('/api/projects', async (c) => {
-        const body = await c.req.json();
-        const project = projectService.createProject(body);
+      .post('/api/projects', validator('json', parseCreateProject), (c) => {
+        const project = projectService.createProject(c.req.valid('json'));
         return c.json(project, 201);
       })
       .delete('/api/projects/:id', (c) => {
-        const removed = projectService.deleteProject(c.req.param('id'));
+        const id = parseIdParam(c.req.param('id'));
+        const removed = projectService.deleteProject(id);
         removeProjectDir(removed.id);
         return c.json({ ok: true });
       })
       // Legacy settings endpoint: accepts either `{ settings: {...} }` or top-level settings.
       .patch('/api/projects/:id', async (c) => {
+        const id = parseIdParam(c.req.param('id'));
         const body = await c.req.json();
         const settings = parseSettings(body.settings ?? body);
         if (!settings)
@@ -33,10 +35,7 @@ export function createProjectRoutes(deps: {
             ErrorCode.INVALID_SETTINGS,
             'Invalid settings payload'
           );
-        const project = projectService.updateProjectSettings(
-          c.req.param('id'),
-          settings
-        );
+        const project = projectService.updateProjectSettings(id, settings);
         return c.json(project);
       })
       .patch(
@@ -51,15 +50,17 @@ export function createProjectRoutes(deps: {
           return settings;
         }),
         (c) => {
+          const id = parseIdParam(c.req.param('id'));
           const project = projectService.updateProjectSettings(
-            c.req.param('id'),
+            id,
             c.req.valid('json')
           );
           return c.json(project);
         }
       )
-      .get('/api/projects/:id/versions', (c) =>
-        c.json(projectService.getProject(c.req.param('id')))
-      )
+      .get('/api/projects/:id/versions', (c) => {
+        const id = parseIdParam(c.req.param('id'));
+        return c.json(projectService.getProject(id));
+      })
   );
 }

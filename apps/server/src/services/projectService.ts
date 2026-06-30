@@ -1,9 +1,11 @@
-import type { HistoryEvent, Project, Settings } from '@deploykit/shared';
+import type {
+  CreateProjectInput,
+  HistoryEvent,
+  Project,
+  Settings,
+} from '@deploykit/shared';
 import { appendHistoryEvent } from '../domain/history';
-import {
-  DEFAULT_PROJECT_SETTINGS,
-  isValidProjectSlug,
-} from '../domain/project';
+import { DEFAULT_PROJECT_SETTINGS } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -17,35 +19,9 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return repo.load().projects;
     },
 
-    createProject(body: unknown): Project {
-      const raw = (body ?? {}) as {
-        name?: string;
-        slug?: string;
-        description?: string;
-      };
-      const name = ((raw.name as string) || '').trim();
-      const slug = ((raw.slug as string) || '').trim().toLowerCase();
-      const description = ((raw.description as string) || '').trim();
-
-      if (!name)
-        throw new ApiError(
-          ErrorCode.PROJECT_NAME_REQUIRED,
-          'Project name is required'
-        );
-      if (!slug)
-        throw new ApiError(
-          ErrorCode.PROJECT_SLUG_REQUIRED,
-          'Project slug is required'
-        );
-      if (!isValidProjectSlug(slug)) {
-        throw new ApiError(
-          ErrorCode.PROJECT_SLUG_INVALID,
-          'Project slug must be 3-64 lowercase letters, numbers, or hyphens'
-        );
-      }
-
+    createProject(input: CreateProjectInput): Project {
       const data = repo.load();
-      if (data.projects.some((p) => p.slug === slug)) {
+      if (data.projects.some((p) => p.slug === input.slug)) {
         throw new ApiError(
           ErrorCode.PROJECT_SLUG_TAKEN,
           'Project slug already exists'
@@ -54,9 +30,9 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
 
       const project: Project = {
         id: createId(),
-        name,
-        slug,
-        description,
+        name: input.name,
+        slug: input.slug,
+        description: input.description,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         versions: [],

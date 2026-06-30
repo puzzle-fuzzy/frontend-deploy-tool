@@ -1,4 +1,9 @@
-import type { HistoryEvent, Project, Settings } from '@deploykit/shared';
+import type {
+  CreateProjectInput,
+  HistoryEvent,
+  Project,
+  Settings,
+} from '@deploykit/shared';
 
 /**
  * Service contracts (interfaces only). This module is deliberately Bun-free so
@@ -8,7 +13,7 @@ import type { HistoryEvent, Project, Settings } from '@deploykit/shared';
 
 export interface ProjectService {
   listProjects(): Project[];
-  createProject(body: unknown): Project;
+  createProject(input: CreateProjectInput): Project;
   getProject(id: string): Project;
   findBySlug(slug: string): Project | undefined;
   updateProjectSettings(id: string, settings: Settings): Project;
