@@ -27,10 +27,10 @@ export const api = {
     request<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
 
   updateSettings: (id: string, settings: Settings) =>
-    request<Project>(`/api/projects/${id}`, {
+    request<Project>(`/api/projects/${id}/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ settings }),
+      body: JSON.stringify(settings),
     }),
 
   uploadVersion: (

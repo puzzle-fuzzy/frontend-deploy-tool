@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { useTranslation } from "../../node_modules/react-i18next";
+import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import { Hash, Route, Trash2 } from "lucide-react";
 import {
   Dialog,
@@ -14,7 +14,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast";
+import { useToast } from "@/lib/toast-context";
 import type { Project, Settings } from "@/types";
 
 interface Props {
@@ -27,16 +27,9 @@ interface Props {
 export function SettingsDialog({ open, onOpenChange, project, onDeleted }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [settings, setSettings] = useState<Settings>({ spaMode: false, routingType: "hash" });
+  const [settings, setSettings] = useState<Settings>(project?.settings ?? { spaMode: false, routingType: "hash" });
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
-
-  useEffect(() => {
-    if (project) {
-      setSettings({ ...project.settings });
-      setConfirmDelete(false);
-    }
-  }, [project, open]);
 
   const handleSave = async () => {
     if (!project) return;

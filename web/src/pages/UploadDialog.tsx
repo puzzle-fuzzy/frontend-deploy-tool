@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useTranslation } from "../../node_modules/react-i18next";
+import { useTranslation } from "react-i18next";
 import { Upload, FileArchive, FolderOpen } from "lucide-react";
 import {
   Dialog,
@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Progress } from "@/components/ui/progress";
 import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast";
+import { useToast } from "@/lib/toast-context";
 
 interface Props {
   open: boolean;

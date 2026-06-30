@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useTranslation } from "../../node_modules/react-i18next";
+import { useTranslation } from "react-i18next";
 import {
   Dialog,
   DialogContent,
@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast";
+import { useToast } from "@/lib/toast-context";
 
 interface Props {
   open: boolean;

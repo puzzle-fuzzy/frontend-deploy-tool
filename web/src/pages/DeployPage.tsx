@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import { useTranslation } from "../../node_modules/react-i18next";
+import { useTranslation } from "react-i18next";
 import {
   Plus,
   Settings,
@@ -21,7 +21,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast";
+import { useToast } from "@/lib/toast-context";
 import { formatDate } from "@/lib/format";
 import { CreateProjectDialog } from "./CreateProjectDialog";
 import { UploadDialog } from "./UploadDialog";
@@ -140,7 +140,7 @@ export function DeployPage() {
   };
 
   const deployUrl = selectedProject
-    ? `${window.location.protocol}//${window.location.hostname}:3000/deploy/${selectedProject.slug}/`
+    ? `${window.location.origin}/deploy/${selectedProject.slug}/`
     : "";
 
   return (
@@ -313,7 +313,7 @@ export function DeployPage() {
                               </Button>
                             )}
                             <Button variant="ghost" size="xs" asChild>
-                              <a href={`${window.location.protocol}//${window.location.hostname}:3000/deploy/${selectedProject.slug}/${v.id}/`} target="_blank" rel="noopener noreferrer">
+                              <a href={`${window.location.origin}/deploy/${selectedProject.slug}/${v.id}/`} target="_blank" rel="noopener noreferrer">
                                 {t("versions.preview")}
                               </a>
                             </Button>
@@ -350,6 +350,7 @@ export function DeployPage() {
         onUploaded={() => { fetchProjects(); }}
       />
       <SettingsDialog
+        key={selectedProject?.id ?? "no-project"}
         open={showSettings}
         onOpenChange={setShowSettings}
         project={selectedProject}

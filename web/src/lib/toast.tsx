@@ -1,18 +1,12 @@
-import { useState, useCallback, createContext, useContext, type ReactNode } from "react";
+import { useState, useCallback, type ReactNode } from "react";
 import { CheckCircle2, XCircle } from "lucide-react";
+import { ToastContext } from "./toast-context";
 
 interface Toast {
   id: number;
   message: string;
   type: "success" | "error";
 }
-
-interface ToastContextValue {
-  toast: (message: string, type?: "success" | "error") => void;
-}
-
-const ToastContext = createContext<ToastContextValue>({ toast: () => {} });
-export const useToast = () => useContext(ToastContext);
 
 let nextId = 0;
 
