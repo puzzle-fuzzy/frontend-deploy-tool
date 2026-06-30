@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
+  extractZip,
   flattenOutput,
   writeFolderFiles,
 } from '../../src/services/artifactService';
@@ -78,4 +79,13 @@ test('writeFolderFiles rejects a path that exceeds maxPathLength', async () => {
   await expect(
     writeFolderFiles(destDir, [fileWithRelativePath('x', longName)], 10)
   ).rejects.toThrow('Path too long');
+});
+
+test('extractZip throws when the archive is invalid', async () => {
+  const zipPath = join(tempDir, 'broken.zip');
+  writeFileSync(zipPath, 'this is not a zip');
+  const destDir = join(tempDir, 'out');
+  await expect(extractZip(zipPath, destDir)).rejects.toThrow(
+    'Zip extraction failed'
+  );
 });

@@ -111,12 +111,12 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Use `hono/client` on the frontend instead of handwritten fetch wrappers where possible.
 - [ ] Keep a separate upload client path if progress events still require `XMLHttpRequest`.
 - [x] Share API types from the backend package instead of duplicating `Project`, `Version`, and `Settings` manually.
-- [ ] Add contract tests for key endpoints.
-  - [ ] Project creation.
-  - [ ] Settings update.
-  - [ ] Version upload.
-  - [ ] Version activation.
-  - [ ] Deploy route fallback.
+- [x] Add contract tests for key endpoints.
+  - [x] Project creation.
+  - [x] Settings update.
+  - [x] Version upload.
+  - [x] Version activation.
+  - [x] Deploy route fallback.
 
 ## Backend Testing
 
@@ -129,13 +129,13 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Active version invariant.
   - [x] Safe path rejection.
   - [x] JSON repository atomic writes.
-- [ ] Add artifact tests.
+- [x] Add artifact tests.
   - [x] Folder upload path normalization.
-  - [ ] ZIP extraction failure cleanup.
+  - [x] ZIP extraction failure cleanup.
   - [x] SPA fallback returns `index.html`.
-  - [ ] Missing file returns 404 when SPA mode is off.
-- [ ] Add a backend test script.
-  - [ ] `bun test`
+  - [x] Missing file returns 404 when SPA mode is off.
+- [x] Add a backend test script.
+  - [x] `bun test`
   - [ ] Optional coverage script later.
 
 ## Frontend Architecture
