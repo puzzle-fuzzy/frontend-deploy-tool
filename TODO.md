@@ -4,7 +4,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Product Direction
 
-- [ ] Define the product name consistently. Current names include `DeployKit`, `Dist Deploy`, `deploykit-server`, and `deploykit-dashboard`.
+- [x] Define the product name consistently. Current names include `DeployKit`, `Dist Deploy`, `deploykit-server`, and `deploykit-dashboard`.
 - [ ] Clarify the first enterprise-grade scope:
   - [ ] Static frontend artifact hosting for Vite demos.
   - [ ] Project and version management.
@@ -18,13 +18,13 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Current Critical Issues
 
-- [ ] Fix broken text encoding in documentation and source comments.
-  - [ ] `README.md`
-  - [ ] `server/README.md`
-  - [ ] `web/README.md`
+- [x] Fix broken text encoding in documentation and source comments.
+  - [x] `README.md`
+  - [x] `server/README.md`
+  - [x] `web/README.md`
   - [x] `server/main.ts`
-  - [ ] `web/src/i18n/locales/zh.json`
-  - [ ] Affected UI strings in React files.
+  - [x] `web/src/i18n/locales/zh.json`
+  - [x] Affected UI strings in React files.
 - [x] Fix the settings API contract mismatch.
   - [x] Frontend sends `{ settings: { spaMode, routingType } }`.
   - [x] Backend currently expects top-level `{ spaMode, routingType }`.
@@ -192,7 +192,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [x] Convert the repository to a Bun workspace.
   - [x] Root `package.json`.
   - [x] `workspaces`.
-  - [ ] Root scripts for dev, build, test, lint, and typecheck.
+  - [x] Root scripts for dev, build, test, lint, and typecheck.
 - [x] Use Bun Catalogs for dependency versions.
   - [x] Centralize shared versions for Hono, React, TypeScript, Vite, ESLint, Vitest, and related packages.
   - [x] Remove package-level version drift.
@@ -299,7 +299,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Best timing: immediately after Phase 1 workspace foundation and before Phase 2 backend module splitting.
   - [x] Reason: moving files after backend/frontend modules are split will create noisy diffs and harder reviews.
   - [x] Do not mix this migration with feature work, storage changes, or API contract changes.
-- [ ] Verification for the layout migration.
+- [x] Verification for the layout migration.
   - [x] `bun install`
   - [x] `bun run test`
   - [x] `bun run typecheck`
@@ -402,8 +402,8 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Suggested Execution Order
 
-- [ ] Phase 0: Fix current breakages.
-  - [ ] Encoding.
+- [x] Phase 0: Fix current breakages.
+  - [x] Encoding.
   - [x] TypeScript config.
   - [x] Settings API mismatch.
   - [x] Version activation invariant.
@@ -412,13 +412,13 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Bun Catalogs.
   - [x] Package renames.
   - [x] Root scripts.
-- [ ] Phase 2: Split backend architecture.
-  - [ ] `createApp()`.
-  - [ ] Routes.
-  - [ ] Services.
-  - [ ] Repositories.
-  - [ ] Safe filesystem utilities.
-- [ ] Phase 3: Add backend tests with `hono/testing`.
+- [x] Phase 2: Split backend architecture.
+  - [x] `createApp()`.
+  - [x] Routes.
+  - [x] Services.
+  - [x] Repositories.
+  - [x] Safe filesystem utilities.
+- [x] Phase 3: Add backend tests with `hono/testing`.
 - [x] Phase 4: Switch frontend API usage toward `hono/client`.
 - [x] Phase 5: Split frontend feature modules and add Vitest tests.
 - [x] Phase 6: Improve deployment packaging and documentation.
