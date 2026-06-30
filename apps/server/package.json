@@ -25,6 +25,7 @@
     "@deploykit/shared": "workspace:*",
     "fflate": "catalog:",
     "hono": "catalog:",
-    "nanoid": "catalog:"
+    "nanoid": "catalog:",
+    "zod": "catalog:"
   }
 }
