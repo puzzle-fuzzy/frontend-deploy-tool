@@ -3,10 +3,7 @@ import { join } from 'node:path';
 import type { Version } from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
-import {
-  activateVersion as applyActivation,
-  chooseReplacementActiveVersionId,
-} from '../domain/version';
+import { chooseReplacementActiveVersionId } from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -129,9 +126,10 @@ export function createVersionService(
         name: versionName,
         description: versionDesc,
         createdAt: new Date().toISOString(),
-        active: project.versions.length === 0,
       };
+      const isFirstVersion = project.versions.length === 0;
       project.versions.push(version);
+      if (isFirstVersion) project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.upload', project, version);
       repo.save(data);
@@ -156,15 +154,7 @@ export function createVersionService(
           404
         );
 
-      const activatedVersions = applyActivation(project.versions, versionId);
-      if (!activatedVersions)
-        throw new ApiError(
-          ErrorCode.VERSION_NOT_FOUND,
-          'Version not found',
-          404
-        );
-
-      project.versions = activatedVersions;
+      project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.activate', project, version);
       repo.save(data);
@@ -189,13 +179,11 @@ export function createVersionService(
 
       const replacementActiveVersionId = chooseReplacementActiveVersionId(
         project.versions,
-        versionId
+        versionId,
+        project.activeVersionId
       );
       const removed = project.versions.splice(vIdx, 1)[0];
-      project.versions = project.versions.map((version) => ({
-        ...version,
-        active: version.id === replacementActiveVersionId,
-      }));
+      project.activeVersionId = replacementActiveVersionId;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.delete', project, removed);
       repo.save(data);

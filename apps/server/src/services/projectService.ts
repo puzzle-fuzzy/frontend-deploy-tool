@@ -60,6 +60,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         versions: [],
+        activeVersionId: null,
         settings: { ...DEFAULT_PROJECT_SETTINGS },
       };
       data.projects.push(project);

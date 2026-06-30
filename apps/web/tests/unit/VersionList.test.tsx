@@ -15,9 +15,10 @@ describe('VersionList', () => {
       createdAt: '',
       updatedAt: '',
       settings: { spaMode: false, routingType: 'path' },
+      activeVersionId: 'v1',
       versions: [
-        { id: 'v1', name: 'v1', description: '', createdAt: '', active: true },
-        { id: 'v2', name: 'v2', description: '', createdAt: '', active: false },
+        { id: 'v1', name: 'v1', description: '', createdAt: '' },
+        { id: 'v2', name: 'v2', description: '', createdAt: '' },
       ],
     } as Project;
 
@@ -36,6 +37,7 @@ describe('VersionList', () => {
       createdAt: '',
       updatedAt: '',
       settings: { spaMode: false, routingType: 'path' },
+      activeVersionId: null,
       versions: [],
     } as Project;
 

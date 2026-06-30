@@ -17,6 +17,7 @@ const project = (settings: Project['settings']): Project => ({
   createdAt: '',
   updatedAt: '',
   versions: [],
+  activeVersionId: null,
   settings,
 });
 

@@ -13,6 +13,7 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   createdAt: '',
   updatedAt: '',
   versions: [],
+  activeVersionId: null,
   settings: { spaMode: false, routingType: 'path' },
   ...overrides,
 });

@@ -8,7 +8,6 @@ export interface Version {
   name: string;
   description: string;
   createdAt: string;
-  active: boolean;
 }
 
 export interface Project {
@@ -19,6 +18,8 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   versions: Version[];
+  /** The single source of truth for which version is live (null = none). */
+  activeVersionId: string | null;
   settings: Settings;
 }
 
@@ -40,6 +41,7 @@ export interface HistoryEvent {
 }
 
 export interface Data {
+  schemaVersion: number;
   projects: Project[];
   history: HistoryEvent[];
 }

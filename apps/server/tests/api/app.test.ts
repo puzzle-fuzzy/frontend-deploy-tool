@@ -80,7 +80,5 @@ test('rejects activating an unknown version without changing the active version'
     param: { id: project.id },
   });
   const currentProject = await list.json();
-  expect(currentProject.versions).toContainEqual(
-    expect.objectContaining({ id: createdVersion.version.id, active: true })
-  );
+  expect(currentProject.activeVersionId).toBe(createdVersion.version.id);
 });

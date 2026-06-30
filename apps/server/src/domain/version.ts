@@ -1,31 +1,20 @@
 import type { Version } from '@deploykit/shared';
 
-export function activateVersion(
-  versions: Version[],
-  versionId: string
-): Version[] | null {
-  if (!versions.some((version) => version.id === versionId)) return null;
-
-  return versions.map((version) => ({
-    ...version,
-    active: version.id === versionId,
-  }));
-}
-
+/**
+ * Returns the `activeVersionId` to use after `deletedVersionId` is removed.
+ * Deleting a non-active version leaves the active id untouched; deleting the
+ * active version promotes the newest remaining version. Returns `null` when the
+ * active version was the only version (nothing remains).
+ */
 export function chooseReplacementActiveVersionId(
   versions: Version[],
-  deletedVersionId: string
+  deletedVersionId: string,
+  activeVersionId: string | null
 ): string | null {
-  const deletedVersion = versions.find(
-    (version) => version.id === deletedVersionId
-  );
-  if (!deletedVersion)
-    return versions.find((version) => version.active)?.id ?? null;
-  if (!deletedVersion.active)
-    return versions.find((version) => version.active)?.id ?? null;
+  if (deletedVersionId !== activeVersionId) return activeVersionId;
 
-  const remainingVersions = versions.filter(
+  const remaining = versions.filter(
     (version) => version.id !== deletedVersionId
   );
-  return remainingVersions.at(-1)?.id ?? null;
+  return remaining.at(-1)?.id ?? null;
 }
