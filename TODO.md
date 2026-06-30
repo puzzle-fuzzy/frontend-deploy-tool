@@ -220,6 +220,93 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Unit tests.
   - [ ] Build server and web.
 
+## Workspace Layout Migration
+
+- [ ] Move to a standard `apps/` + `packages/` workspace layout before deeper feature work.
+  - [ ] Use `apps/web` for the React management dashboard.
+  - [ ] Use `apps/server` for the Hono API and static artifact server.
+  - [ ] Use `packages/shared` for cross-app domain types, API schemas, constants, and pure utilities.
+  - [ ] Use `packages/config` later only if shared eslint, tsconfig, or tooling config starts duplicating.
+  - [ ] Do not introduce a top-level `services/` folder yet; backend service modules should live inside `apps/server/src/services`.
+- [ ] Target folder structure:
+
+  ```txt
+  deploykit/
+    apps/
+      server/
+        src/
+          app.ts
+          index.ts
+          config.ts
+          domain/
+          repositories/
+          routes/
+          services/
+          utils/
+        tests/
+          api/
+          services/
+          fixtures/
+        package.json
+        tsconfig.json
+      web/
+        src/
+          app/
+          features/
+          shared/
+          components/
+        tests/
+          unit/
+          integration/
+          fixtures/
+        package.json
+        vite.config.ts
+        tsconfig.json
+    packages/
+      shared/
+        src/
+          api/
+          domain/
+          utils/
+        tests/
+        package.json
+        tsconfig.json
+    docs/
+      architecture/
+      development/
+    package.json
+    bun.lock
+  ```
+
+- [ ] Use a consistent test placement rule.
+  - [ ] Package-level tests go in each workspace package's `tests/` directory.
+  - [ ] Backend API tests go in `apps/server/tests/api`.
+  - [ ] Backend service tests go in `apps/server/tests/services`.
+  - [ ] Frontend component and hook tests go in `apps/web/tests/unit`.
+  - [ ] Frontend flow tests go in `apps/web/tests/integration`.
+  - [ ] Test fixtures go in `tests/fixtures` inside the package that owns them.
+  - [ ] Avoid colocated `*.test.ts` files in `src/` unless a package becomes large enough to justify a different convention.
+- [ ] Update workspace config after moving folders.
+  - [ ] Change root `workspaces.packages` to `["apps/*", "packages/*"]`.
+  - [ ] Update root scripts to filter `@deploykit/server`, `@deploykit/web`, and `@deploykit/shared`.
+  - [ ] Update package names and path references without changing public behavior.
+  - [ ] Update Vite aliases after moving `web`.
+  - [ ] Update TypeScript project references if introduced.
+- [ ] Move current tests into the new convention.
+  - [ ] Move `server/app.test.ts` to `apps/server/tests/api/app.test.ts`.
+  - [ ] Keep temporary directory fixtures local to the test file until a reusable helper is needed.
+- [ ] Migrate in a dedicated branch/commit at the right time.
+  - [ ] Best timing: immediately after Phase 1 workspace foundation and before Phase 2 backend module splitting.
+  - [ ] Reason: moving files after backend/frontend modules are split will create noisy diffs and harder reviews.
+  - [ ] Do not mix this migration with feature work, storage changes, or API contract changes.
+- [ ] Verification for the layout migration.
+  - [ ] `bun install`
+  - [ ] `bun run test`
+  - [ ] `bun run typecheck`
+  - [ ] `bun run lint`
+  - [ ] `bun run build`
+  - [ ] Confirm no local data files or generated deployment artifacts are tracked.
+
 ## Build And Deployment Flow
 
 - [ ] Decouple web build output from `server/public`.
