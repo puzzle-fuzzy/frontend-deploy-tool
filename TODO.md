@@ -46,9 +46,9 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Security And File Safety
 
-- [ ] Add safe path utilities.
-  - [ ] `safeJoin(root, relativePath)` must resolve and verify the final path remains inside `root`.
-  - [ ] Reject absolute paths, `..`, empty unsafe paths, and Windows drive path escapes.
+- [x] Add safe path utilities.
+  - [x] `safeJoin(root, relativePath)` must resolve and verify the final path remains inside `root`.
+  - [x] Reject absolute paths, `..`, empty unsafe paths, and Windows drive path escapes.
 - [ ] Harden folder upload.
   - [ ] Validate every `webkitRelativePath` before writing.
   - [ ] Normalize path separators.
@@ -88,7 +88,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `server/src/routes/history.ts`: history API routes.
   - [ ] `server/src/routes/deploy.ts`: deployment static route.
   - [ ] `server/src/utils/id.ts`: ID generation.
-  - [ ] `server/src/utils/safePath.ts`: filesystem safety helpers.
+  - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
   - [ ] `server/src/utils/mime.ts`: MIME lookup.
 - [ ] Introduce explicit domain invariants.
   - [ ] Prefer `project.activeVersionId` over `version.active`.
@@ -127,7 +127,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Add service-level tests.
   - [ ] Slug validation.
   - [ ] Active version invariant.
-  - [ ] Safe path rejection.
+  - [x] Safe path rejection.
   - [ ] JSON repository atomic writes.
 - [ ] Add artifact tests.
   - [ ] Folder upload path normalization.

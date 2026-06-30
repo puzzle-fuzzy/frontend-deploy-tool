@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { serveStatic } from "hono/bun";
 import type { Data, HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
+import { safeJoin } from "./utils/safePath";
 import {
   existsSync,
   mkdirSync,
@@ -11,7 +12,7 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, extname, join, resolve } from "node:path";
+import { dirname, extname, join } from "node:path";
 
 export interface AppConfig {
   dataFile: string;
@@ -132,13 +133,6 @@ function parseSettings(input: unknown): Settings | null {
   return { spaMode: body.spaMode, routingType: body.routingType };
 }
 
-function safeStoragePath(root: string, relativePath: string): string | null {
-  const rootPath = resolve(root);
-  const target = resolve(rootPath, relativePath);
-  if (target !== rootPath && !target.startsWith(rootPath + "\\")) return null;
-  return target;
-}
-
 export function createApp(config: AppConfig) {
   mkdirSync(config.storageDir, { recursive: true });
 
@@ -237,7 +231,7 @@ export function createApp(config: AppConfig) {
       } else if (folderFiles.length > 0) {
         for (const f of folderFiles) {
           const relativePath = ((f as File & { webkitRelativePath?: string }).webkitRelativePath || f.name).replaceAll("/", "\\");
-          const filePath = safeStoragePath(versionDir, relativePath);
+          const filePath = safeJoin(versionDir, relativePath);
           if (!filePath) throw new Error(`Unsafe upload path: ${relativePath}`);
           mkdirSync(dirname(filePath), { recursive: true });
           await Bun.write(filePath, f);
@@ -332,7 +326,7 @@ export function createApp(config: AppConfig) {
 
     if (!filePath || filePath.endsWith("/")) filePath += "index.html";
     const versionRoot = join(config.storageDir, project.id, versionId);
-    const absolutePath = safeStoragePath(versionRoot, filePath);
+    const absolutePath = safeJoin(versionRoot, filePath);
     if (!absolutePath) return c.text("Forbidden", 403);
 
     const res = storageFile(absolutePath);
