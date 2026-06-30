@@ -222,10 +222,10 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 
 ## Workspace Layout Migration
 
-- [ ] Move to a standard `apps/` + `packages/` workspace layout before deeper feature work.
-  - [ ] Use `apps/web` for the React management dashboard.
-  - [ ] Use `apps/server` for the Hono API and static artifact server.
-  - [ ] Use `packages/shared` for cross-app domain types, API schemas, constants, and pure utilities.
+- [x] Move to a standard `apps/` + `packages/` workspace layout before deeper feature work.
+  - [x] Use `apps/web` for the React management dashboard.
+  - [x] Use `apps/server` for the Hono API and static artifact server.
+  - [x] Use `packages/shared` for cross-app domain types, API schemas, constants, and pure utilities.
   - [ ] Use `packages/config` later only if shared eslint, tsconfig, or tooling config starts duplicating.
   - [ ] Do not introduce a top-level `services/` folder yet; backend service modules should live inside `apps/server/src/services`.
 - [ ] Target folder structure:
@@ -286,26 +286,26 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Frontend flow tests go in `apps/web/tests/integration`.
   - [ ] Test fixtures go in `tests/fixtures` inside the package that owns them.
   - [ ] Avoid colocated `*.test.ts` files in `src/` unless a package becomes large enough to justify a different convention.
-- [ ] Update workspace config after moving folders.
-  - [ ] Change root `workspaces.packages` to `["apps/*", "packages/*"]`.
-  - [ ] Update root scripts to filter `@deploykit/server`, `@deploykit/web`, and `@deploykit/shared`.
-  - [ ] Update package names and path references without changing public behavior.
-  - [ ] Update Vite aliases after moving `web`.
+- [x] Update workspace config after moving folders.
+  - [x] Change root `workspaces.packages` to `["apps/*", "packages/*"]`.
+  - [x] Update root scripts to filter `@deploykit/server`, `@deploykit/web`, and `@deploykit/shared`.
+  - [x] Update package names and path references without changing public behavior.
+  - [x] Update Vite aliases after moving `web`.
   - [ ] Update TypeScript project references if introduced.
-- [ ] Move current tests into the new convention.
-  - [ ] Move `server/app.test.ts` to `apps/server/tests/api/app.test.ts`.
-  - [ ] Keep temporary directory fixtures local to the test file until a reusable helper is needed.
-- [ ] Migrate in a dedicated branch/commit at the right time.
-  - [ ] Best timing: immediately after Phase 1 workspace foundation and before Phase 2 backend module splitting.
-  - [ ] Reason: moving files after backend/frontend modules are split will create noisy diffs and harder reviews.
-  - [ ] Do not mix this migration with feature work, storage changes, or API contract changes.
+- [x] Move current tests into the new convention.
+  - [x] Move `server/app.test.ts` to `apps/server/tests/api/app.test.ts`.
+  - [x] Keep temporary directory fixtures local to the test file until a reusable helper is needed.
+- [x] Migrate in a dedicated branch/commit at the right time.
+  - [x] Best timing: immediately after Phase 1 workspace foundation and before Phase 2 backend module splitting.
+  - [x] Reason: moving files after backend/frontend modules are split will create noisy diffs and harder reviews.
+  - [x] Do not mix this migration with feature work, storage changes, or API contract changes.
 - [ ] Verification for the layout migration.
-  - [ ] `bun install`
-  - [ ] `bun run test`
-  - [ ] `bun run typecheck`
-  - [ ] `bun run lint`
-  - [ ] `bun run build`
-  - [ ] Confirm no local data files or generated deployment artifacts are tracked.
+  - [x] `bun install`
+  - [x] `bun run test`
+  - [x] `bun run typecheck`
+  - [x] `bun run lint`
+  - [x] `bun run build`
+  - [x] Confirm no local data files or generated deployment artifacts are tracked.
 
 ## Build And Deployment Flow
 

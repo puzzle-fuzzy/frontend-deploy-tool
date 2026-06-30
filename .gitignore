@@ -1,11 +1,12 @@
 node_modules/
-server/node_modules/
-web/node_modules/
+apps/server/node_modules/
+apps/web/node_modules/
+packages/*/node_modules/
 
-server/public/
-server/data.json
-server/.voasx/
-web/dist/
+apps/server/public/
+apps/server/data.json
+apps/server/.voasx/
+apps/web/dist/
 
 *.tsbuildinfo
 .DS_Store

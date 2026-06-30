@@ -5,8 +5,8 @@
   "packageManager": "bun@1.3.14",
   "workspaces": {
     "packages": [
-      "server",
-      "web"
+      "apps/*",
+      "packages/*"
     ],
     "catalog": {
       "@babel/core": "^7.29.0",

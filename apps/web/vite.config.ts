@@ -11,7 +11,7 @@ export default defineConfig({
     babel({ presets: [reactCompilerPreset()] }),
   ],
   build: {
-    outDir: '../server/public',
+    outDir: path.resolve(__dirname, '../server/public'),
     emptyOutDir: true,
   },
   resolve: {

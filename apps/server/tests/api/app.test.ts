@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testClient } from "hono/testing";
-import { createApp } from "./src/app";
+import { createApp } from "../../src/app";
 
 let tempDir: string;
 type TestClient = ReturnType<typeof testClient> & {

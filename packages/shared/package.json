@@ -1,0 +1,17 @@
+{
+  "name": "@deploykit/shared",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "bun run typecheck",
+    "typecheck": "bun x tsc --noEmit",
+    "test": "bun -e \"console.log('No shared tests configured yet')\""
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}
