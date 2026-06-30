@@ -1,0 +1,127 @@
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { api } from '@/lib/api';
+import { useToast } from '@/lib/toast-context';
+import type { Project } from '@/types';
+
+function getHashProjectId(): string {
+  const hash = window.location.hash;
+  if (hash.startsWith('#/projects/')) return hash.slice('#/projects/'.length);
+  return '';
+}
+
+function setHashProjectId(id: string | null) {
+  if (id) {
+    window.location.hash = `#/projects/${id}`;
+  } else {
+    history.replaceState(
+      null,
+      '',
+      window.location.pathname + window.location.search
+    );
+  }
+}
+
+/**
+ * Owns the project list, the selected project, and the URL-hash deep-linking.
+ * Actions (`activateVersion`, `deleteVersion`, `onProjectDeleted`) call the API
+ * and refresh the list, surfacing errors via toast.
+ */
+export function useProjects() {
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedProject, setSelectedProject] = useState<Project | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const data = await api.listProjects();
+      setProjects(data);
+      setSelectedProject((prev) =>
+        prev ? (data.find((p) => p.id === prev.id) ?? null) : prev
+      );
+    } catch {
+      toast(t('common.failed'), 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast, t]);
+
+  const selectProject = useCallback((p: Project | null) => {
+    setSelectedProject(p);
+    setHashProjectId(p?.id ?? null);
+  }, []);
+
+  // Initial load + restore selection from the URL hash.
+  useEffect(() => {
+    api
+      .listProjects()
+      .then((data) => {
+        setProjects(data);
+        const hashId = getHashProjectId();
+        if (hashId) {
+          const found = data.find((p) => p.id === hashId);
+          if (found) setSelectedProject(found);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
+  }, []);
+
+  // Keep selection in sync with back/forward navigation.
+  useEffect(() => {
+    const handler = () => {
+      const hashId = getHashProjectId();
+      setSelectedProject(projects.find((p) => p.id === hashId) ?? null);
+    };
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
+  }, [projects]);
+
+  const activateVersion = useCallback(
+    async (versionId: string) => {
+      if (!selectedProject) return;
+      try {
+        await api.activateVersion(selectedProject.id, versionId);
+        toast(t('common.activated'));
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      }
+    },
+    [selectedProject, refresh, toast, t]
+  );
+
+  const deleteVersion = useCallback(
+    async (versionId: string) => {
+      if (!selectedProject) return;
+      try {
+        await api.deleteVersion(selectedProject.id, versionId);
+        toast(t('common.deleted'));
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      }
+    },
+    [selectedProject, refresh, toast, t]
+  );
+
+  const onProjectDeleted = useCallback(() => {
+    selectProject(null);
+    refresh();
+  }, [selectProject, refresh]);
+
+  return {
+    projects,
+    loading,
+    selectedProject,
+    selectProject,
+    refresh,
+    activateVersion,
+    deleteVersion,
+    onProjectDeleted,
+  };
+}

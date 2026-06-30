@@ -24,7 +24,7 @@ interface Props {
   onDeleted: () => void;
 }
 
-export function SettingsDialog({
+export function ProjectSettingsDialog({
   open,
   onOpenChange,
   project,

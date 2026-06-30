@@ -21,7 +21,7 @@ interface Props {
   onUploaded: () => void;
 }
 
-export function UploadDialog({
+export function UploadVersionDialog({
   open,
   onOpenChange,
   projectId,
