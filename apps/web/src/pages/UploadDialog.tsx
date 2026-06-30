@@ -1,18 +1,18 @@
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
-import { Upload, FileArchive, FolderOpen } from "lucide-react";
+import { FileArchive, FolderOpen, Upload } from 'lucide-react';
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { Progress } from "@/components/ui/progress";
-import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast-context";
+} from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
+import { Textarea } from '@/components/ui/textarea';
+import { api } from '@/lib/api';
+import { useToast } from '@/lib/toast-context';
 
 interface Props {
   open: boolean;
@@ -21,12 +21,18 @@ interface Props {
   onUploaded: () => void;
 }
 
-export function UploadDialog({ open, onOpenChange, projectId, onUploaded }: Props) {
+export function UploadDialog({
+  open,
+  onOpenChange,
+  projectId,
+  onUploaded,
+}: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const releaseNotesId = 'upload-release-notes';
   const [file, setFile] = useState<File | null>(null);
   const [folderFiles, setFolderFiles] = useState<File[] | null>(null);
-  const [desc, setDesc] = useState("");
+  const [desc, setDesc] = useState('');
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
 
@@ -39,24 +45,30 @@ export function UploadDialog({ open, onOpenChange, projectId, onUploaded }: Prop
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const f = e.dataTransfer.files[0];
-    if (f) { setFile(f); setFolderFiles(null); }
+    if (f) {
+      setFile(f);
+      setFolderFiles(null);
+    }
   };
 
   const handleSelectZip = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.accept = ".zip";
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip';
     input.onchange = () => {
-      if (input.files?.[0]) { setFile(input.files[0]); setFolderFiles(null); }
+      if (input.files?.[0]) {
+        setFile(input.files[0]);
+        setFolderFiles(null);
+      }
     };
     input.click();
   };
 
   const handleSelectFolder = () => {
-    const input = document.createElement("input");
-    input.type = "file";
-    input.setAttribute("webkitdirectory", "");
-    input.setAttribute("directory", "");
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.setAttribute('webkitdirectory', '');
+    input.setAttribute('directory', '');
     input.onchange = () => {
       if (input.files && input.files.length > 0) {
         setFolderFiles(Array.from(input.files));
@@ -72,12 +84,15 @@ export function UploadDialog({ open, onOpenChange, projectId, onUploaded }: Prop
     setUploading(true);
     try {
       await api.uploadVersion(projectId, file, folderFiles, desc, setProgress);
-      toast(t("common.uploaded"));
-      setFile(null); setFolderFiles(null); setDesc(""); setProgress(0);
+      toast(t('common.uploaded'));
+      setFile(null);
+      setFolderFiles(null);
+      setDesc('');
+      setProgress(0);
       onUploaded();
       onOpenChange(false);
     } catch (err) {
-      toast(err instanceof Error ? err.message : t("common.failed"), "error");
+      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
     } finally {
       setUploading(false);
     }
@@ -87,66 +102,86 @@ export function UploadDialog({ open, onOpenChange, projectId, onUploaded }: Prop
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{t("upload.title")}</DialogTitle>
+          <DialogTitle>{t('upload.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div
+          <button
+            type="button"
             onDrop={handleDrop}
             onDragOver={(e) => e.preventDefault()}
             onClick={handleSelectZip}
-            className="border-2 border-dashed border-border rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"
+            className="w-full border-2 border-dashed border-border rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"
           >
             <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center mb-3">
               <Upload className="size-5 text-primary" />
             </div>
-            <p className="text-sm font-medium">{label ?? t("upload.dropzone")}</p>
-            <p className="text-xs text-muted-foreground mt-1">{t("upload.dropzoneDesc")}</p>
+            <p className="text-sm font-medium">
+              {label ?? t('upload.dropzone')}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {t('upload.dropzoneDesc')}
+            </p>
+          </button>
 
-            <div className="flex gap-2 mt-3">
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleSelectZip(); }}
-              >
-                <FileArchive className="size-3.5" />
-                {t("upload.selectZip")}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                type="button"
-                onClick={(e) => { e.stopPropagation(); handleSelectFolder(); }}
-              >
-                <FolderOpen className="size-3.5" />
-                {t("upload.selectFolder")}
-              </Button>
-            </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={handleSelectZip}
+            >
+              <FileArchive className="size-3.5" />
+              {t('upload.selectZip')}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              type="button"
+              onClick={handleSelectFolder}
+            >
+              <FolderOpen className="size-3.5" />
+              {t('upload.selectFolder')}
+            </Button>
           </div>
 
           {uploading && (
             <div className="space-y-1">
               <Progress value={progress} className="h-1.5" />
-              <p className="text-xs text-muted-foreground text-right">{progress}%</p>
+              <p className="text-xs text-muted-foreground text-right">
+                {progress}%
+              </p>
             </div>
           )}
 
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t("upload.releaseNotes")}</label>
+            <label
+              htmlFor={releaseNotesId}
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t('upload.releaseNotes')}
+            </label>
             <Textarea
+              id={releaseNotesId}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder={t("upload.releaseNotesPlaceholder")}
+              placeholder={t('upload.releaseNotesPlaceholder')}
               rows={2}
             />
           </div>
 
           <DialogFooter>
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
-              {t("upload.cancel")}
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => onOpenChange(false)}
+            >
+              {t('upload.cancel')}
             </Button>
-            <Button type="submit" disabled={(!file && !folderFiles) || uploading}>
-              {uploading ? `${progress}%` : t("upload.submit")}
+            <Button
+              type="submit"
+              disabled={(!file && !folderFiles) || uploading}
+            >
+              {uploading ? `${progress}%` : t('upload.submit')}
             </Button>
           </DialogFooter>
         </form>

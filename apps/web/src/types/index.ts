@@ -1,1 +1,6 @@
-export type { HistoryEvent, Project, Settings, Version } from "@deploykit/shared";
+export type {
+  HistoryEvent,
+  Project,
+  Settings,
+  Version,
+} from '@deploykit/shared';

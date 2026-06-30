@@ -1,6 +1,6 @@
-import type { Project, Settings } from "../types";
+import type { Project, Settings } from '../types';
 
-const BASE = "";
+const BASE = '';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, init);
@@ -12,24 +12,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  listProjects: () => request<Project[]>("/api/projects"),
-
-  getProject: (id: string) => request<Project>(`/api/projects/${id}`),
+  listProjects: () => request<Project[]>('/api/projects'),
 
   createProject: (data: { name: string; slug: string; description: string }) =>
-    request<Project>("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+    request<Project>('/api/projects', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     }),
 
   deleteProject: (id: string) =>
-    request<{ ok: boolean }>(`/api/projects/${id}`, { method: "DELETE" }),
+    request<{ ok: boolean }>(`/api/projects/${id}`, { method: 'DELETE' }),
 
   updateSettings: (id: string, settings: Settings) =>
     request<Project>(`/api/projects/${id}/settings`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(settings),
     }),
 
@@ -38,18 +36,18 @@ export const api = {
     file: File | null,
     folderFiles: File[] | null,
     description: string,
-    onProgress?: (pct: number) => void,
+    onProgress?: (pct: number) => void
   ): Promise<{ version: { id: string; name: string } }> =>
     new Promise((resolve, reject) => {
       const form = new FormData();
-      if (file) form.append("file", file);
+      if (file) form.append('file', file);
       if (folderFiles) {
-        for (const f of folderFiles) form.append("folderFiles", f);
+        for (const f of folderFiles) form.append('folderFiles', f);
       }
-      form.append("versionDesc", description);
+      form.append('versionDesc', description);
 
       const xhr = new XMLHttpRequest();
-      xhr.open("POST", `${BASE}/api/projects/${projectId}/versions`);
+      xhr.open('POST', `${BASE}/api/projects/${projectId}/versions`);
 
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {
@@ -61,23 +59,23 @@ export const api = {
         if (xhr.status >= 200 && xhr.status < 300) {
           resolve(JSON.parse(xhr.responseText));
         } else {
-          reject(new Error(xhr.responseText || "Upload failed"));
+          reject(new Error(xhr.responseText || 'Upload failed'));
         }
       };
 
-      xhr.onerror = () => reject(new Error("Network error"));
+      xhr.onerror = () => reject(new Error('Network error'));
       xhr.send(form);
     }),
 
   activateVersion: (projectId: string, versionId: string) =>
     request<{ ok: boolean }>(
       `/api/projects/${projectId}/versions/${versionId}/activate`,
-      { method: "PUT" },
+      { method: 'PUT' }
     ),
 
   deleteVersion: (projectId: string, versionId: string) =>
     request<{ ok: boolean }>(
       `/api/projects/${projectId}/versions/${versionId}`,
-      { method: "DELETE" },
+      { method: 'DELETE' }
     ),
 };

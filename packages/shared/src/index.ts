@@ -5,4 +5,4 @@ export type {
   Project,
   Settings,
   Version,
-} from "./domain";
+} from './domain';

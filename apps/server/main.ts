@@ -1,5 +1,5 @@
-import { createApp } from "./src/app";
-import { loadConfig } from "./src/config";
+import { createApp } from './src/app';
+import { loadConfig } from './src/config';
 
 const config = loadConfig({ appDir: import.meta.dir });
 

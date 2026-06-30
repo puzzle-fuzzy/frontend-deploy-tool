@@ -1,17 +1,17 @@
-import { useState } from "react";
-import { useTranslation } from "react-i18next";
+import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast-context";
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { api } from '@/lib/api';
+import { useToast } from '@/lib/toast-context';
 
 interface Props {
   open: boolean;
@@ -22,9 +22,12 @@ interface Props {
 export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [desc, setDesc] = useState("");
+  const nameInputId = 'create-project-name';
+  const slugInputId = 'create-project-slug';
+  const descInputId = 'create-project-description';
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [desc, setDesc] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -32,13 +35,19 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     if (!name.trim() || !slug.trim()) return;
     setSubmitting(true);
     try {
-      await api.createProject({ name: name.trim(), slug: slug.trim(), description: desc.trim() });
-      toast(t("common.created"));
-      setName(""); setSlug(""); setDesc("");
+      await api.createProject({
+        name: name.trim(),
+        slug: slug.trim(),
+        description: desc.trim(),
+      });
+      toast(t('common.created'));
+      setName('');
+      setSlug('');
+      setDesc('');
       onCreated();
       onOpenChange(false);
     } catch (err) {
-      toast(err instanceof Error ? err.message : t("common.failed"), "error");
+      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
     } finally {
       setSubmitting(false);
     }
@@ -48,42 +57,71 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{t("create.title")}</DialogTitle>
+          <DialogTitle>{t('create.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t("create.name")}</label>
+            <label
+              htmlFor={nameInputId}
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t('create.name')}
+            </label>
             <Input
+              id={nameInputId}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={t("create.namePlaceholder")}
+              placeholder={t('create.namePlaceholder')}
             />
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t("create.slug")}</label>
+            <label
+              htmlFor={slugInputId}
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t('create.slug')}
+            </label>
             <Input
+              id={slugInputId}
               value={slug}
-              onChange={(e) => setSlug(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, ""))}
-              placeholder={t("create.slugPlaceholder")}
+              onChange={(e) =>
+                setSlug(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, ''))
+              }
+              placeholder={t('create.slugPlaceholder')}
               className="font-mono"
             />
-            <p className="text-xs text-muted-foreground">{t("create.slugHint")}</p>
+            <p className="text-xs text-muted-foreground">
+              {t('create.slugHint')}
+            </p>
           </div>
           <div className="space-y-1.5">
-            <label className="text-xs font-medium text-muted-foreground">{t("create.description")}</label>
+            <label
+              htmlFor={descInputId}
+              className="text-xs font-medium text-muted-foreground"
+            >
+              {t('create.description')}
+            </label>
             <Textarea
+              id={descInputId}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder={t("create.descPlaceholder")}
+              placeholder={t('create.descPlaceholder')}
               rows={2}
             />
           </div>
           <DialogFooter>
-            <Button variant="outline" type="button" onClick={() => onOpenChange(false)}>
-              {t("create.cancel")}
+            <Button
+              variant="outline"
+              type="button"
+              onClick={() => onOpenChange(false)}
+            >
+              {t('create.cancel')}
             </Button>
-            <Button type="submit" disabled={submitting || !name.trim() || !slug.trim()}>
-              {t("create.create")}
+            <Button
+              type="submit"
+              disabled={submitting || !name.trim() || !slug.trim()}
+            >
+              {t('create.create')}
             </Button>
           </DialogFooter>
         </form>

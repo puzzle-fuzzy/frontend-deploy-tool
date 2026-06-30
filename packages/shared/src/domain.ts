@@ -1,6 +1,6 @@
 export interface Settings {
   spaMode: boolean;
-  routingType: "hash" | "path";
+  routingType: 'hash' | 'path';
 }
 
 export interface Version {
@@ -23,11 +23,11 @@ export interface Project {
 }
 
 export type HistoryAction =
-  | "project.create"
-  | "project.delete"
-  | "version.upload"
-  | "version.activate"
-  | "version.delete";
+  | 'project.create'
+  | 'project.delete'
+  | 'version.upload'
+  | 'version.activate'
+  | 'version.delete';
 
 export interface HistoryEvent {
   id: string;

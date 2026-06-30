@@ -1,8 +1,8 @@
-import type { Settings } from "@deploykit/shared";
+import type { Settings } from '@deploykit/shared';
 
 export const DEFAULT_PROJECT_SETTINGS: Settings = {
   spaMode: false,
-  routingType: "path",
+  routingType: 'path',
 };
 
 export function isValidProjectSlug(slug: string): boolean {

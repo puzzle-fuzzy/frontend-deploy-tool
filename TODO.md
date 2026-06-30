@@ -22,7 +22,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `README.md`
   - [ ] `server/README.md`
   - [ ] `web/README.md`
-  - [ ] `server/main.ts`
+  - [x] `server/main.ts`
   - [ ] `web/src/i18n/locales/zh.json`
   - [ ] Affected UI strings in React files.
 - [x] Fix the settings API contract mismatch.
@@ -33,16 +33,16 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Reject unknown `versionId` before mutating any project state.
   - [x] Prevent all versions from becoming inactive when activation fails.
   - [x] Reassign or clear active version when deleting the active version.
-- [ ] Fix upload response typing.
-  - [ ] Frontend expects `{ version: { id, name } }`.
-  - [ ] Backend currently returns the version object directly.
-- [ ] Remove or implement nonexistent frontend API methods.
-  - [ ] `api.getProject()` calls `GET /api/projects/:id`, which does not exist.
+- [x] Fix upload response typing.
+  - [x] Frontend expects `{ version: { id, name } }`.
+  - [x] Backend currently returns the version object directly.
+- [x] Remove or implement nonexistent frontend API methods.
+  - [x] `api.getProject()` calls `GET /api/projects/:id`, which does not exist.
 - [x] Fix server TypeScript configuration.
   - [x] `server/tsconfig.json` currently fails because `ignoreDeprecations: "6.0"` is invalid.
 - [x] Remove hard-coded `3000` from frontend deployment URLs.
   - [x] Use `window.location.origin` for same-origin production.
-  - [ ] Use a config endpoint or env variable for non-same-origin deployments.
+  - [x] Use a config endpoint or env variable for non-same-origin deployments.
 
 ## Security And File Safety
 
@@ -57,17 +57,17 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Do not trust `tar -xf` blindly.
   - [ ] Detect path traversal entries.
   - [ ] Reject or ignore symlinks.
-  - [ ] Clean temporary files in both success and failure paths.
-- [ ] Add upload limits.
-  - [ ] Max ZIP size.
-  - [ ] Max extracted size.
-  - [ ] Max file count.
-  - [ ] Max path length.
-- [ ] Add safer static serving headers.
+  - [x] Clean temporary files in both success and failure paths.
+- [x] Add upload limits.
+  - [x] Max ZIP size.
+  - [x] Max extracted size.
+  - [x] Max file count.
+  - [x] Max path length.
+- [x] Add safer static serving headers.
   - [x] Correct `Content-Type`.
-  - [ ] Cache policy for hashed assets.
-  - [ ] No-cache policy for HTML.
-  - [ ] Optional security headers for the management UI.
+  - [x] Cache policy for hashed assets.
+  - [x] No-cache policy for HTML.
+  - [x] Optional security headers for the management UI.
 
 ## Backend Architecture
 
@@ -76,7 +76,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
   - [x] `server/src/config.ts`: environment and path configuration.
   - [x] `server/src/domain/project.ts`: domain types and constants.
-  - [ ] `server/src/domain/version.ts`: version types and state rules.
+  - [x] `server/src/domain/version.ts`: version types and state rules.
   - [ ] `server/src/repositories/projectRepository.ts`: repository interface.
   - [ ] `server/src/repositories/jsonProjectRepository.ts`: JSON-backed implementation.
   - [ ] `server/src/services/projectService.ts`: project use cases.
@@ -92,7 +92,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] `server/src/utils/mime.ts`: MIME lookup.
 - [ ] Introduce explicit domain invariants.
   - [ ] Prefer `project.activeVersionId` over `version.active`.
-  - [ ] A project can have zero or one active version.
+  - [x] A project can have zero or one active version.
   - [ ] A version must belong to exactly one project.
   - [ ] Slug must be unique.
 - [ ] Introduce typed request validation.
@@ -126,7 +126,7 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Assert response status and JSON body shape.
 - [ ] Add service-level tests.
   - [x] Slug validation.
-  - [ ] Active version invariant.
+  - [x] Active version invariant.
   - [x] Safe path rejection.
   - [ ] JSON repository atomic writes.
 - [ ] Add artifact tests.
@@ -210,9 +210,9 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] `bun run test`
   - [x] `bun run lint`
   - [x] `bun run typecheck`
-- [ ] Add formatting.
-  - [ ] Choose Biome or Prettier.
-  - [ ] Add root format and check scripts.
+- [x] Add formatting.
+  - [x] Choose Biome or Prettier.
+  - [x] Add root format and check scripts.
 - [ ] Add CI later.
   - [ ] Install with Bun.
   - [ ] Typecheck.
@@ -317,12 +317,12 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [ ] Backend only.
   - [ ] Frontend dev server with API proxy.
   - [ ] Production-like local server serving built web assets.
-- [ ] Add environment configuration.
+- [x] Add environment configuration.
   - [x] `PORT`
   - [x] `DATA_FILE`
   - [x] `STORAGE_DIR`
   - [x] `PUBLIC_DIR`
-  - [ ] `PUBLIC_BASE_URL`
+  - [x] `PUBLIC_BASE_URL`
 - [ ] Add project base path guidance for deployed Vite apps.
   - [ ] Hash router apps work naturally.
   - [ ] Path router apps must build with a compatible `base`.

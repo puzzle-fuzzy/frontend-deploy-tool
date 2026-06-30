@@ -9,6 +9,7 @@
       "packages/*"
     ],
     "catalog": {
+      "@biomejs/biome": "^2.5.1",
       "@babel/core": "^7.29.0",
       "@eslint/js": "^10.0.1",
       "@rolldown/plugin-babel": "^0.2.3",
@@ -52,6 +53,13 @@
     "build": "bun --filter '*' build",
     "test": "bun --filter '*' test",
     "lint": "bun --filter @deploykit/web lint",
-    "typecheck": "bun --filter '*' typecheck"
+    "typecheck": "bun --filter '*' typecheck",
+    "format": "bun biome format --write .",
+    "format:check": "bun biome format .",
+    "check": "bun biome check .",
+    "check:fix": "bun biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "catalog:"
   }
 }

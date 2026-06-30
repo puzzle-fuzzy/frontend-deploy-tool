@@ -1,44 +1,49 @@
-import { useEffect, useState, useCallback } from "react";
-import { useTranslation } from "react-i18next";
 import {
+  ChevronRight,
+  Copy,
+  ExternalLink,
+  FolderOpen,
+  Globe,
+  Moon,
   Plus,
   Settings,
-  Globe,
-  FolderOpen,
-  ChevronRight,
-  ExternalLink,
-  Copy,
   Sun,
-  Moon,
-} from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
+} from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Separator } from '@/components/ui/separator';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
-import { useToast } from "@/lib/toast-context";
-import { formatDate } from "@/lib/format";
-import { CreateProjectDialog } from "./CreateProjectDialog";
-import { UploadDialog } from "./UploadDialog";
-import { SettingsDialog } from "./SettingsDialog";
-import type { Project } from "@/types";
+} from '@/components/ui/tooltip';
+import { api } from '@/lib/api';
+import { formatDate } from '@/lib/format';
+import { useToast } from '@/lib/toast-context';
+import type { Project } from '@/types';
+import { publicBaseURL } from '../config';
+import { CreateProjectDialog } from './CreateProjectDialog';
+import { SettingsDialog } from './SettingsDialog';
+import { UploadDialog } from './UploadDialog';
 
 function getHashProjectId(): string {
   const hash = window.location.hash;
-  if (hash.startsWith("#/projects/")) return hash.slice("#/projects/".length);
-  return "";
+  if (hash.startsWith('#/projects/')) return hash.slice('#/projects/'.length);
+  return '';
 }
 
 function setHashProjectId(id: string | null) {
   if (id) {
     window.location.hash = `#/projects/${id}`;
   } else {
-    history.replaceState(null, "", window.location.pathname + window.location.search);
+    history.replaceState(
+      null,
+      '',
+      window.location.pathname + window.location.search
+    );
   }
 }
 
@@ -51,11 +56,13 @@ export function DeployPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
-  const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
+  const [dark, setDark] = useState(
+    () => localStorage.getItem('theme') === 'dark'
+  );
 
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", dark);
-    localStorage.setItem("theme", dark ? "dark" : "light");
+    document.documentElement.classList.toggle('dark', dark);
+    localStorage.setItem('theme', dark ? 'dark' : 'light');
   }, [dark]);
 
   const selectProject = useCallback((p: Project | null) => {
@@ -73,14 +80,15 @@ export function DeployPage() {
         return updated ?? null;
       });
     } catch {
-      toast(t("common.failed"), "error");
+      toast(t('common.failed'), 'error');
     } finally {
       setLoading(false);
     }
   }, [toast, t]);
 
   useEffect(() => {
-    api.listProjects()
+    api
+      .listProjects()
       .then((data) => {
         setProjects(data);
         const hashId = getHashProjectId();
@@ -90,7 +98,9 @@ export function DeployPage() {
         }
         setLoading(false);
       })
-      .catch(() => { setLoading(false); });
+      .catch(() => {
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
@@ -108,18 +118,18 @@ export function DeployPage() {
         });
       }
     };
-    window.addEventListener("hashchange", handler);
-    return () => window.removeEventListener("hashchange", handler);
+    window.addEventListener('hashchange', handler);
+    return () => window.removeEventListener('hashchange', handler);
   }, []);
 
   const handleActivate = async (versionId: string) => {
     if (!selectedProject) return;
     try {
       await api.activateVersion(selectedProject.id, versionId);
-      toast(t("common.activated"));
+      toast(t('common.activated'));
       fetchProjects();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t("common.failed"), "error");
+      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
     }
   };
 
@@ -127,10 +137,10 @@ export function DeployPage() {
     if (!selectedProject) return;
     try {
       await api.deleteVersion(selectedProject.id, versionId);
-      toast(t("common.deleted"));
+      toast(t('common.deleted'));
       fetchProjects();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t("common.failed"), "error");
+      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
     }
   };
 
@@ -140,8 +150,8 @@ export function DeployPage() {
   };
 
   const deployUrl = selectedProject
-    ? `${window.location.origin}/deploy/${selectedProject.slug}/`
-    : "";
+    ? `${publicBaseURL}/deploy/${selectedProject.slug}/`
+    : '';
 
   return (
     <div className="flex items-center justify-center min-h-dvh p-6">
@@ -150,21 +160,40 @@ export function DeployPage() {
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <FolderOpen className="size-5 text-primary" />
-            <h1 className="text-base font-semibold">{t("app.title")}</h1>
+            <h1 className="text-base font-semibold">{t('app.title')}</h1>
           </div>
           <div className="flex items-center gap-1">
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button variant="ghost" size="icon-sm" onClick={() => setDark((d) => !d)}>
-                  {dark ? <Sun className="size-4" /> : <Moon className="size-4" />}
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  onClick={() => setDark((d) => !d)}
+                >
+                  {dark ? (
+                    <Sun className="size-4" />
+                  ) : (
+                    <Moon className="size-4" />
+                  )}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent>{dark ? "Light Mode" : "Dark Mode"}</TooltipContent>
+              <TooltipContent>
+                {dark ? 'Light Mode' : 'Dark Mode'}
+              </TooltipContent>
             </Tooltip>
             <Separator orientation="vertical" className="h-5 mx-1" />
-            <Button variant="ghost" size="sm" onClick={() => { const next = i18n.language.startsWith("zh") ? "en" : "zh"; i18n.changeLanguage(next); }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                const next = i18n.language.startsWith('zh') ? 'en' : 'zh';
+                i18n.changeLanguage(next);
+              }}
+            >
               <Globe className="size-4" />
-              <span className="ml-1 text-xs">{i18n.language.startsWith("zh") ? "EN" : "中"}</span>
+              <span className="ml-1 text-xs">
+                {i18n.language.startsWith('zh') ? 'EN' : '中'}
+              </span>
             </Button>
           </div>
         </div>
@@ -174,52 +203,78 @@ export function DeployPage() {
           {/* Left: Project list */}
           <div className="w-85 border-r border-border flex flex-col">
             <div className="flex items-center justify-between px-4 py-2.5">
-              <p className="text-xs font-medium text-muted-foreground">{t("projects.title")}</p>
-              <Button variant="ghost" size="icon-xs" onClick={() => setShowCreate(true)}>
+              <p className="text-xs font-medium text-muted-foreground">
+                {t('projects.title')}
+              </p>
+              <Button
+                variant="ghost"
+                size="icon-xs"
+                onClick={() => setShowCreate(true)}
+              >
                 <Plus className="size-3.5" />
               </Button>
             </div>
             <ScrollArea className="flex-1">
               {loading ? (
-                <div className="px-4 py-8 text-sm text-muted-foreground text-center">{t("common.loading")}</div>
+                <div className="px-4 py-8 text-sm text-muted-foreground text-center">
+                  {t('common.loading')}
+                </div>
               ) : projects.length === 0 ? (
                 <div className="px-4 py-8 text-center">
-                  <p className="text-sm text-muted-foreground">{t("projects.empty")}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{t("projects.emptyDesc")}</p>
+                  <p className="text-sm text-muted-foreground">
+                    {t('projects.empty')}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {t('projects.emptyDesc')}
+                  </p>
                 </div>
               ) : (
                 <div className="px-2 space-y-0.5">
                   {projects.map((project) => (
                     <div
                       key={project.id}
-                      className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+                      className={`group flex items-center gap-1 rounded-lg transition-colors ${
                         selectedProject?.id === project.id
-                          ? "bg-accent text-accent-foreground"
-                          : "hover:bg-muted/50"
+                          ? 'bg-accent text-accent-foreground'
+                          : 'hover:bg-muted/50'
                       }`}
-                      onClick={() => selectProject(project)}
                     >
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{project.name}</p>
-                        <p className="text-xs text-muted-foreground truncate">
-                          {project.slug} · {t("projects.versions", { count: project.versions.length })}
-                        </p>
-                      </div>
+                      <button
+                        type="button"
+                        className="flex flex-1 min-w-0 items-center gap-2 px-3 py-2 text-left"
+                        onClick={() => selectProject(project)}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium truncate">
+                            {project.name}
+                          </p>
+                          <p className="text-xs text-muted-foreground truncate">
+                            {project.slug} ·{' '}
+                            {t('projects.versions', {
+                              count: project.versions.length,
+                            })}
+                          </p>
+                        </div>
+                        <ChevronRight className="size-4 text-muted-foreground/50 shrink-0" />
+                      </button>
                       <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                         <Tooltip>
                           <TooltipTrigger asChild>
                             <Button
                               variant="ghost"
                               size="icon-xs"
-                              onClick={(e) => { e.stopPropagation(); selectProject(project); setShowSettings(true); }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                selectProject(project);
+                                setShowSettings(true);
+                              }}
                             >
                               <Settings className="size-3" />
                             </Button>
                           </TooltipTrigger>
-                          <TooltipContent>{t("app.settings")}</TooltipContent>
+                          <TooltipContent>{t('app.settings')}</TooltipContent>
                         </Tooltip>
                       </div>
-                      <ChevronRight className="size-4 text-muted-foreground/50 shrink-0" />
                     </div>
                   ))}
                 </div>
@@ -235,8 +290,12 @@ export function DeployPage() {
                 <div className="px-5 py-3 border-b border-border">
                   <div className="flex items-center gap-4">
                     <div className="shrink-0">
-                      <h2 className="text-base font-semibold">{selectedProject.name}</h2>
-                      <p className="text-xs text-muted-foreground font-mono">{selectedProject.slug}</p>
+                      <h2 className="text-base font-semibold">
+                        {selectedProject.name}
+                      </h2>
+                      <p className="text-xs text-muted-foreground font-mono">
+                        {selectedProject.slug}
+                      </p>
                     </div>
                     <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0">
                       <a
@@ -252,26 +311,33 @@ export function DeployPage() {
                           <Button
                             variant="outline"
                             size="icon-xs"
-                            onClick={() => { navigator.clipboard.writeText(deployUrl); toast(t("common.copied")); }}
+                            onClick={() => {
+                              navigator.clipboard.writeText(deployUrl);
+                              toast(t('common.copied'));
+                            }}
                           >
                             <Copy className="size-3" />
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t("common.copy")}</TooltipContent>
+                        <TooltipContent>{t('common.copy')}</TooltipContent>
                       </Tooltip>
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Button variant="outline" size="icon-xs" asChild>
-                            <a href={deployUrl} target="_blank" rel="noopener noreferrer">
+                            <a
+                              href={deployUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
                               <ExternalLink className="size-3" />
                             </a>
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent>{t("versions.preview")}</TooltipContent>
+                        <TooltipContent>{t('versions.preview')}</TooltipContent>
                       </Tooltip>
                       <Button size="sm" onClick={() => setShowUpload(true)}>
                         <Plus className="size-3.5" />
-                        {t("versions.upload")}
+                        {t('versions.upload')}
                       </Button>
                     </div>
                   </div>
@@ -282,8 +348,12 @@ export function DeployPage() {
                   {selectedProject.versions.length === 0 ? (
                     <div className="flex flex-col items-center justify-center py-16">
                       <FolderOpen className="size-10 text-muted-foreground/30 mb-3" />
-                      <p className="text-sm text-muted-foreground">{t("versions.empty")}</p>
-                      <p className="text-xs text-muted-foreground mt-1">{t("versions.emptyDesc")}</p>
+                      <p className="text-sm text-muted-foreground">
+                        {t('versions.empty')}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {t('versions.emptyDesc')}
+                      </p>
                     </div>
                   ) : (
                     <div className="p-4 space-y-2">
@@ -294,10 +364,15 @@ export function DeployPage() {
                         >
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <code className="text-xs font-mono">{v.name}</code>
+                              <code className="text-xs font-mono">
+                                {v.name}
+                              </code>
                               {v.active && (
-                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                                  {t("versions.production")}
+                                <Badge
+                                  variant="secondary"
+                                  className="text-[10px] px-1.5 py-0"
+                                >
+                                  {t('versions.production')}
                                 </Badge>
                               )}
                             </div>
@@ -308,17 +383,30 @@ export function DeployPage() {
                           </div>
                           <div className="flex items-center gap-1 ml-3">
                             {!v.active && (
-                              <Button variant="outline" size="xs" onClick={() => handleActivate(v.id)}>
-                                {t("versions.setProduction")}
+                              <Button
+                                variant="outline"
+                                size="xs"
+                                onClick={() => handleActivate(v.id)}
+                              >
+                                {t('versions.setProduction')}
                               </Button>
                             )}
                             <Button variant="ghost" size="xs" asChild>
-                              <a href={`${window.location.origin}/deploy/${selectedProject.slug}/${v.id}/`} target="_blank" rel="noopener noreferrer">
-                                {t("versions.preview")}
+                              <a
+                                href={`${publicBaseURL}/deploy/${selectedProject.slug}/${v.id}/`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                {t('versions.preview')}
                               </a>
                             </Button>
-                            <Button variant="ghost" size="xs" className="text-destructive hover:text-destructive" onClick={() => handleDeleteVersion(v.id)}>
-                              {t("common.delete")}
+                            <Button
+                              variant="ghost"
+                              size="xs"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => handleDeleteVersion(v.id)}
+                            >
+                              {t('common.delete')}
                             </Button>
                           </div>
                         </div>
@@ -330,7 +418,9 @@ export function DeployPage() {
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center">
                 <FolderOpen className="size-12 text-muted-foreground/20 mb-3" />
-                <p className="text-sm text-muted-foreground">{t("projects.empty")}</p>
+                <p className="text-sm text-muted-foreground">
+                  {t('projects.empty')}
+                </p>
               </div>
             )}
           </div>
@@ -341,16 +431,20 @@ export function DeployPage() {
       <CreateProjectDialog
         open={showCreate}
         onOpenChange={setShowCreate}
-        onCreated={() => { fetchProjects(); }}
+        onCreated={() => {
+          fetchProjects();
+        }}
       />
       <UploadDialog
         open={showUpload}
         onOpenChange={setShowUpload}
-        projectId={selectedProject?.id ?? ""}
-        onUploaded={() => { fetchProjects(); }}
+        projectId={selectedProject?.id ?? ''}
+        onUploaded={() => {
+          fetchProjects();
+        }}
       />
       <SettingsDialog
-        key={selectedProject?.id ?? "no-project"}
+        key={selectedProject?.id ?? 'no-project'}
         open={showSettings}
         onOpenChange={setShowSettings}
         project={selectedProject}

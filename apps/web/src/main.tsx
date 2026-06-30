@@ -1,14 +1,19 @@
-import { StrictMode } from "react";
-import { createRoot } from "react-dom/client";
-import { Suspense } from "react";
-import "./i18n";
-import "./index.css";
-import App from "./App";
+import { StrictMode, Suspense } from 'react';
+import { createRoot } from 'react-dom/client';
+import './i18n';
+import './index.css';
+import App from './App';
 
-createRoot(document.getElementById("root")!).render(
+const rootElement = document.getElementById('root');
+
+if (!rootElement) {
+  throw new Error('Root element #root was not found.');
+}
+
+createRoot(rootElement).render(
   <StrictMode>
     <Suspense>
       <App />
     </Suspense>
-  </StrictMode>,
+  </StrictMode>
 );
