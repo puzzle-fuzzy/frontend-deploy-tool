@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { parseIdParam } from '../domain/schemas';
 import type { VersionService } from '../services/contracts';
 
 export function createVersionRoutes(deps: {
@@ -10,13 +11,18 @@ export function createVersionRoutes(deps: {
 
   return new Hono()
     .post('/api/projects/:id/versions', async (c) => {
-      const projectId = c.req.param('id');
+      const projectId = parseIdParam(c.req.param('id'));
       const formData = await c.req.formData();
+
+      const versionDescRaw = formData.get('versionDesc');
       const versionDesc = (
-        (formData.get('versionDesc') as string) || ''
+        typeof versionDescRaw === 'string' ? versionDescRaw : ''
       ).trim();
-      const file = formData.get('file') as File | null;
-      const folderFiles = formData.getAll('folderFiles') as File[];
+      const fileEntry = formData.get('file');
+      const file = fileEntry instanceof File ? fileEntry : null;
+      const folderFiles = formData
+        .getAll('folderFiles')
+        .filter((entry): entry is File => entry instanceof File);
 
       const result = await versionService.uploadVersion(projectId, {
         versionDesc,
@@ -26,15 +32,14 @@ export function createVersionRoutes(deps: {
       return c.json(result, 201);
     })
     .put('/api/projects/:id/versions/:versionId/activate', (c) => {
-      versionService.activateVersion(
-        c.req.param('id'),
-        c.req.param('versionId')
-      );
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      versionService.activateVersion(projectId, versionId);
       return c.json({ ok: true });
     })
     .delete('/api/projects/:id/versions/:versionId', (c) => {
-      const projectId = c.req.param('id');
-      const versionId = c.req.param('versionId');
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
       versionService.deleteVersion(projectId, versionId);
       removeVersionDir(projectId, versionId);
       return c.json({ ok: true });

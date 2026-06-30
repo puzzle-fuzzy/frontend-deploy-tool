@@ -126,9 +126,7 @@ export async function writeFolderFiles(
   let totalSize = 0;
 
   for (const f of files) {
-    const rawPath =
-      (f as File & { webkitRelativePath?: string }).webkitRelativePath ||
-      f.name;
+    const rawPath = f.webkitRelativePath || f.name;
     // Normalize to POSIX separators (handle Windows backslashes) and drop any
     // leading separator so the path stays relative.
     const relativePath = rawPath.replaceAll('\\', '/').replace(/^\/+/, '');

@@ -116,7 +116,7 @@ export function createVersionService(
         if (err instanceof ApiError) throw err;
         throw new ApiError(
           ErrorCode.FILE_PROCESSING_FAILED,
-          `File processing failed: ${(err as Error).message}`,
+          `File processing failed: ${err instanceof Error ? err.message : String(err)}`,
           500
         );
       }

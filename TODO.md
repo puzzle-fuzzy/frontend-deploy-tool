@@ -95,10 +95,10 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] A project can have zero or one active version.
   - [ ] A version must belong to exactly one project.
   - [ ] Slug must be unique.
-- [ ] Introduce typed request validation.
-  - [ ] Validate JSON bodies before passing to services.
-  - [ ] Validate route params.
-  - [ ] Return consistent API errors.
+- [x] Introduce typed request validation.
+  - [x] Validate JSON bodies before passing to services.
+  - [x] Validate route params.
+  - [x] Return consistent API errors.
 - [x] Standardize API error format.
   - [x] Example: `{ "error": { "code": "PROJECT_NOT_FOUND", "message": "Project not found" } }`.
 - [x] Separate app creation from server startup.
