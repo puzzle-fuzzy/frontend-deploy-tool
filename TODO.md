@@ -162,13 +162,13 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
 - [ ] Introduce a real client state strategy.
   - [x] Start with focused hooks.
   - [ ] Consider TanStack Query later if cache invalidation grows.
-- [ ] Improve UI states.
-  - [ ] Loading.
-  - [ ] Empty.
-  - [ ] Error.
-  - [ ] Uploading.
-  - [ ] Disabled states.
-  - [ ] Confirmation flows.
+- [x] Improve UI states.
+  - [x] Loading.
+  - [x] Empty.
+  - [x] Error.
+  - [x] Uploading.
+  - [x] Disabled states.
+  - [x] Confirmation flows.
 - [ ] Replace custom toast if needed.
   - [ ] Keep custom toast for now if it remains simple.
   - [ ] Ensure it is accessible enough for keyboard and screen reader users.
