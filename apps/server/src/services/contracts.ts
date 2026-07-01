@@ -16,7 +16,10 @@ export interface ProjectService {
   createProject(input: CreateProjectInput): Project;
   getProject(id: string): Project;
   findBySlug(slug: string): Project | undefined;
-  updateProject(id: string, updates: { name?: string; slug?: string; description?: string }): Project;
+  updateProject(
+    id: string,
+    updates: { name?: string; slug?: string; description?: string }
+  ): Project;
   updateProjectSettings(id: string, settings: Settings): Project;
   deleteProject(id: string): Project;
   listHistory(limit?: string): HistoryEvent[];

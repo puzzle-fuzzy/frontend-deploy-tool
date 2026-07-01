@@ -42,11 +42,14 @@ export const api = {
     return res.json();
   },
 
-  updateProject: async (id: string, data: {
-    name?: string;
-    slug?: string;
-    description?: string;
-  }): Promise<Project> => {
+  updateProject: async (
+    id: string,
+    data: {
+      name?: string;
+      slug?: string;
+      description?: string;
+    }
+  ): Promise<Project> => {
     const res = await client.api.projects[':id'].$patch({
       param: { id },
       json: data,
