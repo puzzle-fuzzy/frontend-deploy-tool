@@ -60,8 +60,15 @@ export function ProjectSettingsDialog({
   }, [project]);
 
   useEffect(() => {
-    if (!open) setConfirmDelete(false);
-  }, [open]);
+    if (open) return;
+    if (project) {
+      setName(project.name);
+      setSlug(project.slug);
+      setDescription(project.description || '');
+      setSettings(project.settings);
+    }
+    setConfirmDelete(false);
+  }, [open, project]);
 
   const handleSave = async () => {
     if (!project) return;
