@@ -47,6 +47,17 @@ describe('useProjects', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it('clears a stale project hash when the project no longer exists', async () => {
+    window.location.hash = '#/projects/missing';
+    vi.mocked(api.listProjects).mockResolvedValue([project('a')]);
+
+    const { result } = renderHook(() => useProjects());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.selectedProject).toBeNull();
+    expect(window.location.hash).toBe('');
+  });
+
   it('publishes a version and refreshes the list', async () => {
     const target = project('a', {
       versions: [version('v1')],

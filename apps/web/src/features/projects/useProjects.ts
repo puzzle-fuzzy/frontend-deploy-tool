@@ -39,7 +39,11 @@ export function useProjects() {
   const refresh = useCallback(async () => {
     try {
       const data = await api.listProjects();
+      const hashId = getHashProjectId();
       setProjects(data);
+      if (hashId && !data.some((p) => p.id === hashId)) {
+        setHashProjectId(null);
+      }
       setSelectedProject((prev) =>
         prev ? (data.find((p) => p.id === prev.id) ?? null) : prev
       );
@@ -65,6 +69,7 @@ export function useProjects() {
         if (hashId) {
           const found = data.find((p) => p.id === hashId);
           if (found) setSelectedProject(found);
+          else setHashProjectId(null);
         }
         setLoading(false);
       })
