@@ -598,6 +598,35 @@ test('records project update and settings update events', async () => {
   });
 });
 
+test('does not record history for project or settings no-op updates', async () => {
+  const project = await createProject();
+
+  const projectRes = await req(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      name: project.name,
+      slug: project.slug,
+      description: project.description,
+    }),
+  });
+  expect(projectRes.status).toBe(200);
+  expect((await projectRes.json()).updatedAt).toBe(project.updatedAt);
+
+  const settingsRes = await req(`/api/projects/${project.id}/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(project.settings),
+  });
+  expect(settingsRes.status).toBe(200);
+  expect((await settingsRes.json()).updatedAt).toBe(project.updatedAt);
+
+  const events = await (await req('/api/history?limit=10')).json();
+  expect(events.map((e: { action: string }) => e.action)).toEqual([
+    'project.create',
+  ]);
+});
+
 test('lists history for a single project', async () => {
   const first = await createProject('first');
   const second = await createProject('second');

@@ -75,6 +75,11 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         );
 
       const previousSettings = project.settings;
+      const changed =
+        previousSettings.spaMode !== settings.spaMode ||
+        previousSettings.routingType !== settings.routingType;
+      if (!changed) return project;
+
       project.settings = settings;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(
@@ -139,6 +144,8 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         }
         project.description = updates.description;
       }
+      if (Object.keys(changes).length === 0) return project;
+
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'project.update', project, actorId, undefined, {
         changes,
