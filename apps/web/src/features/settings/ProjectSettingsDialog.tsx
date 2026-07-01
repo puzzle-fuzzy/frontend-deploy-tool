@@ -1,6 +1,7 @@
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { normalizeProjectSlugInput } from '@/features/projects/slug';
 import { api } from '@/shared/api';
 import type { Project, Settings } from '@/shared/types';
 import { Button } from '@/shared/ui/button';
@@ -131,7 +132,7 @@ export function ProjectSettingsDialog({
                     id="project-slug"
                     value={slug}
                     onChange={(e) =>
-                      setSlug(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, ''))
+                      setSlug(normalizeProjectSlugInput(e.target.value))
                     }
                     placeholder={t('create.slugPlaceholder')}
                     className="font-mono"

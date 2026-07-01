@@ -12,6 +12,7 @@ import {
 import { Input } from '@/shared/ui/input';
 import { Textarea } from '@/shared/ui/textarea';
 import { useToast } from '@/shared/ui/toast-context';
+import { normalizeProjectSlugInput } from './slug';
 
 interface Props {
   open: boolean;
@@ -85,7 +86,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
               id={slugInputId}
               value={slug}
               onChange={(e) =>
-                setSlug(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, ''))
+                setSlug(normalizeProjectSlugInput(e.target.value))
               }
               placeholder={t('create.slugPlaceholder')}
               className="font-mono"
