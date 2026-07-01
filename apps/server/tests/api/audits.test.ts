@@ -135,6 +135,30 @@ test('defaults a missing body to production-web', async () => {
   expect((await res.json()).profile).toBe('production-web');
 });
 
+test('returns 400 INVALID_REQUEST for malformed JSON', async () => {
+  const app = createTestApp();
+  const client = testClient(app);
+  const project = await createProject(client);
+  const version = await uploadVersion(client, project.id);
+
+  const res = await app.request(
+    `/api/projects/${project.id}/versions/${version.id}/audit`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{',
+    }
+  );
+
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: {
+      code: 'INVALID_REQUEST',
+      message: 'Invalid request payload',
+    },
+  });
+});
+
 test('returns 404 VERSION_NOT_FOUND for an unknown version', async () => {
   const client = createTestClient();
   const project = await createProject(client);
