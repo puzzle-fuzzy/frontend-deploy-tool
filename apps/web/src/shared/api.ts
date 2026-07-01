@@ -1,6 +1,6 @@
 import type { ApiApp } from '@deploykit/server/api';
 import { hc } from 'hono/client';
-import type { Project, Settings } from './types';
+import type { AuditProfile, AuditReport, Project, Settings } from './types';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
@@ -113,6 +113,21 @@ export const api = {
     const res = await client.api.projects[':id'].versions[':versionId'].$delete(
       { param: { id: projectId, versionId } }
     );
+    await checkOk(res);
+    return res.json();
+  },
+
+  runVersionAudit: async (
+    projectId: string,
+    versionId: string,
+    profile: AuditProfile
+  ): Promise<AuditReport> => {
+    const res = await client.api.projects[':id'].versions[
+      ':versionId'
+    ].audit.$post({
+      param: { id: projectId, versionId },
+      json: { profile },
+    });
     await checkOk(res);
     return res.json();
   },
