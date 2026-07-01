@@ -1,4 +1,10 @@
 export type {
+  AuditCategory,
+  AuditCheck,
+  AuditProfile,
+  AuditReport,
+  AuditSeverity,
+  AuditStatus,
   CreateProjectInput,
   Data,
   HistoryAction,
@@ -9,6 +15,12 @@ export type {
   VersionSourceType,
 } from './domain';
 export {
+  auditCategorySchema,
+  auditCheckSchema,
+  auditProfileSchema,
+  auditReportSchema,
+  auditSeveritySchema,
+  auditStatusSchema,
   dataSchema,
   historyEventSchema,
   projectSchema,
