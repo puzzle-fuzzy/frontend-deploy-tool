@@ -262,6 +262,7 @@ export function createVersionService(
         replacementActiveVersionId,
       });
       repo.save(data);
+      removeDir(join(config.storageDir, projectId, versionId));
     },
   };
 }
