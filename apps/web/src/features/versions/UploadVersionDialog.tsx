@@ -1,5 +1,5 @@
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/shared/api';
 import { Button } from '@/shared/ui/button';
@@ -35,6 +35,14 @@ export function UploadVersionDialog({
   const [desc, setDesc] = useState('');
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
+
+  useEffect(() => {
+    if (open) return;
+    setFile(null);
+    setFolderFiles(null);
+    setDesc('');
+    setProgress(0);
+  }, [open]);
 
   const label = file
     ? file.name
