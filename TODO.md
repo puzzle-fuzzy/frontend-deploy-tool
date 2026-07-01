@@ -1,425 +1,116 @@
 # DeployKit TODO
 
-This project is moving from a local Vite demo deployment tool toward an enterprise-grade frontend deployment platform. The near-term goal is not to overbuild, but to create stable architecture, reliable contracts, and a testable foundation.
+> **Direction:** an internal, enterprise-grade frontend deployment platform —
+> 项目清晰、版本可靠、发布可控、回滚迅速、权限明确、日志完整.
+> The foundation (workspace, backend layering, typed contracts, tests, deploy
+> serving, schema migration) is already in place. This file tracks what remains,
+> prioritized P0 → P4.
+>
+> **Reference docs**
+> - `docs/enterprise-frontend-deploy-goals.md` — product goals & acceptance criteria
+> - `docs/enterprise-frontend-deploy-plan.md` — phased plan (Phase 1-4)
+> - `docs/superpowers/specs/2026-07-01-version-audit-design.md` — designed, not yet built
 
-## Product Direction
+## Completed baseline (foundation already shipped)
 
-- [x] Define the product name consistently. Current names include `DeployKit`, `Dist Deploy`, `deploykit-server`, and `deploykit-dashboard`.
-- [ ] Clarify the first enterprise-grade scope:
-  - [ ] Static frontend artifact hosting for Vite demos.
-  - [ ] Project and version management.
-  - [ ] Production version activation and version preview.
-  - [ ] SPA fallback support.
-  - [ ] Local-first operation first, enterprise hardening later.
-- [ ] Decide storage evolution:
-  - [ ] Phase 1: keep local file storage and metadata JSON, but wrap it behind repository interfaces.
-  - [ ] Phase 2: evaluate SQLite or another embedded database when metadata grows.
-  - [ ] Phase 3: support external object storage and database only when deployment targets require it.
+- Bun workspace (`apps/server`, `apps/web`, `packages/shared`) with Catalogs, Biome, CI.
+- Layered backend: routes → services → domain → repositories; `createApp()` split from `Bun.serve`.
+- Typed API via `hono/client`; shared zod schemas as the single source of truth; contract tests.
+- Project CRUD + settings; version upload (zip/folder) with flatten, size/fileCount/sourceType metadata.
+- Active-version pointer model (`activeVersionId`); deleting the active version promotes a replacement.
+- Deploy serving: `/deploy/{slug}/` (active) + `/deploy/{slug}/{versionId}/` (preview); SPA fallback.
+- Cache policy matching the enterprise spec (HTML `no-cache`; hashed assets `public, max-age=31536000, immutable`).
+- Safe-path utilities, upload limits (zip/extracted/count/path-length), security headers on the management UI.
+- Schema versioning + idempotent migration + backup-on-load.
+- i18n (zh/en), theme toggle, React 19 + shadcn/ui panel with loading/empty/error/uploading states.
 
-## Current Critical Issues
+---
 
-- [x] Fix broken text encoding in documentation and source comments.
-  - [x] `README.md`
-  - [x] `server/README.md`
-  - [x] `web/README.md`
-  - [x] `server/main.ts`
-  - [x] `web/src/i18n/locales/zh.json`
-  - [x] Affected UI strings in React files.
-- [x] Fix the settings API contract mismatch.
-  - [x] Frontend sends `{ settings: { spaMode, routingType } }`.
-  - [x] Backend currently expects top-level `{ spaMode, routingType }`.
-  - [x] Prefer a dedicated endpoint: `PATCH /api/projects/:id/settings`.
-- [x] Fix version activation behavior.
-  - [x] Reject unknown `versionId` before mutating any project state.
-  - [x] Prevent all versions from becoming inactive when activation fails.
-  - [x] Reassign or clear active version when deleting the active version.
-- [x] Fix upload response typing.
-  - [x] Frontend expects `{ version: { id, name } }`.
-  - [x] Backend currently returns the version object directly.
-- [x] Remove or implement nonexistent frontend API methods.
-  - [x] `api.getProject()` calls `GET /api/projects/:id`, which does not exist.
-- [x] Fix server TypeScript configuration.
-  - [x] `server/tsconfig.json` currently fails because `ignoreDeprecations: "6.0"` is invalid.
-- [x] Remove hard-coded `3000` from frontend deployment URLs.
-  - [x] Use `window.location.origin` for same-origin production.
-  - [x] Use a config endpoint or env variable for non-same-origin deployments.
+## P0 — Upload safety & the "upload ≠ go-live" gate
 
-## Security And File Safety
+Enterprise docs §6.1, §7.4, Phase 1 acceptance. Quick, high-value, currently missing.
 
-- [x] Add safe path utilities.
-  - [x] `safeJoin(root, relativePath)` must resolve and verify the final path remains inside `root`.
-  - [x] Reject absolute paths, `..`, empty unsafe paths, and Windows drive path escapes.
-- [x] Harden folder upload.
-  - [x] Validate every `webkitRelativePath` before writing.
-  - [x] Normalize path separators.
-  - [x] Reject hidden system metadata where appropriate.
-- [x] Harden ZIP extraction.
-  - [x] Do not trust `tar -xf` blindly.
-  - [x] Detect path traversal entries.
-  - [x] Reject or ignore symlinks.
-  - [x] Clean temporary files in both success and failure paths.
-- [x] Add upload limits.
-  - [x] Max ZIP size.
-  - [x] Max extracted size.
-  - [x] Max file count.
-  - [x] Max path length.
-- [x] Add safer static serving headers.
-  - [x] Correct `Content-Type`.
-  - [x] Cache policy for hashed assets.
-  - [x] No-cache policy for HTML.
-  - [x] Optional security headers for the management UI.
+- [ ] Block dangerous files at upload (both zip extraction and folder write).
+  - Current `SYSTEM_METADATA` ([artifactService.ts:21](apps/server/src/services/artifactService.ts#L21)) only catches OS junk (`.DS_Store`, `Thumbs.db`, `__MACOSX`, `._*`).
+  - Reject entries whose path contains: `.env` / `.env.*`, `*.pem`, `*.key`, `id_rsa`, `.git/`, `node_modules/`, `.svn/`, `.hg/`.
+  - Tests: a zip and a folder upload containing `.env` / `.git/` / `id_rsa` are rejected with a clear error code.
+- [ ] Require `index.html` after extraction/flatten; reject the upload if it is absent.
+  - Today `flattenOutput` ([artifactService.ts:78](apps/server/src/services/artifactService.ts#L78)) silently no-ops when no `index.html` exists anywhere → upload succeeds, deploy 404s.
+  - Phase 1 acceptance: "没有 index.html 时上传失败".
+  - Note: Version Audit (P4) detects a missing `index.html` at *audit* time; this is the *upload*-time gate and must exist independently.
+- [ ] Stop auto-publishing the first version.
+  - Today the first upload sets `activeVersionId` immediately ([versionService.ts:142](apps/server/src/services/versionService.ts#L142)), violating principle §6.1 "上传≠上线".
+  - Change: every upload (including the first) creates a **preview-only** version; production is reached only by an explicit publish action.
+  - The `no-active` state already returns 404 "No active version" ([deployResolver.ts:37](apps/server/src/services/deployResolver.ts#L37)), so a project with versions but no active version is already handled server-side.
+  - Update affected server tests (first-upload activation assertions) and surface "no production version yet" in the UI.
 
-## Backend Architecture
+## P1 — Authentication, users & permissions
 
-- [x] Replace `server/main.ts` single-file backend with focused modules.
-  - [x] `server/src/app.ts`: create and compose the Hono app.
-  - [x] `server/src/index.ts`: runtime entrypoint and `Bun.serve`.
-  - [x] `server/src/config.ts`: environment and path configuration.
-  - [x] `server/src/domain/project.ts`: domain types and constants.
-  - [x] `server/src/domain/version.ts`: version types and state rules.
-  - [x] `server/src/repositories/projectRepository.ts`: repository interface.
-  - [x] `server/src/repositories/jsonProjectRepository.ts`: JSON-backed implementation.
-  - [x] `server/src/services/projectService.ts`: project use cases.
-  - [x] `server/src/services/versionService.ts`: version upload, delete, and activation use cases.
-  - [x] `server/src/services/artifactService.ts`: artifact write, extract, flatten, delete, and serve helpers.
-  - [x] `server/src/services/deployResolver.ts`: map `/deploy/*` requests to safe artifact files.
-  - [x] `server/src/routes/projects.ts`: project API routes.
-  - [x] `server/src/routes/versions.ts`: version API routes.
-  - [x] `server/src/routes/history.ts`: history API routes.
-  - [x] `server/src/routes/deploy.ts`: deployment static route.
-  - [x] `server/src/utils/id.ts`: ID generation.
-  - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
-  - [x] `server/src/utils/mime.ts`: MIME lookup.
-- [x] Introduce explicit domain invariants.
-  - [x] Prefer `project.activeVersionId` over `version.active`.
-  - [x] A project can have zero or one active version.
-  - [x] A version must belong to exactly one project.
-  - [x] Slug must be unique.
-- [x] Introduce typed request validation.
-  - [x] Validate JSON bodies before passing to services.
-  - [x] Validate route params.
-  - [x] Return consistent API errors.
-- [x] Standardize API error format.
-  - [x] Example: `{ "error": { "code": "PROJECT_NOT_FOUND", "message": "Project not found" } }`.
-- [x] Separate app creation from server startup.
-  - [x] Required for `hono/testing`.
-  - [x] Tests should import `createApp()` without opening a port.
+Enterprise docs §7.9, plan Phase 1 §2.1. Elevated to near-term per product direction.
 
-## Hono Client Contract
+- [ ] Add a simple login flow + session.
+  - `POST /api/auth/login`, `GET /api/me`; login-state retention.
+  - Start with a seeded admin account / local admin token; enterprise SSO is later.
+- [ ] Add Phase 1 roles: `admin` / `developer` / `viewer`.
+  - Permission middleware on mutating routes: create project, upload, publish/rollback, delete, edit settings, manage members.
+  - Phase 1 acceptance: "非授权用户不能发布正式环境".
+- [ ] Record `actorId` on history events once users exist.
+  - Wire `actorId` into `appendHistoryEvent`; backfill as `system` for legacy events.
+  - Unblocks `uploadedBy` / `publishedBy` version metadata in P2.
 
-- [x] Move route definitions into a typed Hono app export.
-- [x] Use `hono/client` on the frontend instead of handwritten fetch wrappers where possible.
-- [x] Keep a separate upload client path if progress events still require `XMLHttpRequest`.
-- [x] Share API types from the backend package instead of duplicating `Project`, `Version`, and `Settings` manually.
-- [x] Add contract tests for key endpoints.
-  - [x] Project creation.
-  - [x] Settings update.
-  - [x] Version upload.
-  - [x] Version activation.
-  - [x] Deploy route fallback.
+## P2 — Version model, publish semantics & audit completeness
 
-## Backend Testing
+Enterprise docs §6.2–6.5, §7.3, §7.5, §7.10.
 
-- [x] Add `hono/testing` based API tests.
-  - [x] Test app creation without starting `Bun.serve`.
-  - [x] Use temporary data and storage directories per test.
-  - [x] Assert response status and JSON body shape.
-- [ ] Add service-level tests.
-  - [x] Slug validation.
-  - [x] Active version invariant.
-  - [x] Safe path rejection.
-  - [x] JSON repository atomic writes.
-- [x] Add artifact tests.
-  - [x] Folder upload path normalization.
-  - [x] ZIP extraction failure cleanup.
-  - [x] SPA fallback returns `index.html`.
-  - [x] Missing file returns 404 when SPA mode is off.
-- [x] Add a backend test script.
-  - [x] `bun test`
-  - [ ] Optional coverage script later.
+- [ ] Add an explicit version `status` field: `preview | production | archived | failed`.
+  - Today "production" is implicit (`activeVersionId === v.id`). Make it first-class to match the enterprise model and to support filtering / UI badges / archived state.
+  - Migration: derive initial `status` from the existing `activeVersionId`.
+- [ ] Track publish metadata on versions: `publishedAt`, `publishedBy` (needs P1), `checksum` (sha256 of the upload), and a later `commit` / CI slot.
+  - `checksum` and the field scaffolding can land before auth; `uploadedBy` / `publishedBy` wait for P1.
+- [ ] Make rollback a distinct action.
+  - Add a `version.rollback` history event; either treat "activate a version older than the current active one" as rollback, or add an explicit endpoint (`POST /api/projects/:id/versions/:versionId/rollback`).
+  - The audit log must show "谁回滚到哪个版本".
+- [ ] Record history for project-info and settings edits.
+  - `updateProject` ([projectService.ts:79](apps/server/src/services/projectService.ts#L79)) and `updateProjectSettings` currently append no history event.
+  - Add `project.update` / `project.update_settings` to the history action enum in `packages/shared`.
+- [ ] Add per-project audit-log filtering.
+  - Today only global `/api/history` exists. Add `GET /api/projects/:id/history` (or a `?projectId=` filter) for the project-detail "日志" tab.
+- [ ] Add confirmation dialogs for publish & rollback.
+  - Delete already confirms ([VersionList.tsx:137](apps/web/src/features/versions/VersionList.tsx#L137)); publish (activate) is one-click today. Enterprise docs require 二次确认 for both publish and rollback.
 
-## Frontend Architecture
+## P3 — Ops & deployment packaging
 
-- [x] Split `web/src/pages/DeployPage.tsx`.
-  - [x] `features/projects/ProjectList.tsx`
-  - [x] `features/projects/CreateProjectDialog.tsx`
-  - [x] `features/projects/useProjects.ts`
-  - [x] `features/versions/VersionList.tsx`
-  - [x] `features/versions/UploadVersionDialog.tsx`
-  - [x] `features/settings/ProjectSettingsDialog.tsx`
-  - [x] `features/deploy/DeployUrl.tsx`
-  - [x] `features/theme/ThemeToggle.tsx`
-  - [x] `features/i18n/LanguageToggle.tsx`
-- [x] Move shared frontend code under `web/src/shared`.
-  - [x] `shared/api`
-  - [x] `shared/types`
-  - [x] `shared/ui`
-  - [x] `shared/utils`
-- [x] Remove imports from `../../node_modules/...`.
-  - [x] Use package imports such as `react-i18next`.
-  - [x] Fix `i18n/index.ts`.
-  - [x] Fix all page components.
-- [ ] Introduce a real client state strategy.
-  - [x] Start with focused hooks.
-  - [ ] Consider TanStack Query later if cache invalidation grows.
-- [x] Improve UI states.
-  - [x] Loading.
-  - [x] Empty.
-  - [x] Error.
-  - [x] Uploading.
-  - [x] Disabled states.
-  - [x] Confirmation flows.
-- [x] Replace custom toast if needed.
-  - [x] Keep custom toast for now if it remains simple.
-  - [x] Ensure it is accessible enough for keyboard and screen reader users.
+Enterprise docs §10, plan "运维". Currently absent from the repo entirely.
 
-## Frontend Testing
+- [ ] Multi-stage `Dockerfile` for the Bun app (build web → package into `apps/server/public` → run a single server image).
+- [ ] `docker-compose.yml` with volumes for `data.json` and the `.voasx/storage` tree; surface upload limits (`MAX_ZIP_SIZE`, `MAX_EXTRACTED_SIZE`, `MAX_FILE_COUNT`) as compose env.
+- [ ] Nginx reverse-proxy reference config: immutable caching for hashed assets, `no-cache` for `index.html`, large `client_max_body_size` for uploads, SPA-fallback passthrough.
+- [ ] Backup/restore procedure for `data.json` + storage (scheduled snapshot/rsync; document restore).
 
-- [x] Add Vitest.
-- [x] Add React Testing Library.
-- [x] Add frontend unit tests.
-  - [x] API client behavior.
-  - [x] Project list rendering.
-  - [x] Settings dialog save payload.
-  - [x] Version list active state.
-  - [x] Upload dialog file selection behavior.
-- [ ] Add browser-level tests later.
-  - [ ] Prefer Playwright when core flows stabilize.
-  - [ ] Cover create project, upload version, activate version, and preview link.
+## P4 — Version Audit (designed, ready to implement)
 
-## Monorepo And Tooling
+Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs/superpowers/plans/2026-07-01-version-audit.md`.
 
-- [x] Convert the repository to a Bun workspace.
-  - [x] Root `package.json`.
-  - [x] `workspaces`.
-  - [x] Root scripts for dev, build, test, lint, and typecheck.
-- [x] Use Bun Catalogs for dependency versions.
-  - [x] Centralize shared versions for Hono, React, TypeScript, Vite, ESLint, Vitest, and related packages.
-  - [x] Remove package-level version drift.
-- [x] Rename packages consistently.
-  - [x] `@deploykit/server`
-  - [x] `@deploykit/web`
-  - [x] Optional future package: `@deploykit/shared`
-- [x] Align package managers.
-  - [x] Remove `packageManager: pnpm@...`.
-  - [x] Use Bun consistently.
-  - [x] Regenerate lockfile at the workspace root.
-- [x] Add root quality scripts.
-  - [x] `bun run dev`
-  - [x] `bun run build`
-  - [x] `bun run test`
-  - [x] `bun run lint`
-  - [x] `bun run typecheck`
-- [x] Add formatting.
-  - [x] Choose Biome or Prettier.
-  - [x] Add root format and check scripts.
-- [x] Add CI later.
-  - [x] Install with Bun.
-  - [x] Typecheck.
-  - [x] Lint.
-  - [x] Unit tests.
-  - [x] Build server and web.
+- [ ] Phase 1: static artifact audit (metadata / SEO / links / images / social / assets / deploy checks); `POST /api/projects/:id/versions/:versionId/audit`; Audit tab beside the Versions list.
+  - Shared contract in `packages/shared`; `cheerio` for parsing; ephemeral reports (no schema change).
+- [ ] Phase 2: rendered DOM audit (Playwright).
+- [ ] Phase 3: persisted audit reports + history.
+- [ ] Phase 4: release gates (block activation on errors; manual override recorded as a history event).
 
-## Workspace Layout Migration
+---
 
-- [x] Move to a standard `apps/` + `packages/` workspace layout before deeper feature work.
-  - [x] Use `apps/web` for the React management dashboard.
-  - [x] Use `apps/server` for the Hono API and static artifact server.
-  - [x] Use `packages/shared` for cross-app domain types, API schemas, constants, and pure utilities.
-  - [ ] Use `packages/config` later only if shared eslint, tsconfig, or tooling config starts duplicating.
-  - [ ] Do not introduce a top-level `services/` folder yet; backend service modules should live inside `apps/server/src/services`.
-- [ ] Target folder structure:
+## Later (Phase 2+ of the enterprise plan)
 
-  ```txt
-  deploykit/
-    apps/
-      server/
-        src/
-          app.ts
-          index.ts
-          config.ts
-          domain/
-          repositories/
-          routes/
-          services/
-          utils/
-        tests/
-          api/
-          services/
-          fixtures/
-        package.json
-        tsconfig.json
-      web/
-        src/
-          app/
-          features/
-          shared/
-          components/
-        tests/
-          unit/
-          integration/
-          fixtures/
-        package.json
-        vite.config.ts
-        tsconfig.json
-    packages/
-      shared/
-        src/
-          api/
-          domain/
-          utils/
-        tests/
-        package.json
-        tsconfig.json
-    docs/
-      architecture/
-      development/
-    package.json
-    bun.lock
-  ```
+- [ ] Deployment environments: add Staging alongside Production (each points at a version). §7.2, plan Phase 2.
+- [ ] Member management & finer roles (`owner / admin / developer / tester / viewer`). Plan Phase 2 (needs P1).
+- [ ] Version retention policy: keep last N / younger than N days; never auto-delete production history; manual version lock. Plan Phase 4.
+- [ ] Observability: structured logs, request IDs, basic metrics. §Enterprise "Observability".
+- [ ] Deployment adapters: abstract artifact storage behind an interface, then add S3 / OSS / MinIO. (The metadata repo is already behind `ProjectRepository`; artifact I/O in `artifactService` is not.)
+- [ ] API token + CI upload + CLI + Webhook + Git info on versions. Plan Phase 3.
+- [ ] Custom domains, access control (password / IP allowlist), release notifications. Plan Phase 4.
 
-- [ ] Use a consistent test placement rule.
-  - [ ] Package-level tests go in each workspace package's `tests/` directory.
-  - [ ] Backend API tests go in `apps/server/tests/api`.
-  - [ ] Backend service tests go in `apps/server/tests/services`.
-  - [ ] Frontend component and hook tests go in `apps/web/tests/unit`.
-  - [ ] Frontend flow tests go in `apps/web/tests/integration`.
-  - [ ] Test fixtures go in `tests/fixtures` inside the package that owns them.
-  - [ ] Avoid colocated `*.test.ts` files in `src/` unless a package becomes large enough to justify a different convention.
-- [x] Update workspace config after moving folders.
-  - [x] Change root `workspaces.packages` to `["apps/*", "packages/*"]`.
-  - [x] Update root scripts to filter `@deploykit/server`, `@deploykit/web`, and `@deploykit/shared`.
-  - [x] Update package names and path references without changing public behavior.
-  - [x] Update Vite aliases after moving `web`.
-  - [ ] Update TypeScript project references if introduced.
-- [x] Move current tests into the new convention.
-  - [x] Move `server/app.test.ts` to `apps/server/tests/api/app.test.ts`.
-  - [x] Keep temporary directory fixtures local to the test file until a reusable helper is needed.
-- [x] Migrate in a dedicated branch/commit at the right time.
-  - [x] Best timing: immediately after Phase 1 workspace foundation and before Phase 2 backend module splitting.
-  - [x] Reason: moving files after backend/frontend modules are split will create noisy diffs and harder reviews.
-  - [x] Do not mix this migration with feature work, storage changes, or API contract changes.
-- [x] Verification for the layout migration.
-  - [x] `bun install`
-  - [x] `bun run test`
-  - [x] `bun run typecheck`
-  - [x] `bun run lint`
-  - [x] `bun run build`
-  - [x] Confirm no local data files or generated deployment artifacts are tracked.
+## Non-goals (YAGNI — deliberately not doing)
 
-## Build And Deployment Flow
-
-- [x] Decouple web build output from `server/public`.
-  - [x] Current `web/vite.config.ts` writes directly to `../server/public`.
-  - [x] Prefer package-local `web/dist`.
-  - [x] Add a packaging step that copies or mounts web assets into the server distribution.
-- [x] Add clear local development modes.
-  - [x] Backend only.
-  - [x] Frontend dev server with API proxy.
-  - [x] Production-like local server serving built web assets.
-- [x] Add environment configuration.
-  - [x] `PORT`
-  - [x] `DATA_FILE`
-  - [x] `STORAGE_DIR`
-  - [x] `PUBLIC_DIR`
-  - [x] `PUBLIC_BASE_URL`
-- [x] Add project base path guidance for deployed Vite apps.
-  - [x] Hash router apps work naturally.
-  - [x] Path router apps must build with a compatible `base`.
-  - [x] Document `/deploy/:slug/` and `/deploy/:slug/:versionId/` behavior.
-
-## Data Model Evolution
-
-- [x] Define schema versioning for metadata.
-  - [x] `schemaVersion`.
-  - [x] Migration functions.
-  - [x] Backup before migration.
-- [x] Replace duplicated `version.active` with `project.activeVersionId`.
-- [ ] Add version metadata.
-  - [x] Size.
-  - [x] File count.
-  - [ ] Uploaded by.
-  - [ ] Checksum.
-  - [x] Source type: `zip` or `folder`.
-- [ ] Add project metadata.
-  - [ ] Owner or team later.
-  - [ ] Visibility later.
-  - [ ] Deployment settings.
-- [x] Add operation history structure.
-  - [x] Stable event code.
-  - [x] Human-readable message generated by frontend i18n.
-  - [x] Event metadata object for future filtering.
-
-## Enterprise Features Later
-
-- [ ] Authentication.
-  - [ ] Local admin token first.
-  - [ ] Enterprise SSO later.
-- [ ] Authorization.
-  - [ ] Project-level permissions.
-  - [ ] Team-level permissions.
-- [ ] Audit logs.
-  - [ ] Immutable append-only event log.
-  - [ ] Export support.
-- [ ] Deployment environments.
-  - [ ] Preview.
-  - [ ] Staging.
-  - [ ] Production.
-- [ ] Rollback.
-  - [ ] One-click activate previous version.
-  - [ ] Record rollback events.
-- [ ] Retention policy.
-  - [ ] Keep last N versions.
-  - [ ] Delete versions older than N days.
-- [ ] Artifact integrity.
-  - [ ] Checksum verification.
-  - [ ] Duplicate artifact detection.
-- [ ] Observability.
-  - [ ] Structured logs.
-  - [ ] Request IDs.
-  - [ ] Basic metrics.
-- [ ] Deployment adapters.
-  - [ ] Local filesystem.
-  - [ ] S3-compatible object storage.
-  - [ ] CDN integration.
-
-## Documentation
-
-- [x] Rewrite all README files in UTF-8.
-- [x] Add architecture documentation.
-  - [x] System overview.
-  - [x] Backend module boundaries.
-  - [x] API contract.
-  - [x] Storage layout.
-- [x] Add development guide.
-  - [x] Bun workspace commands.
-  - [x] Test commands.
-  - [x] Local upload and preview workflow.
-- [x] Add Vite app deployment guide.
-  - [x] Recommended Vite `base` settings.
-  - [x] Hash router vs path router.
-  - [x] SPA fallback behavior.
-
-## Suggested Execution Order
-
-- [x] Phase 0: Fix current breakages.
-  - [x] Encoding.
-  - [x] TypeScript config.
-  - [x] Settings API mismatch.
-  - [x] Version activation invariant.
-- [x] Phase 1: Introduce Bun workspace and package consistency.
-  - [x] Root package.
-  - [x] Bun Catalogs.
-  - [x] Package renames.
-  - [x] Root scripts.
-- [x] Phase 2: Split backend architecture.
-  - [x] `createApp()`.
-  - [x] Routes.
-  - [x] Services.
-  - [x] Repositories.
-  - [x] Safe filesystem utilities.
-- [x] Phase 3: Add backend tests with `hono/testing`.
-- [x] Phase 4: Switch frontend API usage toward `hono/client`.
-- [x] Phase 5: Split frontend feature modules and add Vitest tests.
-- [x] Phase 6: Improve deployment packaging and documentation.
-- [ ] Phase 7: Start enterprise features only after the core is tested and stable.
+- Project `type` field (React / Vue / Astro / …) — the audit profile already captures intent; a cosmetic label isn't worth the schema churn.
+- Renaming the preview URL to `/deploy/{slug}/preview/{id}/` — the current `/deploy/{slug}/{id}/` works; renaming is pure churn.
+- Renaming the API resource `versions` → `deployments` — churn with no behavior gain.

@@ -1,0 +1,9 @@
+{
+    "files.exclude": {
+        "**/.codegraph": true,
+        "**/.impeccable": true,
+        "**/dist": true,
+        "**/.turbo": true,
+        "**/.bun": true
+    },
+}
