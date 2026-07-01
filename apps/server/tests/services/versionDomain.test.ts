@@ -1,6 +1,10 @@
 import { describe, expect, test } from 'bun:test';
-import type { Version } from '@deploykit/shared';
-import { chooseReplacementActiveVersionId } from '../../src/domain/version';
+import type { Project, Version } from '@deploykit/shared';
+import { DEFAULT_PROJECT_SETTINGS } from '../../src/domain/project';
+import {
+  chooseReplacementActiveVersionId,
+  findProjectVersion,
+} from '../../src/domain/version';
 
 const versions: Version[] = [
   {
@@ -16,6 +20,20 @@ const versions: Version[] = [
     createdAt: '2026-06-30T00:01:00.000Z',
   },
 ];
+
+function makeProject(ownedVersions: Version[] = versions): Project {
+  return {
+    id: 'proj-1',
+    name: 'Demo',
+    slug: 'demo',
+    description: '',
+    createdAt: '2026-06-30T00:00:00.000Z',
+    updatedAt: '2026-06-30T00:00:00.000Z',
+    versions: ownedVersions,
+    activeVersionId: ownedVersions[0]?.id ?? null,
+    settings: { ...DEFAULT_PROJECT_SETTINGS },
+  };
+}
 
 describe('chooseReplacementActiveVersionId', () => {
   test('promotes the newest remaining version when the active version is deleted', () => {
@@ -40,5 +58,19 @@ describe('chooseReplacementActiveVersionId', () => {
     expect(
       chooseReplacementActiveVersionId(versions, 'version-b', null)
     ).toBeNull();
+  });
+});
+
+describe('findProjectVersion (version-belongs-to-one-project invariant)', () => {
+  const project = makeProject();
+
+  test('locates a version that belongs to the project', () => {
+    expect(findProjectVersion(project, 'version-a')).toEqual(versions[0]);
+    expect(findProjectVersion(project, 'version-b')).toEqual(versions[1]);
+  });
+
+  test('returns undefined for a version that does not belong to the project', () => {
+    expect(findProjectVersion(project, 'version-x')).toBeUndefined();
+    expect(findProjectVersion(makeProject([]), 'version-a')).toBeUndefined();
   });
 });

@@ -5,7 +5,7 @@ import type {
   Settings,
 } from '@deploykit/shared';
 import { appendHistoryEvent } from '../domain/history';
-import { DEFAULT_PROJECT_SETTINGS } from '../domain/project';
+import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -21,7 +21,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
 
     createProject(input: CreateProjectInput): Project {
       const data = repo.load();
-      if (data.projects.some((p) => p.slug === input.slug)) {
+      if (!isSlugUnique(data.projects, input.slug)) {
         throw new ApiError(
           ErrorCode.PROJECT_SLUG_TAKEN,
           'Project slug already exists'

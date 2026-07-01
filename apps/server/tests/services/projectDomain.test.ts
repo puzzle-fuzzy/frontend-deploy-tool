@@ -1,9 +1,26 @@
 import { describe, expect, test } from 'bun:test';
+import type { Project } from '@deploykit/shared';
 import {
   DEFAULT_PROJECT_SETTINGS,
+  isSlugUnique,
   isValidProjectSlug,
   parseSettings,
 } from '../../src/domain/project';
+
+function makeProject(overrides: Partial<Project> = {}): Project {
+  return {
+    id: 'p1',
+    name: 'Demo',
+    slug: 'demo',
+    description: '',
+    createdAt: '2026-06-30T00:00:00.000Z',
+    updatedAt: '2026-06-30T00:00:00.000Z',
+    versions: [],
+    activeVersionId: null,
+    settings: { ...DEFAULT_PROJECT_SETTINGS },
+    ...overrides,
+  };
+}
 
 describe('project domain', () => {
   test('uses path routing with SPA fallback disabled by default', () => {
@@ -42,5 +59,22 @@ describe('project domain', () => {
     expect(parseSettings({ spaMode: true, routingType: 'memory' })).toBeNull();
     expect(parseSettings(null)).toBeNull();
     expect(parseSettings('not-an-object')).toBeNull();
+  });
+});
+
+describe('isSlugUnique (slug-uniqueness invariant)', () => {
+  test('returns true when no project uses the slug', () => {
+    expect(isSlugUnique([], 'demo')).toBe(true);
+    expect(isSlugUnique([makeProject({ slug: 'other' })], 'demo')).toBe(true);
+  });
+
+  test('returns false when an existing project already uses the slug', () => {
+    const projects = [makeProject({ slug: 'demo' })];
+    expect(isSlugUnique(projects, 'demo')).toBe(false);
+  });
+
+  test('compares slugs exactly (case-sensitive, no implicit normalization)', () => {
+    expect(isSlugUnique([makeProject({ slug: 'demo' })], 'Demo')).toBe(true);
+    expect(isSlugUnique([makeProject({ slug: 'demo' })], 'demo-')).toBe(true);
   });
 });
