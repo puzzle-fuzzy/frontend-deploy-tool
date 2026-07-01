@@ -7,17 +7,19 @@ function makeData(): Data {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   };
 }
 
 const project = { id: 'p1', name: 'Demo' };
 const version = { id: 'v1', name: 'abcdefg' };
+const actorId = 'user-1';
 
 describe('appendHistoryEvent', () => {
   test('prepends an event without metadata when none is given', () => {
     const data = makeData();
-    appendHistoryEvent(data, 'project.create', project);
+    appendHistoryEvent(data, 'project.create', project, actorId);
 
     expect(data.history).toHaveLength(1);
     expect(data.history[0]).toEqual({
@@ -28,6 +30,7 @@ describe('appendHistoryEvent', () => {
       versionId: '',
       versionName: '',
       timestamp: expect.any(String),
+      actorId,
     });
     // metadata is omitted entirely (not undefined-valued) when not provided.
     expect(data.history[0]).not.toHaveProperty('metadata');
@@ -35,7 +38,7 @@ describe('appendHistoryEvent', () => {
 
   test('attaches the provided metadata payload', () => {
     const data = makeData();
-    appendHistoryEvent(data, 'version.upload', project, version, {
+    appendHistoryEvent(data, 'version.upload', project, actorId, version, {
       sourceType: 'folder',
       size: 128,
       fileCount: 2,
@@ -51,7 +54,7 @@ describe('appendHistoryEvent', () => {
   test('caps the log at 200 entries', () => {
     const data = makeData();
     for (let i = 0; i < 205; i++) {
-      appendHistoryEvent(data, 'project.create', project);
+      appendHistoryEvent(data, 'project.create', project, actorId);
     }
     expect(data.history).toHaveLength(200);
     // Newest events are kept at the front.

@@ -28,7 +28,11 @@ export function createVersionService(
   config: AppConfig
 ): VersionService {
   return {
-    async uploadVersion(projectId, { versionDesc, file, folderFiles }) {
+    async uploadVersion(
+      projectId,
+      { versionDesc, file, folderFiles },
+      actorId
+    ) {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -146,7 +150,7 @@ export function createVersionService(
       // Production is reached only by an explicit publish (activateVersion).
       project.versions.push(version);
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.upload', project, version, {
+      appendHistoryEvent(data, 'version.upload', project, actorId, version, {
         sourceType: version.sourceType,
         size: version.size,
         fileCount: version.fileCount,
@@ -155,7 +159,7 @@ export function createVersionService(
       return { version: { id: version.id, name: version.name } };
     },
 
-    activateVersion(projectId, versionId) {
+    activateVersion(projectId, versionId, actorId) {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -176,13 +180,13 @@ export function createVersionService(
       const previousActiveVersionId = project.activeVersionId;
       project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.activate', project, version, {
+      appendHistoryEvent(data, 'version.activate', project, actorId, version, {
         previousActiveVersionId,
       });
       repo.save(data);
     },
 
-    deleteVersion(projectId, versionId) {
+    deleteVersion(projectId, versionId, actorId) {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -211,7 +215,7 @@ export function createVersionService(
       )[0];
       project.activeVersionId = replacementActiveVersionId;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.delete', project, removed, {
+      appendHistoryEvent(data, 'version.delete', project, actorId, removed, {
         wasActive,
       });
       repo.save(data);

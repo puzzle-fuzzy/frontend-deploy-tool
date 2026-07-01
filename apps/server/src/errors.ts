@@ -13,6 +13,9 @@ export const ErrorCode = {
   PROJECT_SLUG_TAKEN: 'PROJECT_SLUG_TAKEN',
   PROJECT_NOT_FOUND: 'PROJECT_NOT_FOUND',
   VERSION_NOT_FOUND: 'VERSION_NOT_FOUND',
+  UNAUTHORIZED: 'UNAUTHORIZED',
+  FORBIDDEN: 'FORBIDDEN',
+  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
   INVALID_SETTINGS: 'INVALID_SETTINGS',
   INVALID_PARAMS: 'INVALID_PARAMS',
   INVALID_REQUEST: 'INVALID_REQUEST',
@@ -31,10 +34,14 @@ export const ErrorCode = {
 export type ErrorCode = (typeof ErrorCode)[keyof typeof ErrorCode];
 
 export class ApiError extends Error {
-  readonly status: 400 | 404 | 500;
+  readonly status: 400 | 401 | 403 | 404 | 500;
   readonly code: ErrorCode;
 
-  constructor(code: ErrorCode, message: string, status: 400 | 404 | 500 = 400) {
+  constructor(
+    code: ErrorCode,
+    message: string,
+    status: 400 | 401 | 403 | 404 | 500 = 400
+  ) {
     super(message);
     this.name = 'ApiError';
     this.code = code;

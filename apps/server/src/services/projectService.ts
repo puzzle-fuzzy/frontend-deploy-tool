@@ -19,7 +19,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return repo.load().projects;
     },
 
-    createProject(input: CreateProjectInput): Project {
+    createProject(input: CreateProjectInput, actorId: string): Project {
       const data = repo.load();
       if (!isSlugUnique(data.projects, input.slug)) {
         throw new ApiError(
@@ -40,7 +40,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         settings: { ...DEFAULT_PROJECT_SETTINGS },
       };
       data.projects.push(project);
-      appendHistoryEvent(data, 'project.create', project);
+      appendHistoryEvent(data, 'project.create', project, actorId);
       repo.save(data);
       return project;
     },
@@ -111,7 +111,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return project;
     },
 
-    deleteProject(id: string): Project {
+    deleteProject(id: string, actorId: string): Project {
       const data = repo.load();
       const idx = data.projects.findIndex((p) => p.id === id);
       if (idx === -1)
@@ -122,7 +122,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         );
 
       const removed = data.projects.splice(idx, 1)[0];
-      appendHistoryEvent(data, 'project.delete', removed);
+      appendHistoryEvent(data, 'project.delete', removed, actorId);
       repo.save(data);
       return removed;
     },
