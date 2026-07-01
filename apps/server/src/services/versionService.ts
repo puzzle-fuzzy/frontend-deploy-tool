@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Version } from '@deploykit/shared';
+import type { Version, VersionSourceType } from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
 import {
@@ -11,6 +11,7 @@ import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
+  countFiles,
   extractZip,
   flattenOutput,
   getDirectorySize,
@@ -41,6 +42,7 @@ export function createVersionService(
       const versionDir = join(config.storageDir, projectId, versionId);
       mkdirSync(versionDir, { recursive: true });
 
+      let sourceType: VersionSourceType = 'unknown';
       try {
         // Check file count limit
         if (config.maxFileCount && folderFiles.length > config.maxFileCount) {
@@ -51,6 +53,7 @@ export function createVersionService(
         }
 
         if (file && file.size > 0 && file.name.endsWith('.zip')) {
+          sourceType = 'zip';
           // Check ZIP size limit
           if (config.maxZipSize && file.size > config.maxZipSize) {
             throw new ApiError(
@@ -91,6 +94,7 @@ export function createVersionService(
             }
           }
         } else if (folderFiles.length > 0) {
+          sourceType = 'folder';
           const totalSize = await writeFolderFiles(
             versionDir,
             folderFiles,
@@ -129,6 +133,9 @@ export function createVersionService(
         name: versionName,
         description: versionDesc,
         createdAt: new Date().toISOString(),
+        size: getDirectorySize(versionDir),
+        fileCount: countFiles(versionDir),
+        sourceType,
       };
       const isFirstVersion = project.versions.length === 0;
       project.versions.push(version);

@@ -3,4 +3,5 @@ export type {
   Project,
   Settings,
   Version,
+  VersionSourceType,
 } from '@deploykit/shared';

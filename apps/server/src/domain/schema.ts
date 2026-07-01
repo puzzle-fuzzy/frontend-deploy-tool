@@ -3,6 +3,7 @@ import {
   historyEventSchema,
   type Project,
   settingsSchema,
+  versionSourceTypeSchema,
 } from '@deploykit/shared';
 import { z } from 'zod';
 import { DEFAULT_PROJECT_SETTINGS } from './project';
@@ -10,8 +11,12 @@ import { DEFAULT_PROJECT_SETTINGS } from './project';
 /**
  * The schema version this build reads and writes. Old data files lacking a
  * `schemaVersion` are treated as `0` and upgraded by {@link migrate}.
+ *
+ * - v1: initial shape (`activeVersionId`, hydrated `settings`).
+ * - v2: versions carry upload metadata (`size`, `fileCount`, `sourceType`);
+ *   legacy versions default to `0`/`0`/`'unknown'`.
  */
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 2;
 
 export interface MigrationResult {
   data: Data;
@@ -43,6 +48,9 @@ const legacyDataSchema = z.object({
             description: z.string().default(''),
             createdAt: z.string().default(''),
             active: z.boolean().optional(),
+            size: z.number().default(0),
+            fileCount: z.number().default(0),
+            sourceType: versionSourceTypeSchema.default('unknown'),
           })
         )
         .default([]),
@@ -75,6 +83,9 @@ export function migrate(raw: unknown): MigrationResult {
       name: v.name,
       description: v.description,
       createdAt: v.createdAt,
+      size: v.size,
+      fileCount: v.fileCount,
+      sourceType: v.sourceType,
     }));
     const activeVersionId =
       p.activeVersionId ??

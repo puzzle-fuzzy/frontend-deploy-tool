@@ -10,6 +10,9 @@ const version: Version = {
   name: 'v1',
   description: 'Initial build',
   createdAt: '2026-06-30T00:00:00.000Z',
+  size: 1024,
+  fileCount: 3,
+  sourceType: 'zip',
 };
 
 const project: Project = {

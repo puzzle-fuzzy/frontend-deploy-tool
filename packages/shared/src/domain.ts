@@ -11,11 +11,23 @@ export const settingsSchema = z.object({
   routingType: z.enum(['hash', 'path']),
 });
 
+/**
+ * How a version's artifacts entered storage. `unknown` is the migration default
+ * for versions written before this field existed.
+ */
+export const versionSourceTypeSchema = z.enum(['zip', 'folder', 'unknown']);
+
 export const versionSchema = z.object({
   id: z.string(),
   name: z.string(),
   description: z.string(),
   createdAt: z.string(),
+  /** Total bytes of the extracted artifacts on disk. `0` when unrecorded. */
+  size: z.number().int().nonnegative(),
+  /** Number of artifact files stored for this version. `0` when unrecorded. */
+  fileCount: z.number().int().nonnegative(),
+  /** How the artifacts were uploaded. */
+  sourceType: versionSourceTypeSchema,
 });
 
 export const projectSchema = z.object({
@@ -61,6 +73,7 @@ export interface CreateProjectInput {
 }
 
 export type Settings = z.infer<typeof settingsSchema>;
+export type VersionSourceType = z.infer<typeof versionSourceTypeSchema>;
 export type Version = z.infer<typeof versionSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type HistoryAction = z.infer<typeof historyEventSchema>['action'];

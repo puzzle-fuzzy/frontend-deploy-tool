@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zip } from 'fflate';
 import {
+  countFiles,
   extractZip,
   flattenOutput,
   writeFolderFiles,
@@ -69,6 +70,16 @@ test('writeFolderFiles preserves the relative directory structure', async () => 
   expect(size).toBe(5);
   expect(existsSync(join(destDir, 'a', 'b', 'c.txt'))).toBe(true);
   expect(existsSync(join(destDir, 'a'))).toBe(true); // real directory now
+});
+
+test('countFiles recursively counts every file under a directory', () => {
+  const dir = join(tempDir, 'out');
+  mkdirSync(join(dir, 'a', 'b'), { recursive: true });
+  writeFileSync(join(dir, 'index.html'), '<html></html>');
+  writeFileSync(join(dir, 'a', 'one.css'), 'x');
+  writeFileSync(join(dir, 'a', 'b', 'two.js'), 'y');
+
+  expect(countFiles(dir)).toBe(3);
 });
 
 test('writeFolderFiles skips OS metadata files', async () => {

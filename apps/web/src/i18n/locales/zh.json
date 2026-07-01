@@ -24,7 +24,11 @@
     "preview": "预览",
     "deployUrl": "部署地址",
     "deployHint": "设为正式版本后可通过此地址访问",
-    "delete": "删除"
+    "delete": "删除",
+    "sourceZip": "ZIP",
+    "sourceFolder": "文件夹",
+    "sourceUnknown": "未知",
+    "meta": "{{source}} · {{size}} · {{count}} 个文件"
   },
   "upload": {
     "title": "上传新版本",

@@ -11,6 +11,9 @@ const version = (id: string): Version => ({
   name: id,
   description: '',
   createdAt: '',
+  size: 0,
+  fileCount: 0,
+  sourceType: 'unknown',
 });
 
 const project = (id: string, overrides: Partial<Project> = {}): Project => ({
