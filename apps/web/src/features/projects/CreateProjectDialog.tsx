@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { api } from '@/shared/api';
 import { Button } from '@/shared/ui/button';
@@ -30,6 +30,13 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const [slug, setSlug] = useState('');
   const [desc, setDesc] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) return;
+    setName('');
+    setSlug('');
+    setDesc('');
+  }, [open]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
