@@ -57,6 +57,12 @@ export const historyEventSchema = z.object({
   versionId: z.string(),
   versionName: z.string(),
   timestamp: z.string(),
+  /**
+   * Structured, action-specific payload for future filtering/analytics (e.g.
+   * upload `{ sourceType, size, fileCount }`, activate `{ previousActiveVersionId }`).
+   * Omitted on legacy events written before this field existed.
+   */
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const dataSchema = z.object({

@@ -317,6 +317,36 @@ test('records project and version events in history', async () => {
   ]);
 });
 
+test('records structured metadata on upload and activate history events', async () => {
+  const project = await createProject(app);
+  await uploadVersion(app, project.id, '<html>v1</html>');
+  await uploadVersion(app, project.id, '<html>v2</html>');
+  const [, second] = (await getProject(app, project.id)).versions;
+
+  await app.request(
+    `/api/projects/${project.id}/versions/${second.id}/activate`,
+    { method: 'PUT' }
+  );
+
+  const events = await (await app.request('/api/history?limit=10')).json();
+  const upload = events.find(
+    (e: { action: string }) => e.action === 'version.upload'
+  );
+  const activate = events.find(
+    (e: { action: string }) => e.action === 'version.activate'
+  );
+
+  expect(upload.metadata).toMatchObject({
+    sourceType: 'folder',
+    fileCount: 1,
+  });
+  expect(upload.metadata.size).toBeGreaterThan(0);
+  // The activate event records which version was active before the switch.
+  expect(activate.metadata).toEqual({
+    previousActiveVersionId: expect.any(String),
+  });
+});
+
 test('cleans up and returns 500 when zip extraction fails', async () => {
   const project = await createProject(app);
   const form = new FormData();
