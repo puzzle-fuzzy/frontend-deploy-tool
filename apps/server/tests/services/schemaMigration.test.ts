@@ -75,9 +75,7 @@ const v1PreMetadataPayload = {
       createdAt: '',
       updatedAt: '',
       activeVersionId: 'v1',
-      versions: [
-        { id: 'v1', name: 'v1', description: '', createdAt: '' },
-      ],
+      versions: [{ id: 'v1', name: 'v1', description: '', createdAt: '' }],
     },
   ],
   history: [],
