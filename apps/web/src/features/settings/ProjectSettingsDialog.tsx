@@ -92,9 +92,7 @@ export function ProjectSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>
-            {t('settings.title')}
-          </DialogTitle>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
           <DialogDescription>{t('settings.desc')}</DialogDescription>
         </DialogHeader>
 
@@ -102,7 +100,9 @@ export function ProjectSettingsDialog({
           <div className="space-y-5">
             {/* Project info */}
             <div className="space-y-3">
-              <Label className="text-base font-medium">{t('settings.projectInfo')}</Label>
+              <Label className="text-base font-medium">
+                {t('settings.projectInfo')}
+              </Label>
               <div className="space-y-2">
                 <div>
                   <Label htmlFor="project-name" className="text-sm">
