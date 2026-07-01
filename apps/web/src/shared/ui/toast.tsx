@@ -1,5 +1,11 @@
 import { CheckCircle2, X, XCircle } from 'lucide-react';
-import { type ReactNode, useCallback, useState } from 'react';
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useTranslation } from 'react-i18next';
 import { ToastContext } from './toast-context';
 
@@ -14,19 +20,39 @@ let nextId = 0;
 export function ToastProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
   const [toasts, setToasts] = useState<Toast[]>([]);
+  const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(
+    new Map()
+  );
 
   const dismiss = useCallback((id: number) => {
     setToasts((prev) => prev.filter((toast) => toast.id !== id));
+    // Clear the timer if it exists
+    const timer = timersRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timersRef.current.delete(id);
+    }
   }, []);
 
   const toast = useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
       const id = nextId++;
       setToasts((prev) => [...prev, { id, message, type }]);
-      setTimeout(() => dismiss(id), 3000);
+      const timer = setTimeout(() => dismiss(id), 3000);
+      timersRef.current.set(id, timer);
     },
     [dismiss]
   );
+
+  // Cleanup all timers on unmount
+  useEffect(() => {
+    return () => {
+      timersRef.current.forEach((timer) => {
+        clearTimeout(timer);
+      });
+      timersRef.current.clear();
+    };
+  }, []);
 
   return (
     <ToastContext value={{ toast }}>

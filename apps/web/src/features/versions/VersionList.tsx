@@ -59,8 +59,8 @@ export function VersionList({
       <ScrollArea className="flex-1">
         {project.versions.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16">
-            <FolderOpen className="size-10 text-muted-foreground/30 mb-3" />
-            <p className="text-sm text-muted-foreground">
+            <FolderOpen className="size-16 text-muted-foreground/40 mb-4" />
+            <p className="text-base text-muted-foreground">
               {t('versions.empty')}
             </p>
             <p className="text-xs text-muted-foreground mt-1">
@@ -76,40 +76,40 @@ export function VersionList({
               >
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
-                    <code className="text-xs font-mono">{v.name}</code>
+                    <code className="text-sm font-mono">{v.name}</code>
                     {isActive(v) && (
                       <Badge
                         variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
+                        className="text-xs px-2 py-0.5"
                       >
                         {t('versions.production')}
                       </Badge>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-sm text-muted-foreground mt-0.5">
                     {formatDate(v.createdAt)}
                     {v.description && ` · ${v.description}`}
                   </p>
                   {metaText(v) && (
-                    <p className="text-xs text-muted-foreground/80 mt-0.5">
+                    <p className="text-sm text-muted-foreground/80 mt-0.5">
                       {metaText(v)}
                     </p>
                   )}
                 </div>
                 {isPending(v) ? (
-                  <Loader2 className="size-4 animate-spin text-muted-foreground ml-3" />
+                  <Loader2 className="size-5 animate-spin text-muted-foreground ml-3" />
                 ) : (
-                  <div className="flex items-center gap-1 ml-3">
+                  <div className="flex items-center gap-1.5 ml-3">
                     {!isActive(v) && (
                       <Button
                         variant="outline"
-                        size="xs"
+                        size="sm"
                         onClick={() => onActivate(v.id)}
                       >
                         {t('versions.setProduction')}
                       </Button>
                     )}
-                    <Button variant="ghost" size="xs" asChild>
+                    <Button variant="ghost" size="sm" asChild>
                       <a
                         href={`${publicBaseURL}/deploy/${project.slug}/${v.id}/`}
                         target="_blank"
@@ -120,8 +120,8 @@ export function VersionList({
                     </Button>
                     <Button
                       variant="ghost"
-                      size="xs"
-                      className="text-destructive hover:text-destructive"
+                      size="sm"
+                      className="text-destructive hover:text-destructive/80"
                       onClick={() => setConfirmVersionId(v.id)}
                     >
                       {t('common.delete')}

@@ -11,12 +11,12 @@ export function DeployUrl({ slug }: { slug: string }) {
   const deployUrl = `${publicBaseURL}/deploy/${slug}/`;
 
   return (
-    <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0">
+    <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
       <a
         href={deployUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-xs text-primary hover:underline bg-muted px-2 py-1 rounded-md truncate shrink"
+        className="text-sm text-primary hover:underline bg-muted px-2 py-1.5 rounded-md truncate shrink"
       >
         {deployUrl}
       </a>
@@ -24,22 +24,22 @@ export function DeployUrl({ slug }: { slug: string }) {
         <TooltipTrigger asChild>
           <Button
             variant="outline"
-            size="icon-xs"
+            size="icon-sm"
             onClick={() => {
               navigator.clipboard.writeText(deployUrl);
               toast(t('common.copied'));
             }}
           >
-            <Copy className="size-3" />
+            <Copy className="size-4" />
           </Button>
         </TooltipTrigger>
         <TooltipContent>{t('common.copy')}</TooltipContent>
       </Tooltip>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="outline" size="icon-xs" asChild>
+          <Button variant="outline" size="icon-sm" asChild>
             <a href={deployUrl} target="_blank" rel="noopener noreferrer">
-              <ExternalLink className="size-3" />
+              <ExternalLink className="size-4" />
             </a>
           </Button>
         </TooltipTrigger>

@@ -42,6 +42,19 @@ export const api = {
     return res.json();
   },
 
+  updateProject: async (id: string, data: {
+    name?: string;
+    slug?: string;
+    description?: string;
+  }): Promise<Project> => {
+    const res = await client.api.projects[':id'].$patch({
+      param: { id },
+      json: data,
+    });
+    await checkOk(res);
+    return res.json();
+  },
+
   deleteProject: async (id: string): Promise<{ ok: boolean }> => {
     const res = await client.api.projects[':id'].$delete({ param: { id } });
     await checkOk(res);

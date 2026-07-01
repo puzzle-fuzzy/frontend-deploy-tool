@@ -85,3 +85,67 @@ export function parseCreateProject(value: unknown): CreateProjectInput {
   }
   return result.data;
 }
+
+const updateProjectErrorMap: Record<
+  string,
+  { code: ErrorCode; message: string }
+> = {
+  [NAME_REQUIRED]: {
+    code: ErrorCode.PROJECT_NAME_REQUIRED,
+    message: 'Project name is required',
+  },
+  [SLUG_INVALID]: {
+    code: ErrorCode.PROJECT_SLUG_INVALID,
+    message: 'Project slug must be 3-64 lowercase letters, numbers, or hyphens',
+  },
+};
+
+export const updateProjectSchema = z
+  .object({
+    name: z.string().optional(),
+    slug: z.string().optional(),
+    description: z.string().optional(),
+  })
+  .superRefine((value, ctx) => {
+    // Only validate fields the client actually sent — this is a partial update.
+    if (value.name !== undefined && !value.name.trim()) {
+      ctx.addIssue({ code: 'custom', path: ['name'], message: NAME_REQUIRED });
+    }
+    if (
+      value.slug !== undefined &&
+      !isValidProjectSlug(value.slug.trim().toLowerCase())
+    ) {
+      ctx.addIssue({ code: 'custom', path: ['slug'], message: SLUG_INVALID });
+    }
+  })
+  .transform((value) => {
+    const out: { name?: string; slug?: string; description?: string } = {};
+    if (value.name !== undefined) out.name = value.name.trim();
+    if (value.slug !== undefined) out.slug = value.slug.trim().toLowerCase();
+    if (value.description !== undefined)
+      out.description = value.description.trim();
+    return out;
+  });
+
+/**
+ * Validates a partial project-update JSON body, returning trimmed, lowercase
+ * updates. Only present fields are validated and returned; absent fields are
+ * omitted so the service leaves them untouched. Throws an `ApiError` with the
+ * specific field code on failure.
+ */
+export function parseUpdateProject(value: unknown): {
+  name?: string;
+  slug?: string;
+  description?: string;
+} {
+  const result = updateProjectSchema.safeParse(value);
+  if (!result.success) {
+    const token = result.error.issues[0]?.message ?? '';
+    const mapped = updateProjectErrorMap[token] ?? {
+      code: ErrorCode.INVALID_REQUEST,
+      message: 'Invalid request body',
+    };
+    throw new ApiError(mapped.code, mapped.message);
+  }
+  return result.data;
+}

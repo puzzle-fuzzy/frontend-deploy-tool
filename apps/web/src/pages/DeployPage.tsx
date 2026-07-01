@@ -1,4 +1,4 @@
-import { FolderOpen, Plus } from 'lucide-react';
+import { FolderOpen, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { DeployUrl } from '@/features/deploy/DeployUrl';
@@ -12,6 +12,7 @@ import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
 import { VersionList } from '@/features/versions/VersionList';
 import { Button } from '@/shared/ui/button';
 import { Separator } from '@/shared/ui/separator';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip';
 
 export function DeployPage() {
   const { t } = useTranslation();
@@ -36,8 +37,8 @@ export function DeployPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
-            <FolderOpen className="size-5 text-primary" />
-            <h1 className="text-base font-semibold">{t('app.title')}</h1>
+            <FolderOpen className="size-6 text-primary" />
+            <h1 className="text-lg font-semibold">{t('app.title')}</h1>
           </div>
           <div className="flex items-center gap-1">
             <ThemeToggle />
@@ -53,10 +54,6 @@ export function DeployPage() {
             loading={loading}
             selectedProjectId={selectedProject?.id}
             onSelect={selectProject}
-            onOpenSettings={(project) => {
-              selectProject(project);
-              setShowSettings(true);
-            }}
             onCreate={() => setShowCreate(true)}
           />
 
@@ -65,18 +62,30 @@ export function DeployPage() {
             {selectedProject ? (
               <>
                 <div className="px-5 py-3 border-b border-border">
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3">
                     <div className="shrink-0">
-                      <h2 className="text-base font-semibold">
+                      <h2 className="text-lg font-semibold">
                         {selectedProject.name}
                       </h2>
-                      <p className="text-xs text-muted-foreground font-mono">
+                      <p className="text-sm text-muted-foreground font-mono">
                         {selectedProject.slug}
                       </p>
                     </div>
                     <DeployUrl slug={selectedProject.slug} />
-                    <Button size="sm" onClick={() => setShowUpload(true)}>
-                      <Plus className="size-3.5" />
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon-sm"
+                          onClick={() => setShowSettings(true)}
+                        >
+                          <Settings className="size-4" />
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent>{t('settings.title')}</TooltipContent>
+                    </Tooltip>
+                    <Button size="default" onClick={() => setShowUpload(true)}>
+                      <Plus className="size-4" />
                       {t('versions.upload')}
                     </Button>
                   </div>
@@ -91,7 +100,7 @@ export function DeployPage() {
               </>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center">
-                <FolderOpen className="size-12 text-muted-foreground/20 mb-3" />
+                <FolderOpen className="size-12 text-muted-foreground/40 mb-3" />
                 <p className="text-sm text-muted-foreground">
                   {t('projects.empty')}
                 </p>

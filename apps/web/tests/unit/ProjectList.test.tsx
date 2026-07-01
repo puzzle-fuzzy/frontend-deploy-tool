@@ -28,7 +28,6 @@ describe('ProjectList', () => {
         loading={false}
         selectedProjectId={undefined}
         onSelect={noop}
-        onOpenSettings={noop}
         onCreate={noop}
       />
     );
@@ -48,7 +47,6 @@ describe('ProjectList', () => {
           loading={false}
           selectedProjectId={undefined}
           onSelect={onSelect}
-          onOpenSettings={noop}
           onCreate={noop}
         />
       </TooltipProvider>

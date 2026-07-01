@@ -60,10 +60,10 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
           <DialogTitle>{t('create.title')}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label
               htmlFor={nameInputId}
-              className="text-xs font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground"
             >
               {t('create.name')}
             </label>
@@ -74,10 +74,10 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
               placeholder={t('create.namePlaceholder')}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label
               htmlFor={slugInputId}
-              className="text-xs font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground"
             >
               {t('create.slug')}
             </label>
@@ -90,14 +90,14 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
               placeholder={t('create.slugPlaceholder')}
               className="font-mono"
             />
-            <p className="text-xs text-muted-foreground">
+            <p className="text-sm text-muted-foreground">
               {t('create.slugHint')}
             </p>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label
               htmlFor={descInputId}
-              className="text-xs font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground"
             >
               {t('create.description')}
             </label>
@@ -112,6 +112,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
           <DialogFooter>
             <Button
               variant="outline"
+              size="default"
               type="button"
               onClick={() => onOpenChange(false)}
             >
@@ -120,6 +121,7 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
             <Button
               type="submit"
               disabled={submitting || !name.trim() || !slug.trim()}
+              size="default"
             >
               {t('create.create')}
             </Button>

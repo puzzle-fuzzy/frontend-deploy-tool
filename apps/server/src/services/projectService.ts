@@ -76,6 +76,41 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return project;
     },
 
+    updateProject(
+      id: string,
+      updates: { name?: string; slug?: string; description?: string }
+    ): Project {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === id);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
+
+      if (updates.name !== undefined) project.name = updates.name;
+      if (updates.slug !== undefined) {
+        const newSlug = updates.slug;
+        // Check slug uniqueness
+        const slugExists = data.projects.some(
+          (p) => p.id !== id && p.slug === newSlug
+        );
+        if (slugExists)
+          throw new ApiError(
+            ErrorCode.PROJECT_SLUG_TAKEN,
+            'Slug already exists',
+            400
+          );
+        project.slug = newSlug;
+      }
+      if (updates.description !== undefined)
+        project.description = updates.description;
+      project.updatedAt = new Date().toISOString();
+      repo.save(data);
+      return project;
+    },
+
     deleteProject(id: string): Project {
       const data = repo.load();
       const idx = data.projects.findIndex((p) => p.id === id);

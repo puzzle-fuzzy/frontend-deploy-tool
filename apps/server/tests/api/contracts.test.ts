@@ -144,17 +144,47 @@ test('updates settings through the dedicated settings endpoint', async () => {
   });
 });
 
-test('updates settings through the legacy project endpoint with a nested payload', async () => {
+test('updates project info (name, slug, description) through the project endpoint', async () => {
   const project = await createProject(app);
   const res = await app.request(`/api/projects/${project.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ settings: { spaMode: true, routingType: 'hash' } }),
+    body: JSON.stringify({
+      name: 'Renamed',
+      slug: 'renamed-slug',
+      description: 'a new description',
+    }),
   });
   expect(res.status).toBe(200);
-  expect((await res.json()).settings).toEqual({
-    spaMode: true,
-    routingType: 'hash',
+  const updated = await res.json();
+  expect(updated.name).toBe('Renamed');
+  expect(updated.slug).toBe('renamed-slug');
+  expect(updated.description).toBe('a new description');
+});
+
+test('rejects a duplicate slug with 400 PROJECT_SLUG_TAKEN', async () => {
+  await createProject(app, 'first');
+  const second = await createProject(app, 'second');
+  const res = await app.request(`/api/projects/${second.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ slug: 'first' }),
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: { code: 'PROJECT_SLUG_TAKEN', message: 'Slug already exists' },
+  });
+});
+
+test('returns 404 when updating info for an unknown project', async () => {
+  const res = await app.request('/api/projects/unknown', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'x' }),
+  });
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({
+    error: { code: 'PROJECT_NOT_FOUND', message: 'Project not found' },
   });
 });
 

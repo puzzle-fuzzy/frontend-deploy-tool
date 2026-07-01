@@ -112,13 +112,13 @@ export function UploadVersionDialog({
             onClick={handleSelectZip}
             className="w-full border-2 border-dashed border-border rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"
           >
-            <div className="h-10 w-10 bg-primary/10 rounded-full flex items-center justify-center mb-3">
-              <Upload className="size-5 text-primary" />
+            <div className="h-12 w-12 bg-primary/10 rounded-full flex items-center justify-center mb-3">
+              <Upload className="size-6 text-primary" />
             </div>
-            <p className="text-sm font-medium">
+            <p className="text-base font-medium">
               {label ?? t('upload.dropzone')}
             </p>
-            <p className="text-xs text-muted-foreground mt-1">
+            <p className="text-sm text-muted-foreground mt-1">
               {t('upload.dropzoneDesc')}
             </p>
           </button>
@@ -126,20 +126,20 @@ export function UploadVersionDialog({
           <div className="flex gap-2">
             <Button
               variant="outline"
-              size="sm"
+              size="default"
               type="button"
               onClick={handleSelectZip}
             >
-              <FileArchive className="size-3.5" />
+              <FileArchive className="size-4" />
               {t('upload.selectZip')}
             </Button>
             <Button
               variant="outline"
-              size="sm"
+              size="default"
               type="button"
               onClick={handleSelectFolder}
             >
-              <FolderOpen className="size-3.5" />
+              <FolderOpen className="size-4" />
               {t('upload.selectFolder')}
             </Button>
           </div>
@@ -153,10 +153,10 @@ export function UploadVersionDialog({
             </div>
           )}
 
-          <div className="space-y-1.5">
+          <div className="space-y-2">
             <label
               htmlFor={releaseNotesId}
-              className="text-xs font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground"
             >
               {t('upload.releaseNotes')}
             </label>
@@ -173,6 +173,7 @@ export function UploadVersionDialog({
             <Button
               variant="outline"
               type="button"
+              size="default"
               onClick={() => onOpenChange(false)}
             >
               {t('upload.cancel')}
@@ -180,6 +181,7 @@ export function UploadVersionDialog({
             <Button
               type="submit"
               disabled={(!file && !folderFiles) || uploading}
+              size="default"
             >
               {uploading ? `${progress}%` : t('upload.submit')}
             </Button>
