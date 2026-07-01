@@ -1,5 +1,4 @@
-import { act, render, screen } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/shared/ui/toast';
@@ -53,15 +52,16 @@ describe('ToastProvider', () => {
     expect(alert).toHaveAttribute('aria-live', 'assertive');
   });
 
-  it('can be dismissed early via the keyboard-accessible close button', async () => {
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+  it('can be dismissed early via the keyboard-accessible close button', () => {
     render(withProvider(<Trigger message="Hello" />));
     act(() => {
       screen.getByRole('button', { name: 'fire' }).click();
     });
 
     expect(screen.getByRole('status')).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'common.close' }));
+    // The close button is a real <button> (keyboard-focusable; Enter/Space
+    // fire the same click) with an accessible name.
+    fireEvent.click(screen.getByRole('button', { name: 'common.close' }));
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
