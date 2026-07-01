@@ -66,7 +66,6 @@ test('rejects activating an unknown version without changing the active version'
   } as { param: { id: string }; form: unknown });
 
   expect(version.status).toBe(201);
-  const createdVersion = await version.json();
 
   const failed = await client.api.projects[':id'].versions[
     ':versionId'
@@ -80,5 +79,6 @@ test('rejects activating an unknown version without changing the active version'
     param: { id: project.id },
   });
   const currentProject = await list.json();
-  expect(currentProject.activeVersionId).toBe(createdVersion.version.id);
+  // Upload ≠ go-live and the failed activate must not set an active version.
+  expect(currentProject.activeVersionId).toBeNull();
 });
