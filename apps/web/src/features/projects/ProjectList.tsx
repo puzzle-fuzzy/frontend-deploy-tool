@@ -33,7 +33,7 @@ export function ProjectList({
         {canCreate && (
           <Button variant="ghost" size="default" onClick={onCreate}>
             <Plus className="size-4" />
-            {t('projects.create')}
+            {t('app.newProject')}
           </Button>
         )}
       </div>

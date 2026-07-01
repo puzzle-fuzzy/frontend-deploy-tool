@@ -21,6 +21,19 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
 const noop = () => {};
 
 describe('ProjectList', () => {
+  it('uses the shared new-project label for the create button', () => {
+    render(
+      <ProjectList
+        projects={[]}
+        loading={false}
+        selectedProjectId={undefined}
+        onSelect={noop}
+        onCreate={noop}
+      />
+    );
+    expect(screen.getByRole('button', { name: 'app.newProject' }));
+  });
+
   it('renders the empty state when there are no projects', () => {
     render(
       <ProjectList
