@@ -53,4 +53,23 @@ describe('ProjectSettingsDialog', () => {
     );
     expect(onSaved).toHaveBeenCalledOnce();
   });
+
+  it('resets delete confirmation when the dialog closes', async () => {
+    const user = userEvent.setup();
+    const props = {
+      onOpenChange: noop,
+      project: project({ spaMode: false, routingType: 'hash' }),
+      onDeleted: noop,
+      onSaved: noop,
+    };
+    const { rerender } = render(<ProjectSettingsDialog open {...props} />);
+
+    await user.click(screen.getByRole('button', { name: 'common.delete' }));
+    expect(screen.getByRole('button', { name: 'common.confirm' }));
+
+    rerender(<ProjectSettingsDialog open={false} {...props} />);
+    rerender(<ProjectSettingsDialog open {...props} />);
+
+    expect(screen.getByRole('button', { name: 'common.delete' }));
+  });
 });

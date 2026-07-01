@@ -55,7 +55,12 @@ export function ProjectSettingsDialog({
       setDescription(project.description || '');
       setSettings(project.settings);
     }
+    setConfirmDelete(false);
   }, [project]);
+
+  useEffect(() => {
+    if (!open) setConfirmDelete(false);
+  }, [open]);
 
   const handleSave = async () => {
     if (!project) return;
