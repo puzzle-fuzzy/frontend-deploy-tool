@@ -105,6 +105,7 @@ test('migrate is null-safe on an empty or malformed payload', () => {
   expect(migrate({}).data).toEqual({
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   });
 });

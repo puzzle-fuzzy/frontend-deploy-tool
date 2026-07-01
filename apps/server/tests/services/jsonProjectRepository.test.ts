@@ -28,6 +28,7 @@ test('load returns empty data when the file is missing', () => {
   expect(repo.load()).toEqual({
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   });
 });
@@ -64,6 +65,7 @@ test('load returns empty data on malformed JSON instead of throwing', () => {
   expect(repo.load()).toEqual({
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   });
 });
@@ -74,6 +76,7 @@ test('save persists data that load can read back', () => {
   const data: Data = {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   };
 
@@ -90,6 +93,7 @@ test('save is atomic and leaves no temp file behind', () => {
   repo.save({
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   });
 
@@ -104,6 +108,7 @@ test('save creates the parent directory when it does not exist', () => {
   repo.save({
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects: [],
+    users: [],
     history: [],
   });
 

@@ -17,6 +17,7 @@ export function appendHistoryEvent(
   data: Data,
   action: HistoryAction,
   project: HistoryEntity,
+  actorId: string,
   version?: HistoryEntity,
   metadata?: HistoryMetadata
 ): void {
@@ -28,6 +29,7 @@ export function appendHistoryEvent(
     versionId: version?.id ?? '',
     versionName: version?.name ?? '',
     timestamp: new Date().toISOString(),
+    actorId,
     ...(metadata && { metadata }),
   });
   if (data.history.length > 200) data.history.length = 200;

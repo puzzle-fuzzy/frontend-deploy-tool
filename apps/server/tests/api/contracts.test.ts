@@ -3,30 +3,33 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '@deploykit/shared';
-import type { Hono } from 'hono';
-import { createApp } from '../../src/app';
+import { adminCookie, createAuthApp, withCookie } from './helpers';
 
-let app: Hono;
+let app: ReturnType<typeof createAuthApp>;
+let cookie: string;
 let tempDir: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-contract-'));
-  app = createApp({
+  app = createAuthApp({
     dataFile: join(tempDir, 'data.json'),
     storageDir: join(tempDir, 'storage'),
     publicDir: join(tempDir, 'public'),
   });
+  cookie = await adminCookie(app);
 });
 
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-async function createProject(
-  currentApp: Hono,
-  slug = 'demo-app'
-): Promise<Project> {
-  const res = await currentApp.request('/api/projects', {
+/** Forwards the admin session cookie on an API request. */
+function req(path: string, init?: RequestInit): Promise<Response> {
+  return Promise.resolve(app.request(path, withCookie(init, cookie)));
+}
+
+async function createProject(slug = 'demo-app'): Promise<Project> {
+  const res = await req('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'Demo', slug, description: 'demo' }),
@@ -36,7 +39,6 @@ async function createProject(
 }
 
 async function uploadVersion(
-  currentApp: Hono,
   projectId: string,
   content = '<html><body>hello</body></html>',
   fileName = 'index.html'
@@ -44,27 +46,23 @@ async function uploadVersion(
   const form = new FormData();
   form.append('folderFiles', new File([content], fileName));
   form.append('versionDesc', 'build');
-  return currentApp.request(`/api/projects/${projectId}/versions`, {
+  return req(`/api/projects/${projectId}/versions`, {
     method: 'POST',
     body: form,
   });
 }
 
-async function getProject(
-  currentApp: Hono,
-  projectId: string
-): Promise<Project> {
-  const res = await currentApp.request(`/api/projects/${projectId}/versions`);
+async function getProject(projectId: string): Promise<Project> {
+  const res = await req(`/api/projects/${projectId}/versions`);
   return res.json();
 }
 
 /** Publishes a version (explicit go-live). Uploads no longer auto-publish. */
 async function activateVersion(
-  currentApp: Hono,
   projectId: string,
   versionId: string
 ): Promise<void> {
-  const res = await currentApp.request(
+  const res = await req(
     `/api/projects/${projectId}/versions/${versionId}/activate`,
     { method: 'PUT' }
   );
@@ -77,8 +75,56 @@ async function versionIdOf(res: Response): Promise<string> {
   return body.version.id;
 }
 
+test('rejects API access without a session cookie', async () => {
+  const res = await app.request('/api/projects');
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({
+    error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+  });
+});
+
+test('login returns the safe user (no password hash) and sets a cookie', async () => {
+  const res = await app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@test.local',
+      password: 'test-password',
+    }),
+  });
+  expect(res.status).toBe(200);
+  expect(res.headers.get('set-cookie')).toContain('deploykit_session=');
+  const body = await res.json();
+  expect(body.user).not.toHaveProperty('passwordHash');
+  expect(body.user.email).toBe('admin@test.local');
+  expect(body.user.role).toBe('admin');
+});
+
+test('rejects login with the wrong password', async () => {
+  const res = await app.request('/api/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: 'admin@test.local', password: 'nope' }),
+  });
+  expect(res.status).toBe(401);
+  expect(await res.json()).toEqual({
+    error: {
+      code: 'INVALID_CREDENTIALS',
+      message: 'Invalid email or password',
+    },
+  });
+});
+
+test('GET /api/me returns the authenticated user', async () => {
+  const res = await req('/api/me');
+  expect(res.status).toBe(200);
+  const user = await res.json();
+  expect(user.email).toBe('admin@test.local');
+  expect(user).not.toHaveProperty('passwordHash');
+});
+
 test('creates a project with default settings and lists it', async () => {
-  const project = await createProject(app);
+  const project = await createProject();
   expect(project).toMatchObject({
     name: 'Demo',
     slug: 'demo-app',
@@ -87,13 +133,13 @@ test('creates a project with default settings and lists it', async () => {
   });
   expect(project.id).toBeTruthy();
 
-  const list = await (await app.request('/api/projects')).json();
+  const list = await (await req('/api/projects')).json();
   expect(list).toHaveLength(1);
   expect(list[0].id).toBe(project.id);
 });
 
 test('rejects project creation for a missing name', async () => {
-  const res = await app.request('/api/projects', {
+  const res = await req('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug: 'demo-app' }),
@@ -108,7 +154,7 @@ test('rejects project creation for a missing name', async () => {
 });
 
 test('rejects project creation for an invalid slug', async () => {
-  const res = await app.request('/api/projects', {
+  const res = await req('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'Demo', slug: 'ab' }),
@@ -124,8 +170,8 @@ test('rejects project creation for an invalid slug', async () => {
 });
 
 test('rejects a duplicate project slug', async () => {
-  await createProject(app, 'demo-app');
-  const res = await app.request('/api/projects', {
+  await createProject('demo-app');
+  const res = await req('/api/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'Other', slug: 'demo-app' }),
@@ -140,7 +186,7 @@ test('rejects a duplicate project slug', async () => {
 });
 
 test('rejects a malformed route id with 400 INVALID_PARAMS', async () => {
-  const res = await app.request('/api/projects/!!!/versions/some-id/activate', {
+  const res = await req('/api/projects/!!!/versions/some-id/activate', {
     method: 'PUT',
   });
   expect(res.status).toBe(400);
@@ -150,8 +196,8 @@ test('rejects a malformed route id with 400 INVALID_PARAMS', async () => {
 });
 
 test('updates settings through the dedicated settings endpoint', async () => {
-  const project = await createProject(app);
-  const res = await app.request(`/api/projects/${project.id}/settings`, {
+  const project = await createProject();
+  const res = await req(`/api/projects/${project.id}/settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spaMode: true, routingType: 'hash' }),
@@ -164,8 +210,8 @@ test('updates settings through the dedicated settings endpoint', async () => {
 });
 
 test('updates project info (name, slug, description) through the project endpoint', async () => {
-  const project = await createProject(app);
-  const res = await app.request(`/api/projects/${project.id}`, {
+  const project = await createProject();
+  const res = await req(`/api/projects/${project.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -182,9 +228,9 @@ test('updates project info (name, slug, description) through the project endpoin
 });
 
 test('rejects a duplicate slug with 400 PROJECT_SLUG_TAKEN', async () => {
-  await createProject(app, 'first');
-  const second = await createProject(app, 'second');
-  const res = await app.request(`/api/projects/${second.id}`, {
+  await createProject('first');
+  const second = await createProject('second');
+  const res = await req(`/api/projects/${second.id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ slug: 'first' }),
@@ -196,7 +242,7 @@ test('rejects a duplicate slug with 400 PROJECT_SLUG_TAKEN', async () => {
 });
 
 test('returns 404 when updating info for an unknown project', async () => {
-  const res = await app.request('/api/projects/unknown', {
+  const res = await req('/api/projects/unknown', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name: 'x' }),
@@ -208,8 +254,8 @@ test('returns 404 when updating info for an unknown project', async () => {
 });
 
 test('rejects an invalid settings payload with 400', async () => {
-  const project = await createProject(app);
-  const res = await app.request(`/api/projects/${project.id}/settings`, {
+  const project = await createProject();
+  const res = await req(`/api/projects/${project.id}/settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spaMode: 'not-a-boolean' }),
@@ -221,7 +267,7 @@ test('rejects an invalid settings payload with 400', async () => {
 });
 
 test('returns 404 when updating settings for an unknown project', async () => {
-  const res = await app.request('/api/projects/unknown/settings', {
+  const res = await req('/api/projects/unknown/settings', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spaMode: true, routingType: 'hash' }),
@@ -233,14 +279,14 @@ test('returns 404 when updating settings for an unknown project', async () => {
 });
 
 test('uploads a folder version as preview-only (not auto-published)', async () => {
-  const project = await createProject(app);
-  const res = await uploadVersion(app, project.id);
+  const project = await createProject();
+  const res = await uploadVersion(project.id);
   expect(res.status).toBe(201);
   const body = await res.json();
   expect(body.version.id).toBeTruthy();
   expect(body.version.name).toBe(body.version.id.slice(0, 7));
 
-  const after = await getProject(app, project.id);
+  const after = await getProject(project.id);
   expect(after.versions).toHaveLength(1);
   // Upload ≠ go-live: the version exists but is not production yet.
   expect(after.activeVersionId).toBeNull();
@@ -253,11 +299,11 @@ test('uploads a folder version as preview-only (not auto-published)', async () =
 });
 
 test('rejects a non-zip single file upload with 400', async () => {
-  const project = await createProject(app);
+  const project = await createProject();
   const form = new FormData();
   form.append('file', new File(['nope'], 'not-a-zip.txt'));
   form.append('versionDesc', 'bad');
-  const res = await app.request(`/api/projects/${project.id}/versions`, {
+  const res = await req(`/api/projects/${project.id}/versions`, {
     method: 'POST',
     body: form,
   });
@@ -266,32 +312,31 @@ test('rejects a non-zip single file upload with 400', async () => {
     error: { code: 'INVALID_UPLOAD', message: 'Please upload a .zip file' },
   });
 
-  // No version should be recorded after the failed upload.
-  const after = await getProject(app, project.id);
+  const after = await getProject(project.id);
   expect(after.versions).toHaveLength(0);
 });
 
 test('rejects a folder upload containing a dangerous file with 400', async () => {
-  const project = await createProject(app);
+  const project = await createProject();
   const form = new FormData();
   form.append('folderFiles', new File(['SECRET=1'], '.env'));
   form.append('folderFiles', new File(['<html></html>'], 'index.html'));
   form.append('versionDesc', 'leaky');
-  const res = await app.request(`/api/projects/${project.id}/versions`, {
+  const res = await req(`/api/projects/${project.id}/versions`, {
     method: 'POST',
     body: form,
   });
   expect(res.status).toBe(400);
   expect(await res.json()).toMatchObject({ error: { code: 'UNSAFE_ENTRY' } });
-  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+  expect((await getProject(project.id)).versions).toHaveLength(0);
 });
 
 test('rejects an upload without index.html with 400', async () => {
-  const project = await createProject(app);
+  const project = await createProject();
   const form = new FormData();
   form.append('folderFiles', new File(['body { color: red; }'], 'style.css'));
   form.append('versionDesc', 'no html');
-  const res = await app.request(`/api/projects/${project.id}/versions`, {
+  const res = await req(`/api/projects/${project.id}/versions`, {
     method: 'POST',
     body: form,
   });
@@ -299,51 +344,49 @@ test('rejects an upload without index.html with 400', async () => {
   expect(await res.json()).toMatchObject({
     error: { code: 'MISSING_INDEX_HTML' },
   });
-  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+  expect((await getProject(project.id)).versions).toHaveLength(0);
 });
 
 test('activating a version sets it as the active version', async () => {
-  const project = await createProject(app);
-  await uploadVersion(app, project.id, '<html>v1</html>');
-  await uploadVersion(app, project.id, '<html>v2</html>');
-  const [, second] = (await getProject(app, project.id)).versions;
+  const project = await createProject();
+  await uploadVersion(project.id, '<html>v1</html>');
+  await uploadVersion(project.id, '<html>v2</html>');
+  const [, second] = (await getProject(project.id)).versions;
 
-  const res = await app.request(
+  const res = await req(
     `/api/projects/${project.id}/versions/${second.id}/activate`,
     { method: 'PUT' }
   );
   expect(res.status).toBe(200);
 
-  const after = await getProject(app, project.id);
+  const after = await getProject(project.id);
   expect(after.activeVersionId).toBe(second.id);
 });
 
 test('deleting the active version promotes a replacement', async () => {
-  const project = await createProject(app);
-  await uploadVersion(app, project.id, '<html>v1</html>');
-  await uploadVersion(app, project.id, '<html>v2</html>');
-  const [first] = (await getProject(app, project.id)).versions;
-  await activateVersion(app, project.id, first.id);
+  const project = await createProject();
+  await uploadVersion(project.id, '<html>v1</html>');
+  await uploadVersion(project.id, '<html>v2</html>');
+  const [first] = (await getProject(project.id)).versions;
+  await activateVersion(project.id, first.id);
 
-  const res = await app.request(
-    `/api/projects/${project.id}/versions/${first.id}`,
-    { method: 'DELETE' }
-  );
+  const res = await req(`/api/projects/${project.id}/versions/${first.id}`, {
+    method: 'DELETE',
+  });
   expect(res.status).toBe(200);
 
-  const after = await getProject(app, project.id);
+  const after = await getProject(project.id);
   expect(after.versions).toHaveLength(1);
   expect(after.activeVersionId).toBe(after.versions[0].id);
 });
 
 test('serves the active version via /deploy/:slug/', async () => {
-  const project = await createProject(app, 'demo-app');
+  const project = await createProject('demo-app');
   const upload = await uploadVersion(
-    app,
     project.id,
     '<html><body>deployed</body></html>'
   );
-  await activateVersion(app, project.id, await versionIdOf(upload));
+  await activateVersion(project.id, await versionIdOf(upload));
 
   const res = await app.request('/deploy/demo-app/');
   expect(res.status).toBe(200);
@@ -352,23 +395,22 @@ test('serves the active version via /deploy/:slug/', async () => {
 });
 
 test('returns 404 for a missing path when SPA mode is off', async () => {
-  const project = await createProject(app, 'demo-app');
-  const upload = await uploadVersion(app, project.id);
-  await activateVersion(app, project.id, await versionIdOf(upload));
+  const project = await createProject('demo-app');
+  const upload = await uploadVersion(project.id);
+  await activateVersion(project.id, await versionIdOf(upload));
 
   const res = await app.request('/deploy/demo-app/missing.txt');
   expect(res.status).toBe(404);
 });
 
 test('falls back to index.html for a missing path when SPA mode is on', async () => {
-  const project = await createProject(app, 'demo-app');
+  const project = await createProject('demo-app');
   const upload = await uploadVersion(
-    app,
     project.id,
     '<html><body>spa</body></html>'
   );
-  await activateVersion(app, project.id, await versionIdOf(upload));
-  await app.request(`/api/projects/${project.id}/settings`, {
+  await activateVersion(project.id, await versionIdOf(upload));
+  await req(`/api/projects/${project.id}/settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ spaMode: true, routingType: 'path' }),
@@ -385,7 +427,7 @@ test('returns 404 for an unknown deploy slug', async () => {
 });
 
 test('does not add security headers to API or deploy responses', async () => {
-  const apiRes = await app.request('/api/projects');
+  const apiRes = await req('/api/projects');
   expect(apiRes.headers.get('x-frame-options')).toBeNull();
 
   const deployRes = await app.request('/deploy/unknown-slug/');
@@ -398,30 +440,34 @@ test('adds security headers to management UI responses', async () => {
   expect(res.headers.get('x-content-type-options')).toBe('nosniff');
 });
 
-test('records project and version events in history', async () => {
-  const project = await createProject(app);
-  await uploadVersion(app, project.id);
+test('records project and version events in history with the actor id', async () => {
+  const project = await createProject();
+  await uploadVersion(project.id);
 
-  const res = await app.request('/api/history?limit=10');
+  const res = await req('/api/history?limit=10');
   const events = await res.json();
   expect(events.map((e: { action: string }) => e.action)).toEqual([
     'version.upload',
     'project.create',
   ]);
+  // Every event records the admin actor.
+  for (const event of events) {
+    expect(event.actorId).toBe(events[0].actorId);
+    expect(event.actorId).toBeTruthy();
+  }
 });
 
 test('records structured metadata on upload and activate history events', async () => {
-  const project = await createProject(app);
-  await uploadVersion(app, project.id, '<html>v1</html>');
-  await uploadVersion(app, project.id, '<html>v2</html>');
-  const [, second] = (await getProject(app, project.id)).versions;
+  const project = await createProject();
+  await uploadVersion(project.id, '<html>v1</html>');
+  await uploadVersion(project.id, '<html>v2</html>');
+  const [, second] = (await getProject(project.id)).versions;
 
-  await app.request(
-    `/api/projects/${project.id}/versions/${second.id}/activate`,
-    { method: 'PUT' }
-  );
+  await req(`/api/projects/${project.id}/versions/${second.id}/activate`, {
+    method: 'PUT',
+  });
 
-  const events = await (await app.request('/api/history?limit=10')).json();
+  const events = await (await req('/api/history?limit=10')).json();
   const upload = events.find(
     (e: { action: string }) => e.action === 'version.upload'
   );
@@ -441,12 +487,12 @@ test('records structured metadata on upload and activate history events', async 
 });
 
 test('cleans up and returns 500 when zip extraction fails', async () => {
-  const project = await createProject(app);
+  const project = await createProject();
   const form = new FormData();
   form.append('file', new File(['this is not a zip'], 'broken.zip'));
   form.append('versionDesc', 'bad');
 
-  const res = await app.request(`/api/projects/${project.id}/versions`, {
+  const res = await req(`/api/projects/${project.id}/versions`, {
     method: 'POST',
     body: form,
   });
@@ -458,7 +504,6 @@ test('cleans up and returns 500 when zip extraction fails', async () => {
     },
   });
 
-  // The failed version must not be recorded.
-  const after = await getProject(app, project.id);
+  const after = await getProject(project.id);
   expect(after.versions).toHaveLength(0);
 });
