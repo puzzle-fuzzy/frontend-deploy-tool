@@ -5,6 +5,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ToastProvider } from '@/shared/ui/toast';
 import { useToast } from '@/shared/ui/toast-context';
 
+// setup.ts no-ops the toast module globally so other tests don't need a
+// provider; this file exercises the real provider, so restore the real module.
+vi.unmock('@/shared/ui/toast-context');
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
