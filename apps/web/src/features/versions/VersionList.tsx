@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { publicBaseURL } from '@/config';
-import { formatDate } from '@/lib/format';
-import type { Project, Version } from '@/types';
+import { formatBytes, formatDate } from '@/lib/format';
+import type { Project, Version, VersionSourceType } from '@/types';
 
 interface Props {
   project: Project;
@@ -26,6 +26,24 @@ export function VersionList({
   const isActive = (v: Version) => project.activeVersionId === v.id;
   const isPending = (v: Version) => pendingVersionId === v.id;
   const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
+
+  const sourceLabel = (sourceType: VersionSourceType): string =>
+    t(
+      sourceType === 'zip'
+        ? 'versions.sourceZip'
+        : sourceType === 'folder'
+          ? 'versions.sourceFolder'
+          : 'versions.sourceUnknown'
+    );
+  const metaText = (v: Version): string => {
+    const size = formatBytes(v.size);
+    if (!v.fileCount && !size) return '';
+    return t('versions.meta', {
+      source: sourceLabel(v.sourceType),
+      size: size || '—',
+      count: v.fileCount,
+    });
+  };
   const confirmVersion = project.versions.find(
     (v) => v.id === confirmVersionId
   );
@@ -72,6 +90,11 @@ export function VersionList({
                     {formatDate(v.createdAt)}
                     {v.description && ` · ${v.description}`}
                   </p>
+                  {metaText(v) && (
+                    <p className="text-xs text-muted-foreground/80 mt-0.5">
+                      {metaText(v)}
+                    </p>
+                  )}
                 </div>
                 {isPending(v) ? (
                   <Loader2 className="size-4 animate-spin text-muted-foreground ml-3" />

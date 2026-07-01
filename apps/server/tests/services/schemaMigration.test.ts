@@ -40,7 +40,7 @@ const v0Payload = {
   history: [],
 };
 
-test('migrate derives activeVersionId from the per-version active flag (v0 -> v1)', () => {
+test('migrate derives activeVersionId from the per-version active flag (v0 -> current)', () => {
   const { data, migrated } = migrate(v0Payload);
 
   expect(migrated).toBe(true);
@@ -50,6 +50,46 @@ test('migrate derives activeVersionId from the per-version active flag (v0 -> v1
   for (const version of project.versions) {
     expect(version).not.toHaveProperty('active');
   }
+});
+
+test('migrate backfills upload metadata defaults for legacy versions', () => {
+  const { data, migrated } = migrate(v0Payload);
+  expect(migrated).toBe(true);
+
+  for (const version of data.projects[0].versions) {
+    expect(version.size).toBe(0);
+    expect(version.fileCount).toBe(0);
+    expect(version.sourceType).toBe('unknown');
+  }
+});
+
+/** A pre-metadata v1 payload: schemaVersion is set but versions lack size/fileCount/sourceType. */
+const v1PreMetadataPayload = {
+  schemaVersion: 1,
+  projects: [
+    {
+      id: 'p1',
+      name: 'P',
+      slug: 'p',
+      description: '',
+      createdAt: '',
+      updatedAt: '',
+      activeVersionId: 'v1',
+      versions: [{ id: 'v1', name: 'v1', description: '', createdAt: '' }],
+    },
+  ],
+  history: [],
+};
+
+test('migrate upgrades a pre-metadata v1 payload to the current schema', () => {
+  const { data, migrated } = migrate(v1PreMetadataPayload);
+
+  expect(migrated).toBe(true);
+  expect(data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  const version = data.projects[0].versions[0];
+  expect(version.size).toBe(0);
+  expect(version.fileCount).toBe(0);
+  expect(version.sourceType).toBe('unknown');
 });
 
 test('migrate leaves already-current data unchanged', () => {

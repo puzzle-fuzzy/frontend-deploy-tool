@@ -1,12 +1,24 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import type { Project } from '@deploykit/shared';
+import type { Project, Version } from '@deploykit/shared';
 import { resolveDeployTarget } from '../../src/services/deployResolver';
 
 const storageDir = join('/storage');
 const projectId = 'proj-1';
 const versionA = 'version-a'; // active
 const versionB = 'version-b';
+
+function version(id: string, name: string): Version {
+  return {
+    id,
+    name,
+    description: '',
+    createdAt: '',
+    size: 0,
+    fileCount: 0,
+    sourceType: 'unknown',
+  };
+}
 
 function makeProject(overrides: Partial<Project> = {}): Project {
   return {
@@ -16,10 +28,7 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     description: '',
     createdAt: '',
     updatedAt: '',
-    versions: [
-      { id: versionA, name: 'a', description: '', createdAt: '' },
-      { id: versionB, name: 'b', description: '', createdAt: '' },
-    ],
+    versions: [version(versionA, 'a'), version(versionB, 'b')],
     activeVersionId: versionA,
     settings: { spaMode: false, routingType: 'path' },
     ...overrides,
@@ -74,7 +83,7 @@ describe('resolveDeployTarget', () => {
 
   test('returns no-active when no explicit id is given and no version is active', () => {
     const project = makeProject({
-      versions: [{ id: versionA, name: 'a', description: '', createdAt: '' }],
+      versions: [version(versionA, 'a')],
       activeVersionId: null,
     });
     const target = resolveDeployTarget(storageDir, project, [

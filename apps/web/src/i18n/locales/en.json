@@ -24,7 +24,11 @@
     "preview": "Preview",
     "deployUrl": "Deploy URL",
     "deployHint": "Set a version as production to access via this URL",
-    "delete": "Delete"
+    "delete": "Delete",
+    "sourceZip": "ZIP",
+    "sourceFolder": "Folder",
+    "sourceUnknown": "Unknown",
+    "meta": "{{source}} · {{size}} · {{count}} file(s)"
   },
   "upload": {
     "title": "Upload New Version",

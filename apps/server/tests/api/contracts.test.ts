@@ -194,6 +194,12 @@ test('uploads a folder version that becomes the active version', async () => {
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(1);
   expect(after.activeVersionId).toBe(after.versions[0].id);
+
+  // Upload metadata is recorded for the version.
+  const version = after.versions[0];
+  expect(version.sourceType).toBe('folder');
+  expect(version.fileCount).toBe(1);
+  expect(version.size).toBeGreaterThan(0);
 });
 
 test('rejects a non-zip single file upload with 400', async () => {

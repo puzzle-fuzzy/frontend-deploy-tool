@@ -12,12 +12,18 @@ const versions: Version[] = [
     name: 'a',
     description: '',
     createdAt: '2026-06-30T00:00:00.000Z',
+    size: 0,
+    fileCount: 0,
+    sourceType: 'unknown',
   },
   {
     id: 'version-b',
     name: 'b',
     description: '',
     createdAt: '2026-06-30T00:01:00.000Z',
+    size: 0,
+    fileCount: 0,
+    sourceType: 'unknown',
   },
 ];
 

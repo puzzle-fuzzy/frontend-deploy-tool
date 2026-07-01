@@ -6,6 +6,7 @@ export type {
   Project,
   Settings,
   Version,
+  VersionSourceType,
 } from './domain';
 export {
   dataSchema,
@@ -13,4 +14,5 @@ export {
   projectSchema,
   settingsSchema,
   versionSchema,
+  versionSourceTypeSchema,
 } from './domain';

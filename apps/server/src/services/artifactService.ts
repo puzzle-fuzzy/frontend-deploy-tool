@@ -112,6 +112,25 @@ export function getDirectorySize(dirPath: string): number {
   return totalSize;
 }
 
+/** Recursively counts every file under `dirPath`. */
+export function countFiles(dirPath: string): number {
+  let count = 0;
+
+  function walk(currentPath: string) {
+    const stats = statSync(currentPath);
+    if (stats.isDirectory()) {
+      for (const entry of readdirSync(currentPath)) {
+        walk(join(currentPath, entry));
+      }
+    } else {
+      count++;
+    }
+  }
+
+  walk(dirPath);
+  return count;
+}
+
 /**
  * Writes uploaded folder files into `destDir`, preserving each file's relative
  * directory structure. Returns the total bytes written. OS metadata entries are

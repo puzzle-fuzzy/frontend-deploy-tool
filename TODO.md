@@ -336,11 +336,11 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Backup before migration.
 - [x] Replace duplicated `version.active` with `project.activeVersionId`.
 - [ ] Add version metadata.
-  - [ ] Size.
-  - [ ] File count.
+  - [x] Size.
+  - [x] File count.
   - [ ] Uploaded by.
   - [ ] Checksum.
-  - [ ] Source type: `zip` or `folder`.
+  - [x] Source type: `zip` or `folder`.
 - [ ] Add project metadata.
   - [ ] Owner or team later.
   - [ ] Visibility later.

@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data } from '@deploykit/shared';
 import { DEFAULT_PROJECT_SETTINGS } from '../../src/domain/project';
+import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createJsonProjectRepository } from '../../src/repositories/jsonProjectRepository';
 
 let tempDir: string;
@@ -24,7 +25,11 @@ afterEach(() => {
 
 test('load returns empty data when the file is missing', () => {
   const repo = createJsonProjectRepository(join(tempDir, 'missing.json'));
-  expect(repo.load()).toEqual({ schemaVersion: 1, projects: [], history: [] });
+  expect(repo.load()).toEqual({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    history: [],
+  });
 });
 
 test('load hydrates projects that are missing settings with defaults', () => {
@@ -56,13 +61,21 @@ test('load returns empty data on malformed JSON instead of throwing', () => {
   writeFileSync(dataFile, '{ not valid json');
 
   const repo = createJsonProjectRepository(dataFile);
-  expect(repo.load()).toEqual({ schemaVersion: 1, projects: [], history: [] });
+  expect(repo.load()).toEqual({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    history: [],
+  });
 });
 
 test('save persists data that load can read back', () => {
   const dataFile = join(tempDir, 'data.json');
   const repo = createJsonProjectRepository(dataFile);
-  const data: Data = { schemaVersion: 1, projects: [], history: [] };
+  const data: Data = {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    history: [],
+  };
 
   repo.save(data);
 
@@ -74,7 +87,11 @@ test('save is atomic and leaves no temp file behind', () => {
   const dataFile = join(tempDir, 'data.json');
   const repo = createJsonProjectRepository(dataFile);
 
-  repo.save({ schemaVersion: 1, projects: [], history: [] });
+  repo.save({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    history: [],
+  });
 
   const leftover = readdirSync(tempDir).filter((f) => f.endsWith('.tmp'));
   expect(leftover).toEqual([]);
@@ -84,7 +101,11 @@ test('save creates the parent directory when it does not exist', () => {
   const dataFile = join(tempDir, 'nested', 'deep', 'data.json');
   const repo = createJsonProjectRepository(dataFile);
 
-  repo.save({ schemaVersion: 1, projects: [], history: [] });
+  repo.save({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    history: [],
+  });
 
   expect(existsSync(dataFile)).toBe(true);
 });
