@@ -11,6 +11,7 @@ import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
+  assertIndexHtml,
   countFiles,
   extractZip,
   flattenOutput,
@@ -118,6 +119,10 @@ export function createVersionService(
         } else {
           throw new ApiError(ErrorCode.INVALID_UPLOAD, 'Please upload files');
         }
+
+        // A deployable build must expose an index.html; otherwise the upload
+        // would "succeed" but /deploy/:slug/ would 404.
+        assertIndexHtml(versionDir);
       } catch (err) {
         removeDir(versionDir);
         if (err instanceof ApiError) throw err;
@@ -137,9 +142,9 @@ export function createVersionService(
         fileCount: countFiles(versionDir),
         sourceType,
       };
-      const isFirstVersion = project.versions.length === 0;
+      // Upload ≠ go-live (principle §6.1): every version starts preview-only.
+      // Production is reached only by an explicit publish (activateVersion).
       project.versions.push(version);
-      if (isFirstVersion) project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.upload', project, version, {
         sourceType: version.sourceType,

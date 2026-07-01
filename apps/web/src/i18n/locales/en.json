@@ -24,6 +24,8 @@
     "preview": "Preview",
     "deployUrl": "Deploy URL",
     "deployHint": "Set a version as production to access via this URL",
+    "live": "Live",
+    "notLive": "Not live",
     "delete": "Delete",
     "sourceZip": "ZIP",
     "sourceFolder": "Folder",

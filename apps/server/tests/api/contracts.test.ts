@@ -58,6 +58,25 @@ async function getProject(
   return res.json();
 }
 
+/** Publishes a version (explicit go-live). Uploads no longer auto-publish. */
+async function activateVersion(
+  currentApp: Hono,
+  projectId: string,
+  versionId: string
+): Promise<void> {
+  const res = await currentApp.request(
+    `/api/projects/${projectId}/versions/${versionId}/activate`,
+    { method: 'PUT' }
+  );
+  expect(res.status).toBe(200);
+}
+
+/** Resolves the version id from an upload response. */
+async function versionIdOf(res: Response): Promise<string> {
+  const body = await res.json();
+  return body.version.id;
+}
+
 test('creates a project with default settings and lists it', async () => {
   const project = await createProject(app);
   expect(project).toMatchObject({
@@ -213,7 +232,7 @@ test('returns 404 when updating settings for an unknown project', async () => {
   });
 });
 
-test('uploads a folder version that becomes the active version', async () => {
+test('uploads a folder version as preview-only (not auto-published)', async () => {
   const project = await createProject(app);
   const res = await uploadVersion(app, project.id);
   expect(res.status).toBe(201);
@@ -223,7 +242,8 @@ test('uploads a folder version that becomes the active version', async () => {
 
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(1);
-  expect(after.activeVersionId).toBe(after.versions[0].id);
+  // Upload ≠ go-live: the version exists but is not production yet.
+  expect(after.activeVersionId).toBeNull();
 
   // Upload metadata is recorded for the version.
   const version = after.versions[0];
@@ -251,6 +271,37 @@ test('rejects a non-zip single file upload with 400', async () => {
   expect(after.versions).toHaveLength(0);
 });
 
+test('rejects a folder upload containing a dangerous file with 400', async () => {
+  const project = await createProject(app);
+  const form = new FormData();
+  form.append('folderFiles', new File(['SECRET=1'], '.env'));
+  form.append('folderFiles', new File(['<html></html>'], 'index.html'));
+  form.append('versionDesc', 'leaky');
+  const res = await app.request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({ error: { code: 'UNSAFE_ENTRY' } });
+  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+});
+
+test('rejects an upload without index.html with 400', async () => {
+  const project = await createProject(app);
+  const form = new FormData();
+  form.append('folderFiles', new File(['body { color: red; }'], 'style.css'));
+  form.append('versionDesc', 'no html');
+  const res = await app.request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({
+    error: { code: 'MISSING_INDEX_HTML' },
+  });
+  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+});
+
 test('activating a version sets it as the active version', async () => {
   const project = await createProject(app);
   await uploadVersion(app, project.id, '<html>v1</html>');
@@ -272,6 +323,7 @@ test('deleting the active version promotes a replacement', async () => {
   await uploadVersion(app, project.id, '<html>v1</html>');
   await uploadVersion(app, project.id, '<html>v2</html>');
   const [first] = (await getProject(app, project.id)).versions;
+  await activateVersion(app, project.id, first.id);
 
   const res = await app.request(
     `/api/projects/${project.id}/versions/${first.id}`,
@@ -286,7 +338,12 @@ test('deleting the active version promotes a replacement', async () => {
 
 test('serves the active version via /deploy/:slug/', async () => {
   const project = await createProject(app, 'demo-app');
-  await uploadVersion(app, project.id, '<html><body>deployed</body></html>');
+  const upload = await uploadVersion(
+    app,
+    project.id,
+    '<html><body>deployed</body></html>'
+  );
+  await activateVersion(app, project.id, await versionIdOf(upload));
 
   const res = await app.request('/deploy/demo-app/');
   expect(res.status).toBe(200);
@@ -296,7 +353,8 @@ test('serves the active version via /deploy/:slug/', async () => {
 
 test('returns 404 for a missing path when SPA mode is off', async () => {
   const project = await createProject(app, 'demo-app');
-  await uploadVersion(app, project.id);
+  const upload = await uploadVersion(app, project.id);
+  await activateVersion(app, project.id, await versionIdOf(upload));
 
   const res = await app.request('/deploy/demo-app/missing.txt');
   expect(res.status).toBe(404);
@@ -304,7 +362,12 @@ test('returns 404 for a missing path when SPA mode is off', async () => {
 
 test('falls back to index.html for a missing path when SPA mode is on', async () => {
   const project = await createProject(app, 'demo-app');
-  await uploadVersion(app, project.id, '<html><body>spa</body></html>');
+  const upload = await uploadVersion(
+    app,
+    project.id,
+    '<html><body>spa</body></html>'
+  );
+  await activateVersion(app, project.id, await versionIdOf(upload));
   await app.request(`/api/projects/${project.id}/settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -371,9 +434,9 @@ test('records structured metadata on upload and activate history events', async 
     fileCount: 1,
   });
   expect(upload.metadata.size).toBeGreaterThan(0);
-  // The activate event records which version was active before the switch.
+  // Upload ≠ go-live: the first publish has no prior active version.
   expect(activate.metadata).toEqual({
-    previousActiveVersionId: expect.any(String),
+    previousActiveVersionId: null,
   });
 });
 

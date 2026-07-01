@@ -154,3 +154,27 @@ test('extractZip rejects a path-traversal entry', async () => {
     'Unsafe zip entry'
   );
 });
+
+test('extractZip rejects dangerous entries (.env, .git/, id_rsa)', async () => {
+  const destDir = join(tempDir, 'out');
+
+  for (const path of ['.env', '.git/config', 'id_rsa', 'cert.pem']) {
+    const zipPath = await makeZip({
+      'index.html': new TextEncoder().encode('<html></html>'),
+      [path]: new TextEncoder().encode('secret'),
+    });
+    await expect(extractZip(zipPath, destDir)).rejects.toThrow(
+      'disallowed entry'
+    );
+  }
+});
+
+test('writeFolderFiles rejects dangerous entries', async () => {
+  const destDir = join(tempDir, 'out');
+
+  for (const path of ['.env', 'proj/.git/config', 'proj/id_rsa', 'cert.key']) {
+    await expect(
+      writeFolderFiles(destDir, [fileWithRelativePath('x', path)])
+    ).rejects.toThrow('disallowed entry');
+  }
+});
