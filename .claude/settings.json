@@ -20,7 +20,23 @@
       "Bash(bun --filter @deploykit/web test)",
       "Bash(python3 -c \"import json;print\\(list\\(json.load\\(open\\('package.json'\\)\\)['scripts'].keys\\(\\)\\)\\)\")",
       "Bash(bun -e \"import\\('fflate'\\).then\\(m => console.log\\('fflate loaded:', !!m.unzip, !!m.zip\\)\\)\")",
-      "Bash(bun -e \"import\\('fflate'\\).then\\(m => console.log\\('fflate loaded: unzip=', !!m.unzip, 'zip=', !!m.zip\\)\\)\")"
+      "Bash(bun -e \"import\\('fflate'\\).then\\(m => console.log\\('fflate loaded: unzip=', !!m.unzip, 'zip=', !!m.zip\\)\\)\")",
+      "Bash(git rev-list *)",
+      "Bash(set -e)",
+      "Bash(command -v gh)",
+      "Read(//opt/homebrew/bin/**)",
+      "Bash(command -v brew)",
+      "Bash(brew --version)",
+      "Bash(brew install *)",
+      "Bash(npm view *)",
+      "Bash(bun -e \"import\\('zod'\\).then\\(m => { const s = m.z.object\\({ a: m.z.string\\(\\).optional\\(\\) }\\).superRefine\\(\\(v,c\\)=>{ if\\(!v.a\\) c.addIssue\\({code:'custom',path:['a'],message:'X'}\\); }\\); const r = s.safeParse\\({}\\); console.log\\('safeParse ok:', !r.success, r.error.issues[0].message\\); const t = m.z.object\\({x:m.z.string\\(\\)}\\).transform\\(v=>\\({y:v.x}\\)\\); console.log\\('transform type ok'\\); console.log\\('zod version:', m.z.core?.version ?? 'n/a'\\); }\\)\")",
+      "Bash(bun -e \"import\\('zod'\\).then\\(m=>console.log\\('shared zod:', typeof m.z.object\\)\\)\")",
+      "Bash(bun -e \"import\\('zod'\\).then\\(m=>console.log\\('server zod:', typeof m.z.object\\)\\)\")",
+      "Bash(bun -e \"import\\('zod'\\).then\\(m=>console.log\\('server zod:', typeof m.z.object\\)\\).catch\\(e=>console.log\\('FAIL:', e.message\\)\\)\")",
+      "Bash(bun -e ' *)",
+      "Bash(bun --filter @deploykit/shared typecheck)",
+      "Bash(bun --filter @deploykit/server typecheck)",
+      "Bash(bun --filter @deploykit/web typecheck)"
     ]
   }
 }
