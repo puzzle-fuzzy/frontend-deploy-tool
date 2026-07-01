@@ -84,6 +84,19 @@
     "deleteProject": "删除项目",
     "deleteProjectDesc": "移除项目及所有版本，此操作不可撤销"
   },
+  "audit": {
+    "title": "审计",
+    "versions": "版本",
+    "profile": "配置",
+    "run": "运行审计",
+    "running": "审计中...",
+    "empty": "没有可审计的版本",
+    "noReport": "运行审计后查看结果",
+    "score": "评分",
+    "passed": "通过",
+    "warning": "警告",
+    "failed": "失败"
+  },
   "common": {
     "loading": "加载中...",
     "delete": "删除",

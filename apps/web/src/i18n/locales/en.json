@@ -84,6 +84,19 @@
     "deleteProject": "Delete Project",
     "deleteProjectDesc": "Remove project and all versions. This cannot be undone"
   },
+  "audit": {
+    "title": "Audit",
+    "versions": "Version",
+    "profile": "Profile",
+    "run": "Run Audit",
+    "running": "Running...",
+    "empty": "No versions to audit",
+    "noReport": "Run an audit to see results",
+    "score": "Score",
+    "passed": "Passed",
+    "warning": "Warning",
+    "failed": "Failed"
+  },
   "common": {
     "loading": "Loading...",
     "delete": "Delete",
