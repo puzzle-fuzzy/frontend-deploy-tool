@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { unzip } from 'fflate';
+import { matchBlockedPath } from '../domain/uploadSafety';
 import { ApiError, ErrorCode } from '../errors';
 import { getMimeType } from '../utils/mime';
 import { safeJoin } from '../utils/safePath';
@@ -63,6 +64,14 @@ export async function extractZip(
 
   for (const [entryPath, bytes] of Object.entries(entries)) {
     if (entryPath.endsWith('/') || isSystemMetadata(entryPath)) continue; // directory marker or junk
+    const reason = matchBlockedPath(entryPath);
+    if (reason) {
+      throw new ApiError(
+        ErrorCode.BLOCKED_FILE,
+        `Upload rejected: "${entryPath}" is blocked (${reason}). Remove it and upload again.`,
+        400
+      );
+    }
     const target = safeJoin(destDir, entryPath);
     if (!target) throw new Error(`Unsafe zip entry: ${entryPath}`);
     mkdirSync(dirname(target), { recursive: true });
@@ -151,6 +160,15 @@ export async function writeFolderFiles(
     const relativePath = rawPath.replaceAll('\\', '/').replace(/^\/+/, '');
 
     if (!relativePath || isSystemMetadata(relativePath)) continue;
+
+    const reason = matchBlockedPath(relativePath);
+    if (reason) {
+      throw new ApiError(
+        ErrorCode.BLOCKED_FILE,
+        `Upload rejected: "${relativePath}" is blocked (${reason}). Remove it and upload again.`,
+        400
+      );
+    }
 
     if (maxPathLength && relativePath.length > maxPathLength) {
       throw new ApiError(

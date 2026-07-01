@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '@deploykit/shared';
+import { zipSync } from 'fflate';
 import type { Hono } from 'hono';
 import { createApp } from '../../src/app';
 
@@ -398,4 +399,40 @@ test('cleans up and returns 500 when zip extraction fails', async () => {
   // The failed version must not be recorded.
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(0);
+});
+
+test('rejects a zip containing a blocked file with 400 BLOCKED_FILE', async () => {
+  const project = await createProject(app);
+  const zip = new File(
+    [zipSync({ '.env': new TextEncoder().encode('SECRET=1') })],
+    'build.zip',
+    { type: 'application/zip' }
+  );
+  const form = new FormData();
+  form.append('file', zip);
+  form.append('versionDesc', 'leaky');
+  const res = await app.request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error.code).toBe('BLOCKED_FILE');
+
+  // No version is recorded after the failed upload.
+  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+});
+
+test('rejects a folder upload containing a blocked file with 400 BLOCKED_FILE', async () => {
+  const project = await createProject(app);
+  const form = new FormData();
+  form.append('folderFiles', new File(['<html></html>'], 'index.html'));
+  form.append('folderFiles', new File(['SECRET=1'], '.env'));
+  form.append('versionDesc', 'leaky');
+  const res = await app.request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error.code).toBe('BLOCKED_FILE');
+  expect((await getProject(app, project.id)).versions).toHaveLength(0);
 });
