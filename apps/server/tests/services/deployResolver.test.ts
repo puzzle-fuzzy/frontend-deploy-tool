@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'bun:test';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import type { Project, Version } from '@deploykit/shared';
 import { resolveDeployTarget } from '../../src/services/deployResolver';
 
-const storageDir = join('/storage');
+const storageDir = resolve('/storage');
 const projectId = 'proj-1';
 const versionA = 'version-a'; // active
 const versionB = 'version-b';

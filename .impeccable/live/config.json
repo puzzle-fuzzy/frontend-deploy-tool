@@ -1,0 +1,7 @@
+{
+  "files": ["apps/web/index.html"],
+  "insertBefore": "</body>",
+  "commentSyntax": "<!-- -->",
+  "cspChecked": true,
+  "framework": "vite"
+}

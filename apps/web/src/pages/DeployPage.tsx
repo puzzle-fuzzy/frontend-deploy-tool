@@ -31,8 +31,8 @@ export function DeployPage() {
   const [showUpload, setShowUpload] = useState(false);
 
   return (
-    <div className="flex items-center justify-center min-h-dvh p-6">
-      <div className="w-300 h-[80dvh] bg-card rounded-2xl border border-border shadow-sm flex flex-col overflow-hidden">
+    <div className="flex items-center justify-center min-h-dvh p-4 lg:p-6">
+      <div className="w-full max-w-7xl min-h-[70dvh] bg-card rounded-2xl border border-border shadow-sm flex flex-col overflow-hidden">
         {/* Top bar */}
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <div className="flex items-center gap-2">
@@ -47,7 +47,7 @@ export function DeployPage() {
         </div>
 
         {/* Two-column body */}
-        <div className="flex flex-1 min-h-0">
+        <div className="flex flex-1 min-h-0 flex-col lg:flex-row">
           <ProjectList
             projects={projects}
             loading={loading}

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "lint": "eslint .",
+    "lint": "biome lint .",
     "preview": "vite preview",
     "test": "vitest",
     "typecheck": "tsc -b"
@@ -32,7 +32,6 @@
   },
   "devDependencies": {
     "@babel/core": "catalog:",
-    "@eslint/js": "catalog:",
     "@rolldown/plugin-babel": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@testing-library/jest-dom": "^6.9.1",
@@ -44,14 +43,10 @@
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "babel-plugin-react-compiler": "catalog:",
-    "eslint": "catalog:",
-    "eslint-plugin-react-hooks": "catalog:",
-    "eslint-plugin-react-refresh": "catalog:",
     "globals": "catalog:",
     "jsdom": "^29.1.1",
     "tailwindcss": "catalog:",
     "typescript": "catalog:",
-    "typescript-eslint": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.9"
   }

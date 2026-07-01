@@ -25,7 +25,7 @@ export function ProjectList({
   const { t } = useTranslation();
 
   return (
-    <div className="w-85 border-r border-border flex flex-col">
+    <div className="w-full lg:w-80 xl:w-96 border-b lg:border-r lg:border-b-0 border-border flex flex-col">
       <div className="flex items-center justify-between px-4 py-2.5">
         <p className="text-xs font-medium text-muted-foreground">
           {t('projects.title')}

@@ -1,0 +1,70 @@
+{
+  "projects": [
+    {
+      "id": "mr08smcryfduwh",
+      "name": "青岛啤酒",
+      "slug": "tsing-tao",
+      "description": "青岛啤酒 1903",
+      "createdAt": "2026-06-30T06:05:05.451Z",
+      "updatedAt": "2026-06-30T06:09:30.870Z",
+      "versions": [
+        {
+          "id": "mr08vckuy9493i",
+          "name": "mr08vck",
+          "description": "",
+          "createdAt": "2026-06-30T06:07:12.760Z",
+          "active": false
+        },
+        {
+          "id": "mr08y7d7jugzos",
+          "name": "mr08y7d",
+          "description": "",
+          "createdAt": "2026-06-30T06:09:25.968Z",
+          "active": true
+        }
+      ],
+      "settings": {
+        "spaMode": false,
+        "routingType": "path"
+      }
+    }
+  ],
+  "history": [
+    {
+      "id": "mr08yb5itgmf0u",
+      "action": "version.activate",
+      "projectId": "mr08smcryfduwh",
+      "projectName": "青岛啤酒",
+      "versionId": "mr08y7d7jugzos",
+      "versionName": "mr08y7d",
+      "timestamp": "2026-06-30T06:09:30.870Z"
+    },
+    {
+      "id": "mr08y7ddzoul4n",
+      "action": "version.upload",
+      "projectId": "mr08smcryfduwh",
+      "projectName": "青岛啤酒",
+      "versionId": "mr08y7d7jugzos",
+      "versionName": "mr08y7d",
+      "timestamp": "2026-06-30T06:09:25.969Z"
+    },
+    {
+      "id": "mr08vcl4g1244n",
+      "action": "version.upload",
+      "projectId": "mr08smcryfduwh",
+      "projectName": "青岛啤酒",
+      "versionId": "mr08vckuy9493i",
+      "versionName": "mr08vck",
+      "timestamp": "2026-06-30T06:07:12.760Z"
+    },
+    {
+      "id": "mr08smcr7epztu",
+      "action": "project.create",
+      "projectId": "mr08smcryfduwh",
+      "projectName": "青岛啤酒",
+      "versionId": "",
+      "versionName": "",
+      "timestamp": "2026-06-30T06:05:05.451Z"
+    }
+  ]
+}
