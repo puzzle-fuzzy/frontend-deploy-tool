@@ -210,8 +210,8 @@ export function checksumDirectory(dirPath: string): string {
 /**
  * Writes uploaded folder files into `destDir`, preserving each file's relative
  * directory structure. Returns the total bytes written. OS metadata entries are
- * skipped. Throws `ApiError` (400) when a path exceeds `maxPathLength`, and a
- * plain `Error` for unsafe (traversal) paths so the caller can map it to a 500.
+ * skipped. Throws `ApiError` (400) when a path is unsafe or exceeds
+ * `maxPathLength`.
  */
 export async function writeFolderFiles(
   destDir: string,
@@ -243,7 +243,12 @@ export async function writeFolderFiles(
     }
 
     const filePath = safeJoin(destDir, relativePath);
-    if (!filePath) throw new Error(`Unsafe upload path: ${relativePath}`);
+    if (!filePath) {
+      throw new ApiError(
+        ErrorCode.UNSAFE_ENTRY,
+        `Upload contains an unsafe path: ${relativePath}`
+      );
+    }
     mkdirSync(dirname(filePath), { recursive: true });
     await Bun.write(filePath, f);
     totalSize += f.size;

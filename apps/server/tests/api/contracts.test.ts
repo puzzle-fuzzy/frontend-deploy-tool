@@ -357,6 +357,21 @@ test('rejects a folder upload containing a dangerous file with 400', async () =>
   expect((await getProject(project.id)).versions).toHaveLength(0);
 });
 
+test('rejects a folder upload path traversal with 400', async () => {
+  const project = await createProject();
+  const form = new FormData();
+  form.append('folderFiles', new File(['x'], 'evil.txt'), '../../evil.txt');
+  form.append('folderFiles', new File(['<html></html>'], 'index.html'));
+  form.append('versionDesc', 'traversal');
+  const res = await req(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect(await res.json()).toMatchObject({ error: { code: 'UNSAFE_ENTRY' } });
+  expect((await getProject(project.id)).versions).toHaveLength(0);
+});
+
 test('rejects an upload without index.html with 400', async () => {
   const project = await createProject();
   const form = new FormData();

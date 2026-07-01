@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zip } from 'fflate';
+import { ErrorCode } from '../../src/errors';
 import {
   countFiles,
   extractZip,
@@ -101,7 +102,7 @@ test('writeFolderFiles throws on an unsafe traversal path', async () => {
   const destDir = join(tempDir, 'out');
   await expect(
     writeFolderFiles(destDir, [fileWithRelativePath('x', '../../evil.txt')])
-  ).rejects.toThrow('Unsafe upload path');
+  ).rejects.toMatchObject({ code: ErrorCode.UNSAFE_ENTRY });
 });
 
 test('writeFolderFiles rejects a path that exceeds maxPathLength', async () => {
