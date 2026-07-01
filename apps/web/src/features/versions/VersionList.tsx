@@ -34,9 +34,9 @@ export function VersionList({
 }: Props) {
   const { t } = useTranslation();
   const productionVersion = project.versions.find(
-    (version) => version.status === 'production'
+    (version) => version.id === project.activeVersionId
   );
-  const isProduction = (v: Version) => v.status === 'production';
+  const isProduction = (v: Version) => v.id === project.activeVersionId;
   const isPending = (v: Version) => pendingVersionId === v.id;
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
 

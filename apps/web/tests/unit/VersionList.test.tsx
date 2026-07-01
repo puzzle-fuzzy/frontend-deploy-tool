@@ -56,6 +56,23 @@ describe('VersionList', () => {
     expect(screen.getByText('versions.publish')).toBeInTheDocument();
   });
 
+  it('uses activeVersionId as the production source of truth', () => {
+    render(
+      <VersionList
+        project={makeProject([version('v1', 'preview')])}
+        pendingVersionId={null}
+        onPublish={noop}
+        onRollback={noop}
+        onDelete={noop}
+      />
+    );
+
+    expect(screen.getByText('versions.production')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'versions.publish' })
+    ).not.toBeInTheDocument();
+  });
+
   it('renders the empty state when the project has no versions', () => {
     render(
       <VersionList
