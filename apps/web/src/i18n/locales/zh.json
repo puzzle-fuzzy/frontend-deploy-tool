@@ -51,6 +51,7 @@
     "title": "上传新版本",
     "dropzone": "拖拽 .zip 文件到此处",
     "dropzoneDesc": "最大 500MB，支持 .zip 或文件夹上传",
+    "selectedFiles": "{{count}} 个文件",
     "selectZip": "选择 .zip",
     "selectFolder": "选择文件夹",
     "releaseNotes": "版本说明",

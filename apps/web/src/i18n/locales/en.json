@@ -51,6 +51,7 @@
     "title": "Upload New Version",
     "dropzone": "Drop .zip file here",
     "dropzoneDesc": "Max 500MB. Supported: .zip or folder upload",
+    "selectedFiles": "{{count}} file(s)",
     "selectZip": "Select .zip",
     "selectFolder": "Select Folder",
     "releaseNotes": "Release Notes",

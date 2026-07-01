@@ -39,7 +39,7 @@ export function UploadVersionDialog({
   const label = file
     ? file.name
     : folderFiles
-      ? `${folderFiles.length} files`
+      ? t('upload.selectedFiles', { count: folderFiles.length })
       : null;
 
   const handleDrop = (e: React.DragEvent) => {
