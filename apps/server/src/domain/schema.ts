@@ -9,6 +9,7 @@ import {
 } from '@deploykit/shared';
 import { z } from 'zod';
 import { DEFAULT_PROJECT_SETTINGS } from './project';
+import { syncProductionStatus } from './version';
 
 /**
  * The schema version this build reads and writes. Old data files lacking a
@@ -101,19 +102,22 @@ export function migrate(raw: unknown): MigrationResult {
       p.activeVersionId ??
       p.versions.find((v) => v.active === true)?.id ??
       null;
-    const versions = p.versions.map((v) => ({
-      id: v.id,
-      name: v.name,
-      description: v.description,
-      createdAt: v.createdAt,
-      size: v.size,
-      fileCount: v.fileCount,
-      sourceType: v.sourceType,
-      status: v.status ?? (activeVersionId === v.id ? 'production' : 'preview'),
-      publishedAt: v.publishedAt ?? null,
-      publishedBy: v.publishedBy ?? null,
-      checksum: v.checksum,
-    }));
+    const versions = syncProductionStatus(
+      p.versions.map((v) => ({
+        id: v.id,
+        name: v.name,
+        description: v.description,
+        createdAt: v.createdAt,
+        size: v.size,
+        fileCount: v.fileCount,
+        sourceType: v.sourceType,
+        status: v.status ?? 'preview',
+        publishedAt: v.publishedAt ?? null,
+        publishedBy: v.publishedBy ?? null,
+        checksum: v.checksum,
+      })),
+      activeVersionId
+    );
     return {
       id: p.id,
       name: p.name,

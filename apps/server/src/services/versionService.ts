@@ -10,6 +10,7 @@ import { appendHistoryEvent } from '../domain/history';
 import {
   chooseReplacementActiveVersionId,
   findProjectVersion,
+  syncProductionStatus,
 } from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -52,16 +53,13 @@ export function createVersionService(
 
     const previousActiveVersionId = project.activeVersionId;
     const publishedAt = new Date().toISOString();
-    for (const candidate of project.versions) {
-      if (candidate.id === version.id) {
-        candidate.status = 'production';
-        candidate.publishedAt = publishedAt;
-        candidate.publishedBy = actorId;
-      } else if (candidate.status === 'production') {
-        candidate.status = 'preview';
-      }
-    }
     project.activeVersionId = version.id;
+    project.versions = syncProductionStatus(project.versions, version.id);
+    const publishedVersion = findProjectVersion(project, version.id);
+    if (publishedVersion) {
+      publishedVersion.publishedAt = publishedAt;
+      publishedVersion.publishedBy = actorId;
+    }
     project.updatedAt = publishedAt;
     appendHistoryEvent(data, action, project, actorId, version, {
       previousActiveVersionId,
@@ -246,14 +244,17 @@ export function createVersionService(
       )[0];
       project.activeVersionId = replacementActiveVersionId;
       const updatedAt = new Date().toISOString();
-      for (const candidate of project.versions) {
-        if (candidate.id === replacementActiveVersionId) {
-          candidate.status = 'production';
-          candidate.publishedAt = updatedAt;
-          candidate.publishedBy = actorId;
-        } else if (candidate.status === 'production') {
-          candidate.status = 'preview';
-        }
+      project.versions = syncProductionStatus(
+        project.versions,
+        replacementActiveVersionId
+      );
+      const replacementVersion =
+        replacementActiveVersionId === null
+          ? undefined
+          : findProjectVersion(project, replacementActiveVersionId);
+      if (replacementVersion) {
+        replacementVersion.publishedAt = updatedAt;
+        replacementVersion.publishedBy = actorId;
       }
       project.updatedAt = updatedAt;
       appendHistoryEvent(data, 'version.delete', project, actorId, removed, {

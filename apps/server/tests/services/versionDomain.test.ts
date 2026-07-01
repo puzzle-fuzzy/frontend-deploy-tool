@@ -4,6 +4,7 @@ import { DEFAULT_PROJECT_SETTINGS } from '../../src/domain/project';
 import {
   chooseReplacementActiveVersionId,
   findProjectVersion,
+  syncProductionStatus,
 } from '../../src/domain/version';
 
 const versions: Version[] = [
@@ -86,5 +87,23 @@ describe('findProjectVersion (version-belongs-to-one-project invariant)', () => 
   test('returns undefined for a version that does not belong to the project', () => {
     expect(findProjectVersion(project, 'version-x')).toBeUndefined();
     expect(findProjectVersion(makeProject([]), 'version-a')).toBeUndefined();
+  });
+});
+
+describe('syncProductionStatus', () => {
+  test('marks only the active version as production', () => {
+    const next = syncProductionStatus(versions, 'version-b');
+    expect(next.map((version) => [version.id, version.status])).toEqual([
+      ['version-a', 'preview'],
+      ['version-b', 'production'],
+    ]);
+  });
+
+  test('clears production status when there is no active version', () => {
+    const next = syncProductionStatus(versions, null);
+    expect(next.map((version) => [version.id, version.status])).toEqual([
+      ['version-a', 'preview'],
+      ['version-b', 'preview'],
+    ]);
   });
 });
