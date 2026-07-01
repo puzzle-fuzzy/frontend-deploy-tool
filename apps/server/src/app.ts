@@ -91,11 +91,6 @@ export function createApp(config: AppConfig) {
         recursive: true,
         force: true,
       }),
-    removeVersionDir: (projectId, versionId) =>
-      rmSync(join(config.storageDir, projectId, versionId), {
-        recursive: true,
-        force: true,
-      }),
   })
     .route(
       '/',

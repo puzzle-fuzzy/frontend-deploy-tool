@@ -30,7 +30,6 @@ export interface ApiDeps {
   /** Clears the session cookie (Node-backed; injected). */
   clearSession: (c: Context) => void;
   removeProjectDir: (projectId: string) => void;
-  removeVersionDir: (projectId: string, versionId: string) => void;
 }
 
 /**
@@ -89,7 +88,6 @@ export function createApiApp(deps: ApiDeps) {
       '/',
       createVersionRoutes({
         versionService: deps.versionService,
-        removeVersionDir: deps.removeVersionDir,
       })
     )
     .route('/', createHistoryRoutes({ projectService: deps.projectService }));

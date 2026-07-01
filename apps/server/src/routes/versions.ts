@@ -3,12 +3,8 @@ import { parseIdParam } from '../domain/schemas';
 import { assertRole } from '../middleware/auth';
 import type { AppEnv, VersionService } from '../services/contracts';
 
-export function createVersionRoutes(deps: {
-  versionService: VersionService;
-  /** Removes the on-disk artifacts for a deleted version. */
-  removeVersionDir: (projectId: string, versionId: string) => void;
-}) {
-  const { versionService, removeVersionDir } = deps;
+export function createVersionRoutes(deps: { versionService: VersionService }) {
+  const { versionService } = deps;
 
   return new Hono<AppEnv>()
     .post('/api/projects/:id/versions', async (c) => {
@@ -79,7 +75,6 @@ export function createVersionRoutes(deps: {
         versionId,
         c.get('user')?.id ?? 'system'
       );
-      removeVersionDir(projectId, versionId);
       return c.json({ ok: true });
     });
 }
