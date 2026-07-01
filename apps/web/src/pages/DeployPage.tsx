@@ -185,6 +185,7 @@ export function DeployPage({ user, onLogout }: Props) {
           onOpenChange={setShowSettings}
           project={selectedProject}
           onDeleted={onProjectDeleted}
+          onSaved={refresh}
         />
       )}
     </div>

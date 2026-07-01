@@ -24,6 +24,7 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   project: Project | null;
   onDeleted: () => void;
+  onSaved: () => void;
 }
 
 export function ProjectSettingsDialog({
@@ -31,6 +32,7 @@ export function ProjectSettingsDialog({
   onOpenChange,
   project,
   onDeleted,
+  onSaved,
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -68,6 +70,7 @@ export function ProjectSettingsDialog({
       // Update settings
       await api.updateSettings(project.id, settings);
       toast(t('settings.saved'));
+      onSaved();
       onOpenChange(false);
     } catch (err) {
       toast(err instanceof Error ? err.message : t('common.failed'), 'error');

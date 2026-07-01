@@ -28,6 +28,10 @@ describe('ProjectSettingsDialog', () => {
     vi.mocked(api.updateSettings).mockResolvedValue(
       project({ spaMode: false, routingType: 'hash' })
     );
+    vi.mocked(api.updateProject).mockResolvedValue(
+      project({ spaMode: false, routingType: 'hash' })
+    );
+    const onSaved = vi.fn();
     const user = userEvent.setup();
     render(
       <ProjectSettingsDialog
@@ -35,6 +39,7 @@ describe('ProjectSettingsDialog', () => {
         onOpenChange={noop}
         project={project({ spaMode: false, routingType: 'hash' })}
         onDeleted={noop}
+        onSaved={onSaved}
       />
     );
 
@@ -46,5 +51,6 @@ describe('ProjectSettingsDialog', () => {
         routingType: 'hash',
       })
     );
+    expect(onSaved).toHaveBeenCalledOnce();
   });
 });
