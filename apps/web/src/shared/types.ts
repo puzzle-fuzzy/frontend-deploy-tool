@@ -6,4 +6,5 @@ export type {
   Settings,
   Version,
   VersionSourceType,
+  VersionStatus,
 } from '@deploykit/shared';

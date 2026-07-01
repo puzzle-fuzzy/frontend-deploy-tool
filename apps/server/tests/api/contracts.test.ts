@@ -69,6 +69,28 @@ async function activateVersion(
   expect(res.status).toBe(200);
 }
 
+async function publishVersion(
+  projectId: string,
+  versionId: string
+): Promise<void> {
+  const res = await req(
+    `/api/projects/${projectId}/versions/${versionId}/publish`,
+    { method: 'POST' }
+  );
+  expect(res.status).toBe(200);
+}
+
+async function rollbackVersion(
+  projectId: string,
+  versionId: string
+): Promise<void> {
+  const res = await req(
+    `/api/projects/${projectId}/versions/${versionId}/rollback`,
+    { method: 'POST' }
+  );
+  expect(res.status).toBe(200);
+}
+
 /** Resolves the version id from an upload response. */
 async function versionIdOf(res: Response): Promise<string> {
   const body = await res.json();
@@ -296,6 +318,10 @@ test('uploads a folder version as preview-only (not auto-published)', async () =
   expect(version.sourceType).toBe('folder');
   expect(version.fileCount).toBe(1);
   expect(version.size).toBeGreaterThan(0);
+  expect(version.status).toBe('preview');
+  expect(version.publishedAt).toBeNull();
+  expect(version.publishedBy).toBeNull();
+  expect(version.checksum).toMatch(/^[a-f0-9]{64}$/);
 });
 
 test('rejects a non-zip single file upload with 400', async () => {
@@ -363,6 +389,63 @@ test('activating a version sets it as the active version', async () => {
   expect(after.activeVersionId).toBe(second.id);
 });
 
+test('publishing a version marks it production and demotes the previous version', async () => {
+  const project = await createProject();
+  await uploadVersion(project.id, '<html>v1</html>');
+  await uploadVersion(project.id, '<html>v2</html>');
+  const [first, second] = (await getProject(project.id)).versions;
+
+  await publishVersion(project.id, first.id);
+  await publishVersion(project.id, second.id);
+
+  const after = await getProject(project.id);
+  const firstAfter = after.versions.find((v) => v.id === first.id);
+  const secondAfter = after.versions.find((v) => v.id === second.id);
+  expect(after.activeVersionId).toBe(second.id);
+  expect(firstAfter?.status).toBe('preview');
+  expect(secondAfter?.status).toBe('production');
+  expect(secondAfter?.publishedAt).toBeTruthy();
+  expect(secondAfter?.publishedBy).toBeTruthy();
+
+  const events = await (await req('/api/history?limit=10')).json();
+  const publishEvents = events.filter(
+    (e: { action: string }) => e.action === 'version.publish'
+  );
+  expect(publishEvents).toHaveLength(2);
+  expect(publishEvents[0].metadata).toEqual({
+    previousActiveVersionId: first.id,
+  });
+});
+
+test('rollback is a distinct publish-like action in history', async () => {
+  const project = await createProject();
+  await uploadVersion(project.id, '<html>v1</html>');
+  await uploadVersion(project.id, '<html>v2</html>');
+  const [first, second] = (await getProject(project.id)).versions;
+  await publishVersion(project.id, first.id);
+  await publishVersion(project.id, second.id);
+
+  await rollbackVersion(project.id, first.id);
+
+  const after = await getProject(project.id);
+  expect(after.activeVersionId).toBe(first.id);
+  expect(after.versions.find((v) => v.id === first.id)?.status).toBe(
+    'production'
+  );
+  expect(after.versions.find((v) => v.id === second.id)?.status).toBe(
+    'preview'
+  );
+
+  const events = await (await req('/api/history?limit=10')).json();
+  const rollback = events.find(
+    (e: { action: string }) => e.action === 'version.rollback'
+  );
+  expect(rollback.versionId).toBe(first.id);
+  expect(rollback.metadata).toEqual({
+    previousActiveVersionId: second.id,
+  });
+});
+
 test('deleting the active version promotes a replacement', async () => {
   const project = await createProject();
   await uploadVersion(project.id, '<html>v1</html>');
@@ -378,6 +461,7 @@ test('deleting the active version promotes a replacement', async () => {
   const after = await getProject(project.id);
   expect(after.versions).toHaveLength(1);
   expect(after.activeVersionId).toBe(after.versions[0].id);
+  expect(after.versions[0].status).toBe('production');
 });
 
 test('serves the active version via /deploy/:slug/', async () => {
@@ -484,6 +568,49 @@ test('records structured metadata on upload and activate history events', async 
   expect(activate.metadata).toEqual({
     previousActiveVersionId: null,
   });
+});
+
+test('records project update and settings update events', async () => {
+  const project = await createProject();
+
+  await req(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'Renamed', description: 'new desc' }),
+  });
+  await req(`/api/projects/${project.id}/settings`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ spaMode: true, routingType: 'hash' }),
+  });
+
+  const events = await (await req('/api/history?limit=10')).json();
+  expect(events.map((e: { action: string }) => e.action)).toEqual([
+    'project.update_settings',
+    'project.update',
+    'project.create',
+  ]);
+  expect(events[1].metadata).toEqual({
+    changes: {
+      name: { from: 'Demo', to: 'Renamed' },
+      description: { from: 'demo', to: 'new desc' },
+    },
+  });
+});
+
+test('lists history for a single project', async () => {
+  const first = await createProject('first');
+  const second = await createProject('second');
+  await uploadVersion(first.id, '<html>first</html>');
+  await uploadVersion(second.id, '<html>second</html>');
+
+  const res = await req(`/api/projects/${first.id}/history?limit=10`);
+  expect(res.status).toBe(200);
+  const events = await res.json();
+  expect(events.map((e: { projectId: string }) => e.projectId)).toEqual([
+    first.id,
+    first.id,
+  ]);
 });
 
 test('cleans up and returns 500 when zip extraction fails', async () => {

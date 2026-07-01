@@ -32,7 +32,8 @@ export function DeployPage({ user, onLogout }: Props) {
     pendingVersionId,
     selectProject,
     refresh,
-    activateVersion,
+    publishVersion,
+    rollbackVersion,
     deleteVersion,
     onProjectDeleted,
   } = useProjects();
@@ -145,7 +146,8 @@ export function DeployPage({ user, onLogout }: Props) {
                   project={selectedProject}
                   pendingVersionId={pendingVersionId}
                   readOnly={!canManage}
-                  onActivate={activateVersion}
+                  onPublish={publishVersion}
+                  onRollback={rollbackVersion}
                   onDelete={deleteVersion}
                 />
               </>

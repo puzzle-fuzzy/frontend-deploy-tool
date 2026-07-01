@@ -5,6 +5,7 @@ import {
   settingsSchema,
   userSchema,
   versionSourceTypeSchema,
+  versionStatusSchema,
 } from '@deploykit/shared';
 import { z } from 'zod';
 import { DEFAULT_PROJECT_SETTINGS } from './project';
@@ -18,8 +19,10 @@ import { DEFAULT_PROJECT_SETTINGS } from './project';
  *   legacy versions default to `0`/`0`/`'unknown'`.
  * - v3: history events carry `actorId` (legacy → `'system'`); top-level `users`
  *   (absent before auth → `[]`, then seeded by the app).
+ * - v4: versions carry release metadata (`status`, `publishedAt`,
+ *   `publishedBy`, `checksum`); status is derived from `activeVersionId`.
  */
-export const CURRENT_SCHEMA_VERSION = 3;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export interface MigrationResult {
   data: Data;
@@ -55,6 +58,10 @@ const legacyDataSchema = z.object({
             size: z.number().default(0),
             fileCount: z.number().default(0),
             sourceType: versionSourceTypeSchema.default('unknown'),
+            status: versionStatusSchema.optional(),
+            publishedAt: z.string().nullable().optional(),
+            publishedBy: z.string().nullable().optional(),
+            checksum: z.string().default(''),
           })
         )
         .default([]),
@@ -90,6 +97,10 @@ export function migrate(raw: unknown): MigrationResult {
   const inputVersion = input.schemaVersion ?? 0;
 
   const projects: Project[] = input.projects.map((p) => {
+    const activeVersionId =
+      p.activeVersionId ??
+      p.versions.find((v) => v.active === true)?.id ??
+      null;
     const versions = p.versions.map((v) => ({
       id: v.id,
       name: v.name,
@@ -98,11 +109,11 @@ export function migrate(raw: unknown): MigrationResult {
       size: v.size,
       fileCount: v.fileCount,
       sourceType: v.sourceType,
+      status: v.status ?? (activeVersionId === v.id ? 'production' : 'preview'),
+      publishedAt: v.publishedAt ?? null,
+      publishedBy: v.publishedBy ?? null,
+      checksum: v.checksum,
     }));
-    const activeVersionId =
-      p.activeVersionId ??
-      p.versions.find((v) => v.active === true)?.id ??
-      null;
     return {
       id: p.id,
       name: p.name,

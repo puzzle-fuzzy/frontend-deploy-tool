@@ -10,6 +10,7 @@ export type {
   User,
   Version,
   VersionSourceType,
+  VersionStatus,
 } from './domain';
 export {
   dataSchema,
@@ -21,4 +22,5 @@ export {
   userSchema,
   versionSchema,
   versionSourceTypeSchema,
+  versionStatusSchema,
 } from './domain';

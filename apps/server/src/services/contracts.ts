@@ -30,11 +30,17 @@ export interface ProjectService {
   findBySlug(slug: string): Project | undefined;
   updateProject(
     id: string,
-    updates: { name?: string; slug?: string; description?: string }
+    updates: { name?: string; slug?: string; description?: string },
+    actorId: string
   ): Project;
-  updateProjectSettings(id: string, settings: Settings): Project;
+  updateProjectSettings(
+    id: string,
+    settings: Settings,
+    actorId: string
+  ): Project;
   deleteProject(id: string, actorId: string): Project;
   listHistory(limit?: string): HistoryEvent[];
+  listProjectHistory(projectId: string, limit?: string): HistoryEvent[];
 }
 
 export interface UploadVersionInput {
@@ -49,7 +55,9 @@ export interface VersionService {
     input: UploadVersionInput,
     actorId: string
   ): Promise<{ version: { id: string; name: string } }>;
+  publishVersion(projectId: string, versionId: string, actorId: string): void;
   activateVersion(projectId: string, versionId: string, actorId: string): void;
+  rollbackVersion(projectId: string, versionId: string, actorId: string): void;
   deleteVersion(projectId: string, versionId: string, actorId: string): void;
 }
 

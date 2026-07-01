@@ -1,6 +1,10 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Version, VersionSourceType } from '@deploykit/shared';
+import type {
+  HistoryAction,
+  Version,
+  VersionSourceType,
+} from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
 import {
@@ -12,6 +16,7 @@ import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
   assertIndexHtml,
+  checksumDirectory,
   countFiles,
   extractZip,
   flattenOutput,
@@ -27,6 +32,43 @@ export function createVersionService(
   repo: ProjectRepository,
   config: AppConfig
 ): VersionService {
+  const promoteVersion = (
+    projectId: string,
+    versionId: string,
+    actorId: string,
+    action: Extract<
+      HistoryAction,
+      'version.publish' | 'version.activate' | 'version.rollback'
+    >
+  ) => {
+    const data = repo.load();
+    const project = data.projects.find((p) => p.id === projectId);
+    if (!project)
+      throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+
+    const version = findProjectVersion(project, versionId);
+    if (!version)
+      throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
+
+    const previousActiveVersionId = project.activeVersionId;
+    const publishedAt = new Date().toISOString();
+    for (const candidate of project.versions) {
+      if (candidate.id === version.id) {
+        candidate.status = 'production';
+        candidate.publishedAt = publishedAt;
+        candidate.publishedBy = actorId;
+      } else if (candidate.status === 'production') {
+        candidate.status = 'preview';
+      }
+    }
+    project.activeVersionId = version.id;
+    project.updatedAt = publishedAt;
+    appendHistoryEvent(data, action, project, actorId, version, {
+      previousActiveVersionId,
+    });
+    repo.save(data);
+  };
+
   return {
     async uploadVersion(
       projectId,
@@ -145,6 +187,10 @@ export function createVersionService(
         size: getDirectorySize(versionDir),
         fileCount: countFiles(versionDir),
         sourceType,
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+        checksum: checksumDirectory(versionDir),
       };
       // Upload ≠ go-live (principle §6.1): every version starts preview-only.
       // Production is reached only by an explicit publish (activateVersion).
@@ -159,31 +205,16 @@ export function createVersionService(
       return { version: { id: version.id, name: version.name } };
     },
 
+    publishVersion(projectId, versionId, actorId) {
+      promoteVersion(projectId, versionId, actorId, 'version.publish');
+    },
+
     activateVersion(projectId, versionId, actorId) {
-      const data = repo.load();
-      const project = data.projects.find((p) => p.id === projectId);
-      if (!project)
-        throw new ApiError(
-          ErrorCode.PROJECT_NOT_FOUND,
-          'Project not found',
-          404
-        );
+      promoteVersion(projectId, versionId, actorId, 'version.activate');
+    },
 
-      const version = findProjectVersion(project, versionId);
-      if (!version)
-        throw new ApiError(
-          ErrorCode.VERSION_NOT_FOUND,
-          'Version not found',
-          404
-        );
-
-      const previousActiveVersionId = project.activeVersionId;
-      project.activeVersionId = version.id;
-      project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.activate', project, actorId, version, {
-        previousActiveVersionId,
-      });
-      repo.save(data);
+    rollbackVersion(projectId, versionId, actorId) {
+      promoteVersion(projectId, versionId, actorId, 'version.rollback');
     },
 
     deleteVersion(projectId, versionId, actorId) {
@@ -214,9 +245,20 @@ export function createVersionService(
         1
       )[0];
       project.activeVersionId = replacementActiveVersionId;
-      project.updatedAt = new Date().toISOString();
+      const updatedAt = new Date().toISOString();
+      for (const candidate of project.versions) {
+        if (candidate.id === replacementActiveVersionId) {
+          candidate.status = 'production';
+          candidate.publishedAt = updatedAt;
+          candidate.publishedBy = actorId;
+        } else if (candidate.status === 'production') {
+          candidate.status = 'preview';
+        }
+      }
+      project.updatedAt = updatedAt;
       appendHistoryEvent(data, 'version.delete', project, actorId, removed, {
         wasActive,
+        replacementActiveVersionId,
       });
       repo.save(data);
     },

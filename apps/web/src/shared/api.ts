@@ -133,13 +133,24 @@ export const api = {
       xhr.send(form);
     }),
 
-  activateVersion: async (
+  publishVersion: async (
     projectId: string,
     versionId: string
   ): Promise<{ ok: boolean }> => {
     const res = await client.api.projects[':id'].versions[
       ':versionId'
-    ].activate.$put({ param: { id: projectId, versionId } });
+    ].publish.$post({ param: { id: projectId, versionId } });
+    await checkOk(res);
+    return res.json();
+  },
+
+  rollbackVersion: async (
+    projectId: string,
+    versionId: string
+  ): Promise<{ ok: boolean }> => {
+    const res = await client.api.projects[':id'].versions[
+      ':versionId'
+    ].rollback.$post({ param: { id: projectId, versionId } });
     await checkOk(res);
     return res.json();
   },

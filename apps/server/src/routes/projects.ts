@@ -40,7 +40,11 @@ export function createProjectRoutes(deps: {
     .patch('/api/projects/:id', validator('json', parseUpdateProject), (c) => {
       assertRole(c, 'developer');
       const id = parseIdParam(c.req.param('id'));
-      const project = projectService.updateProject(id, c.req.valid('json'));
+      const project = projectService.updateProject(
+        id,
+        c.req.valid('json'),
+        c.get('user')?.id ?? 'system'
+      );
       return c.json(project);
     })
     .patch(
@@ -59,7 +63,8 @@ export function createProjectRoutes(deps: {
         const id = parseIdParam(c.req.param('id'));
         const project = projectService.updateProjectSettings(
           id,
-          c.req.valid('json')
+          c.req.valid('json'),
+          c.get('user')?.id ?? 'system'
         );
         return c.json(project);
       }

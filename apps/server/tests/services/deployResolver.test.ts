@@ -17,6 +17,10 @@ function version(id: string, name: string): Version {
     size: 0,
     fileCount: 0,
     sourceType: 'unknown',
+    status: 'preview',
+    publishedAt: null,
+    publishedBy: null,
+    checksum: '',
   };
 }
 

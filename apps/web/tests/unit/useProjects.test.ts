@@ -14,6 +14,10 @@ const version = (id: string): Version => ({
   size: 0,
   fileCount: 0,
   sourceType: 'unknown',
+  status: 'preview',
+  publishedAt: null,
+  publishedBy: null,
+  checksum: '',
 });
 
 const project = (id: string, overrides: Partial<Project> = {}): Project => ({
@@ -43,13 +47,13 @@ describe('useProjects', () => {
     expect(result.current.loading).toBe(false);
   });
 
-  it('activates a version and refreshes the list', async () => {
+  it('publishes a version and refreshes the list', async () => {
     const target = project('a', {
       versions: [version('v1')],
       activeVersionId: 'v1',
     });
     vi.mocked(api.listProjects).mockResolvedValue([target]);
-    vi.mocked(api.activateVersion).mockResolvedValue({ ok: true });
+    vi.mocked(api.publishVersion).mockResolvedValue({ ok: true });
 
     const { result } = renderHook(() => useProjects());
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
@@ -58,23 +62,23 @@ describe('useProjects', () => {
       result.current.selectProject(result.current.projects[0]);
     });
     await act(async () => {
-      await result.current.activateVersion('v1');
+      await result.current.publishVersion('v1');
     });
 
-    expect(api.activateVersion).toHaveBeenCalledWith('a', 'v1');
+    expect(api.publishVersion).toHaveBeenCalledWith('a', 'v1');
     expect(api.listProjects).toHaveBeenCalledTimes(2);
   });
 
-  it('tracks the in-flight version id during activate', async () => {
+  it('tracks the in-flight version id during publish', async () => {
     const target = project('a', {
       versions: [version('v1')],
       activeVersionId: 'v1',
     });
     vi.mocked(api.listProjects).mockResolvedValue([target]);
-    let resolveActivate!: (value: { ok: boolean }) => void;
-    vi.mocked(api.activateVersion).mockReturnValue(
+    let resolvePublish!: (value: { ok: boolean }) => void;
+    vi.mocked(api.publishVersion).mockReturnValue(
       new Promise<{ ok: boolean }>((resolve) => {
-        resolveActivate = resolve;
+        resolvePublish = resolve;
       })
     );
 
@@ -86,12 +90,12 @@ describe('useProjects', () => {
 
     expect(result.current.pendingVersionId).toBeNull();
     act(() => {
-      void result.current.activateVersion('v1');
+      void result.current.publishVersion('v1');
     });
     expect(result.current.pendingVersionId).toBe('v1');
 
     await act(async () => {
-      resolveActivate({ ok: true });
+      resolvePublish({ ok: true });
     });
     await waitFor(() => expect(result.current.pendingVersionId).toBeNull());
   });

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -176,6 +177,34 @@ export function countFiles(dirPath: string): number {
 
   walk(dirPath);
   return count;
+}
+
+/** Computes a deterministic sha256 digest over every file in an artifact tree. */
+export function checksumDirectory(dirPath: string): string {
+  const hash = createHash('sha256');
+
+  function walk(currentPath: string, relativePrefix: string) {
+    const entries = readdirSync(currentPath, { withFileTypes: true }).sort(
+      (a, b) => a.name.localeCompare(b.name)
+    );
+    for (const entry of entries) {
+      const relativePath = relativePrefix
+        ? `${relativePrefix}/${entry.name}`
+        : entry.name;
+      const absolutePath = join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        hash.update(relativePath);
+        hash.update('\0');
+        hash.update(readFileSync(absolutePath));
+        hash.update('\0');
+      }
+    }
+  }
+
+  walk(dirPath, '');
+  return hash.digest('hex');
 }
 
 /**

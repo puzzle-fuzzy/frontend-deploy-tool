@@ -48,6 +48,28 @@ export function createVersionRoutes(deps: {
       );
       return c.json({ ok: true });
     })
+    .post('/api/projects/:id/versions/:versionId/publish', (c) => {
+      assertRole(c, 'developer');
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      versionService.publishVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
+      return c.json({ ok: true });
+    })
+    .post('/api/projects/:id/versions/:versionId/rollback', (c) => {
+      assertRole(c, 'developer');
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      versionService.rollbackVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
+      return c.json({ ok: true });
+    })
     .delete('/api/projects/:id/versions/:versionId', (c) => {
       assertRole(c, 'developer');
       const projectId = parseIdParam(c.req.param('id'));
