@@ -10,4 +10,5 @@ apps/web/dist/
 
 *.tsbuildinfo
 .turbo/
+.worktrees/
 .DS_Store
