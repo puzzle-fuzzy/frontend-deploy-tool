@@ -169,9 +169,9 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] Uploading.
   - [x] Disabled states.
   - [x] Confirmation flows.
-- [ ] Replace custom toast if needed.
-  - [ ] Keep custom toast for now if it remains simple.
-  - [ ] Ensure it is accessible enough for keyboard and screen reader users.
+- [x] Replace custom toast if needed.
+  - [x] Keep custom toast for now if it remains simple.
+  - [x] Ensure it is accessible enough for keyboard and screen reader users.
 
 ## Frontend Testing
 
