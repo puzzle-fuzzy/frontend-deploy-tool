@@ -1,5 +1,6 @@
-import { CheckCircle2, XCircle } from 'lucide-react';
+import { CheckCircle2, X, XCircle } from 'lucide-react';
 import { type ReactNode, useCallback, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ToastContext } from './toast-context';
 
 interface Toast {
@@ -11,39 +12,53 @@ interface Toast {
 let nextId = 0;
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const { t } = useTranslation();
   const [toasts, setToasts] = useState<Toast[]>([]);
+
+  const dismiss = useCallback((id: number) => {
+    setToasts((prev) => prev.filter((toast) => toast.id !== id));
+  }, []);
 
   const toast = useCallback(
     (message: string, type: 'success' | 'error' = 'success') => {
       const id = nextId++;
       setToasts((prev) => [...prev, { id, message, type }]);
-      setTimeout(
-        () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-        3000
-      );
+      setTimeout(() => dismiss(id), 3000);
     },
-    []
+    [dismiss]
   );
 
   return (
     <ToastContext value={{ toast }}>
       {children}
       <div className="fixed bottom-6 right-6 z-100 flex flex-col gap-2">
-        {toasts.map((t) => (
+        {toasts.map((entry) => (
           <div
-            key={t.id}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg shadow-lg text-sm transition-all animate-in slide-in-from-right-5 fade-in duration-300 ${
-              t.type === 'success'
+            key={entry.id}
+            // `role=status`/`alert` + `aria-live` so screen readers announce new
+            // toasts; errors are assertive, success is polite.
+            role={entry.type === 'error' ? 'alert' : 'status'}
+            aria-live={entry.type === 'error' ? 'assertive' : 'polite'}
+            className={`flex items-center gap-2 pe-2 px-4 py-2.5 rounded-lg shadow-lg text-sm transition-all animate-in slide-in-from-right-5 fade-in duration-300 ${
+              entry.type === 'success'
                 ? 'bg-primary text-primary-foreground'
                 : 'bg-destructive text-white'
             }`}
           >
-            {t.type === 'success' ? (
-              <CheckCircle2 className="size-4" />
+            {entry.type === 'success' ? (
+              <CheckCircle2 className="size-4 shrink-0" aria-hidden />
             ) : (
-              <XCircle className="size-4" />
+              <XCircle className="size-4 shrink-0" aria-hidden />
             )}
-            {t.message}
+            <span className="flex-1">{entry.message}</span>
+            <button
+              type="button"
+              onClick={() => dismiss(entry.id)}
+              aria-label={t('common.close')}
+              className="shrink-0 rounded p-0.5 opacity-70 hover:opacity-100 focus-visible:ring-2 focus-visible:ring-current focus-visible:ring-offset-1 transition-opacity"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
           </div>
         ))}
       </div>
