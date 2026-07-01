@@ -436,3 +436,18 @@ test('rejects a folder upload containing a blocked file with 400 BLOCKED_FILE', 
   expect((await res.json()).error.code).toBe('BLOCKED_FILE');
   expect((await getProject(app, project.id)).versions).toHaveLength(0);
 });
+
+test('rejects an upload with no index.html after flatten with 400 MISSING_INDEX_HTML', async () => {
+  const project = await createProject(app);
+  const form = new FormData();
+  // A non-blocked, non-junk file that is not index.html and lives at the root.
+  form.append('folderFiles', new File(['just data'], 'foo.txt'));
+  form.append('versionDesc', 'no entry point');
+  const res = await app.request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+  expect(res.status).toBe(400);
+  expect((await res.json()).error.code).toBe('MISSING_INDEX_HTML');
+  expect((await getProject(app, project.id)).versions).toHaveLength(0);
+});

@@ -101,6 +101,11 @@ export function flattenOutput(dir: string): void {
   }
 }
 
+/** True when an `index.html` exists at the root of `dir`. */
+export function hasRootIndexHtml(dir: string): boolean {
+  return existsSync(join(dir, 'index.html'));
+}
+
 /** Recursively sums the byte size of every file under `dirPath`. */
 export function getDirectorySize(dirPath: string): number {
   let totalSize = 0;

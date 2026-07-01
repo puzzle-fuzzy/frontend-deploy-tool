@@ -15,6 +15,7 @@ import {
   extractZip,
   flattenOutput,
   getDirectorySize,
+  hasRootIndexHtml,
   removeDir,
   writeFolderFiles,
 } from './artifactService';
@@ -83,6 +84,13 @@ export function createVersionService(
             }
 
             flattenOutput(versionDir);
+            if (!hasRootIndexHtml(versionDir)) {
+              throw new ApiError(
+                ErrorCode.MISSING_INDEX_HTML,
+                'Upload rejected: no index.html found at the root after extraction. DeployKit serves sites from index.html.',
+                400
+              );
+            }
           } finally {
             // Ensure ZIP temp file is cleaned up in all cases
             if (zipCleanupNeeded) {
@@ -110,6 +118,13 @@ export function createVersionService(
           }
 
           flattenOutput(versionDir);
+          if (!hasRootIndexHtml(versionDir)) {
+            throw new ApiError(
+              ErrorCode.MISSING_INDEX_HTML,
+              'Upload rejected: no index.html found at the root after extraction. DeployKit serves sites from index.html.',
+              400
+            );
+          }
         } else if (file && file.size > 0) {
           throw new ApiError(
             ErrorCode.INVALID_UPLOAD,
