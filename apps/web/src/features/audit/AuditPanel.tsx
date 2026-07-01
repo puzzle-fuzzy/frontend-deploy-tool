@@ -1,4 +1,5 @@
 import { Loader2, PlayCircle } from 'lucide-react';
+import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { AuditProfile, Project } from '@/shared/types';
 import { Button } from '@/shared/ui/button';
@@ -28,6 +29,8 @@ const profiles: AuditProfile[] = [
 
 export function AuditPanel({ project }: Props) {
   const { t } = useTranslation();
+  const versionLabelId = useId();
+  const profileLabelId = useId();
   const audit = useVersionAudit(project);
 
   if (project.versions.length === 0) {
@@ -51,8 +54,11 @@ export function AuditPanel({ project }: Props) {
 
       <div className="space-y-3 border-b border-border px-4 py-3">
         <div className="grid grid-cols-2 gap-2">
-          <label className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">
+          <div className="space-y-1">
+            <span
+              id={versionLabelId}
+              className="text-xs font-medium text-muted-foreground"
+            >
               {t('audit.versions')}
             </span>
             <Select
@@ -60,7 +66,11 @@ export function AuditPanel({ project }: Props) {
               onValueChange={audit.setSelectedVersionId}
               disabled={audit.loading}
             >
-              <SelectTrigger size="sm" className="w-full">
+              <SelectTrigger
+                size="sm"
+                className="w-full"
+                aria-labelledby={versionLabelId}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -71,10 +81,13 @@ export function AuditPanel({ project }: Props) {
                 ))}
               </SelectContent>
             </Select>
-          </label>
+          </div>
 
-          <label className="space-y-1">
-            <span className="text-xs font-medium text-muted-foreground">
+          <div className="space-y-1">
+            <span
+              id={profileLabelId}
+              className="text-xs font-medium text-muted-foreground"
+            >
               {t('audit.profile')}
             </span>
             <Select
@@ -82,7 +95,11 @@ export function AuditPanel({ project }: Props) {
               onValueChange={(value) => audit.setProfile(value as AuditProfile)}
               disabled={audit.loading}
             >
-              <SelectTrigger size="sm" className="w-full">
+              <SelectTrigger
+                size="sm"
+                className="w-full"
+                aria-labelledby={profileLabelId}
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -93,7 +110,7 @@ export function AuditPanel({ project }: Props) {
                 ))}
               </SelectContent>
             </Select>
-          </label>
+          </div>
         </div>
 
         <Button

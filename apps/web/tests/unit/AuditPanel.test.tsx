@@ -65,6 +65,13 @@ describe('AuditPanel', () => {
 
     render(<AuditPanel project={project([version('v1')])} />);
 
+    expect(
+      screen.getByRole('combobox', { name: 'audit.versions' })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: 'audit.profile' })
+    ).toBeInTheDocument();
+
     await user.click(screen.getByRole('button', { name: 'audit.run' }));
 
     await waitFor(() => {
