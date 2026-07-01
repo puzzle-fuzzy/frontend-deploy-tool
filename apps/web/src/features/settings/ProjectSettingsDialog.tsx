@@ -1,7 +1,9 @@
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
+import { api } from '@/shared/api';
+import type { Project, Settings } from '@/shared/types';
+import { Button } from '@/shared/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -9,13 +11,11 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
-import { Separator } from '@/components/ui/separator';
-import { Switch } from '@/components/ui/switch';
-import { api } from '@/lib/api';
-import { useToast } from '@/lib/toast-context';
-import type { Project, Settings } from '@/types';
+} from '@/shared/ui/dialog';
+import { Label } from '@/shared/ui/label';
+import { Separator } from '@/shared/ui/separator';
+import { Switch } from '@/shared/ui/switch';
+import { useToast } from '@/shared/ui/toast-context';
 
 interface Props {
   open: boolean;

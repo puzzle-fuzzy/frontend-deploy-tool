@@ -1,6 +1,6 @@
 import { Globe } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
+import { Button } from '@/shared/ui/button';
 
 export function LanguageToggle() {
   const { i18n } = useTranslation();

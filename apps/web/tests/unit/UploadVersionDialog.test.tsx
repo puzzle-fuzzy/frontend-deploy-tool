@@ -2,9 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
-import { api } from '@/lib/api';
+import { api } from '@/shared/api';
 
-vi.mock('@/lib/api');
+vi.mock('@/shared/api');
 
 const noop = () => {};
 

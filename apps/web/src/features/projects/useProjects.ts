@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/lib/api';
-import { useToast } from '@/lib/toast-context';
-import type { Project } from '@/types';
+import { api } from '@/shared/api';
+import type { Project } from '@/shared/types';
+import { useToast } from '@/shared/ui/toast-context';
 
 function getHashProjectId(): string {
   const hash = window.location.hash;

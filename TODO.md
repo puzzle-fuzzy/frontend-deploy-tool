@@ -150,11 +150,11 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] `features/deploy/DeployUrl.tsx`
   - [x] `features/theme/ThemeToggle.tsx`
   - [x] `features/i18n/LanguageToggle.tsx`
-- [ ] Move shared frontend code under `web/src/shared`.
-  - [ ] `shared/api`
-  - [ ] `shared/types`
-  - [ ] `shared/ui`
-  - [ ] `shared/utils`
+- [x] Move shared frontend code under `web/src/shared`.
+  - [x] `shared/api`
+  - [x] `shared/types`
+  - [x] `shared/ui`
+  - [x] `shared/utils`
 - [x] Remove imports from `../../node_modules/...`.
   - [x] Use package imports such as `react-i18next`.
   - [x] Fix `i18n/index.ts`.

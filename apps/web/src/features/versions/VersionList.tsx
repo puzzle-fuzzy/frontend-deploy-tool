@@ -1,13 +1,13 @@
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { publicBaseURL } from '@/config';
-import { formatBytes, formatDate } from '@/lib/format';
-import type { Project, Version, VersionSourceType } from '@/types';
+import { formatBytes, formatDate } from '@/shared/format';
+import type { Project, Version, VersionSourceType } from '@/shared/types';
+import { Badge } from '@/shared/ui/badge';
+import { Button } from '@/shared/ui/button';
+import { ConfirmDialog } from '@/shared/ui/confirm-dialog';
+import { ScrollArea } from '@/shared/ui/scroll-area';
 
 interface Props {
   project: Project;

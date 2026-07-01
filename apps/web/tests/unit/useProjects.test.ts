@@ -1,10 +1,10 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjects } from '@/features/projects/useProjects';
-import { api } from '@/lib/api';
-import type { Project, Version } from '@/types';
+import { api } from '@/shared/api';
+import type { Project, Version } from '@/shared/types';
 
-vi.mock('@/lib/api');
+vi.mock('@/shared/api');
 
 const version = (id: string): Version => ({
   id,
