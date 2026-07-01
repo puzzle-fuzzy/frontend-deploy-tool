@@ -182,6 +182,19 @@ function auditRobots(
 function auditAnchors($: CheerioAPI, checks: AuditCheck[]): void {
   $('a').each((_, element) => {
     const href = $(element).attr('href')?.trim() ?? '';
+    if (!href) {
+      checks.push(
+        check({
+          id: 'links.href.missing',
+          category: 'links',
+          severity: 'warning',
+          title: 'Missing link target',
+          message: 'Add a non-empty href attribute for the link target.',
+          location: $(element).text().trim() || undefined,
+        })
+      );
+    }
+
     if (href.toLowerCase().startsWith('javascript:')) {
       checks.push(
         check({
@@ -217,8 +230,22 @@ function auditAnchors($: CheerioAPI, checks: AuditCheck[]): void {
 
 function auditImages($: CheerioAPI, checks: AuditCheck[]): void {
   $('img').each((_, element) => {
+    const src = $(element).attr('src')?.trim() ?? '';
+    if (!src) {
+      checks.push(
+        check({
+          id: 'images.src.missing',
+          category: 'images',
+          severity: 'error',
+          title: 'Missing image source',
+          message: 'Add a non-empty src attribute for the image source.',
+          location: $(element).attr('alt')?.trim(),
+        })
+      );
+    }
+
     const alt = $(element).attr('alt');
-    if (alt === undefined || alt.trim() === '') {
+    if (alt === undefined) {
       checks.push(
         check({
           id: 'images.alt.missing',
@@ -226,8 +253,8 @@ function auditImages($: CheerioAPI, checks: AuditCheck[]): void {
           severity: 'warning',
           title: 'Missing image alt text',
           message:
-            'Add alt text, or an empty alt attribute for decorative images.',
-          location: $(element).attr('src')?.trim(),
+            'Add alt text, or use alt="" when the image is decorative.',
+          location: src || undefined,
         })
       );
     }

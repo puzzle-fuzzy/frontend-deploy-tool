@@ -93,6 +93,95 @@ describe('auditHtml', () => {
     );
   });
 
+  test('reports anchors with missing or empty href', () => {
+    const checks = auditHtml({
+      artifactRoot: makeRoot(),
+      profile: 'demo',
+      html: `
+        <html lang="en">
+          <head>
+            <title>Demo</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+          </head>
+          <body>
+            <h1>Demo</h1>
+            <a>Home</a>
+            <a href="">Docs</a>
+          </body>
+        </html>
+      `,
+    });
+
+    expect(
+      checks.filter((check) => check.id === 'links.href.missing')
+    ).toHaveLength(2);
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'links.href.missing',
+          category: 'links',
+          severity: 'warning',
+        }),
+      ])
+    );
+  });
+
+  test('reports images with missing or empty src', () => {
+    const checks = auditHtml({
+      artifactRoot: makeRoot(),
+      profile: 'demo',
+      html: `
+        <html lang="en">
+          <head>
+            <title>Demo</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+          </head>
+          <body>
+            <h1>Demo</h1>
+            <img alt="Hero">
+            <img src="" alt="Hero">
+          </body>
+        </html>
+      `,
+    });
+
+    expect(
+      checks.filter((check) => check.id === 'images.src.missing')
+    ).toHaveLength(2);
+    expect(checks).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'images.src.missing',
+          category: 'images',
+          severity: 'error',
+        }),
+      ])
+    );
+  });
+
+  test('allows empty alt text for decorative images', () => {
+    const checks = auditHtml({
+      artifactRoot: makeRoot(),
+      profile: 'demo',
+      html: `
+        <html lang="en">
+          <head>
+            <title>Demo</title>
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+          </head>
+          <body>
+            <h1>Demo</h1>
+            <img src="https://example.com/divider.png" alt="">
+          </body>
+        </html>
+      `,
+    });
+
+    expect(checks).not.toContainEqual(
+      expect.objectContaining({ id: 'images.alt.missing' })
+    );
+  });
+
   test('reports missing relative assets while ignoring absolute remote assets', () => {
     const root = makeRoot();
     writeFileSync(join(root, 'present.css'), 'body {}');
