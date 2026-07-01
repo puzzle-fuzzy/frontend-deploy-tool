@@ -19,6 +19,7 @@ function getErrorMessage(err: unknown): string {
 
 export function useVersionAudit(project: Project | null) {
   const defaultVersionId = useMemo(() => getDefaultVersionId(project), [project]);
+  const resetKey = `${project?.id ?? ''}\u0000${defaultVersionId}`;
   const [selectedVersionId, setSelectedVersionId] = useState(defaultVersionId);
   const [profile, setProfile] = useState<AuditProfile>('production-web');
   const [report, setReport] = useState<AuditReport | null>(null);
@@ -42,7 +43,7 @@ export function useVersionAudit(project: Project | null) {
     setReport(null);
     setError(null);
     setLoading(false);
-  }, [defaultVersionId]);
+  }, [defaultVersionId, resetKey]);
 
   const selectVersionId = useCallback(
     (next: SetStateAction<string>) => {

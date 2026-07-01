@@ -125,6 +125,44 @@ describe('useVersionAudit', () => {
     });
   });
 
+  it('clears report and error when project changes with the same active version id', async () => {
+    const first = project('p1', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
+    const second = project('p2', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
+    vi.mocked(api.runVersionAudit)
+      .mockResolvedValueOnce(report('p1', 'v1'))
+      .mockRejectedValueOnce(new Error('Audit failed'));
+
+    const { result, rerender } = renderHook(
+      ({ selectedProject }) => useVersionAudit(selectedProject),
+      { initialProps: { selectedProject: first } }
+    );
+
+    await act(async () => {
+      await result.current.runAudit();
+    });
+    await act(async () => {
+      await result.current.runAudit();
+    });
+    expect(result.current.selectedVersionId).toBe('v1');
+    expect(result.current.report).not.toBeNull();
+    expect(result.current.error).toBe('Audit failed');
+
+    rerender({ selectedProject: second });
+
+    await waitFor(() => {
+      expect(result.current.selectedVersionId).toBe('v1');
+      expect(result.current.report).toBeNull();
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(false);
+    });
+  });
+
   it('clears an existing report and error when selected version changes', async () => {
     const target = project('p1', {
       versions: [version('v1'), version('v2')],
@@ -247,6 +285,45 @@ describe('useVersionAudit', () => {
     });
 
     expect(result.current.selectedVersionId).toBe('v2');
+    expect(result.current.report).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(false);
+  });
+
+  it('ignores an audit response after switching projects with the same active version id', async () => {
+    const first = project('p1', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
+    const second = project('p2', {
+      versions: [version('v1')],
+      activeVersionId: 'v1',
+    });
+    const pending = deferred<AuditReport>();
+    vi.mocked(api.runVersionAudit).mockReturnValueOnce(pending.promise);
+
+    const { result, rerender } = renderHook(
+      ({ selectedProject }) => useVersionAudit(selectedProject),
+      { initialProps: { selectedProject: first } }
+    );
+
+    act(() => {
+      void result.current.runAudit();
+    });
+    expect(result.current.loading).toBe(true);
+
+    rerender({ selectedProject: second });
+
+    await waitFor(() => {
+      expect(result.current.selectedVersionId).toBe('v1');
+      expect(result.current.loading).toBe(false);
+    });
+
+    await act(async () => {
+      pending.resolve(report('p1', 'v1'));
+    });
+
+    expect(result.current.selectedVersionId).toBe('v1');
     expect(result.current.report).toBeNull();
     expect(result.current.error).toBeNull();
     expect(result.current.loading).toBe(false);
