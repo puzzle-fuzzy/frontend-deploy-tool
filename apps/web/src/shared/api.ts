@@ -106,7 +106,9 @@ export const api = {
       const form = new FormData();
       if (file) form.append('file', file);
       if (folderFiles) {
-        for (const f of folderFiles) form.append('folderFiles', f);
+        for (const f of folderFiles) {
+          form.append('folderFiles', f, f.webkitRelativePath || f.name);
+        }
       }
       form.append('versionDesc', description);
 
