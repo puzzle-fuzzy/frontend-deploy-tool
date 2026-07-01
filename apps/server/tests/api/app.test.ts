@@ -68,6 +68,14 @@ test('rejects activating an unknown version without changing the active version'
   expect(version.status).toBe(201);
   const createdVersion = await version.json();
 
+  // Uploads are preview-only; promote explicitly before testing the guard.
+  const activated = await client.api.projects[':id'].versions[
+    ':versionId'
+  ].activate.$put({
+    param: { id: project.id, versionId: createdVersion.version.id },
+  });
+  expect(activated.status).toBe(200);
+
   const failed = await client.api.projects[':id'].versions[
     ':versionId'
   ].activate.$put({
@@ -80,5 +88,6 @@ test('rejects activating an unknown version without changing the active version'
     param: { id: project.id },
   });
   const currentProject = await list.json();
+  // The failed activation must not have changed the active version.
   expect(currentProject.activeVersionId).toBe(createdVersion.version.id);
 });

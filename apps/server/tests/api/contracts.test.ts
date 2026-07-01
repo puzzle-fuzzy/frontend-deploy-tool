@@ -214,7 +214,7 @@ test('returns 404 when updating settings for an unknown project', async () => {
   });
 });
 
-test('uploads a folder version that becomes the active version', async () => {
+test('uploads a folder version as preview-only until activated', async () => {
   const project = await createProject(app);
   const res = await uploadVersion(app, project.id);
   expect(res.status).toBe(201);
@@ -224,7 +224,17 @@ test('uploads a folder version that becomes the active version', async () => {
 
   const after = await getProject(app, project.id);
   expect(after.versions).toHaveLength(1);
-  expect(after.activeVersionId).toBe(after.versions[0].id);
+  // Upload does NOT publish — no active version until an explicit activate.
+  expect(after.activeVersionId).toBeNull();
+
+  // Production is reached only by an explicit activate action.
+  const activateRes = await app.request(
+    `/api/projects/${project.id}/versions/${after.versions[0].id}/activate`,
+    { method: 'PUT' }
+  );
+  expect(activateRes.status).toBe(200);
+  const afterActivate = await getProject(app, project.id);
+  expect(afterActivate.activeVersionId).toBe(after.versions[0].id);
 
   // Upload metadata is recorded for the version.
   const version = after.versions[0];
@@ -273,6 +283,11 @@ test('deleting the active version promotes a replacement', async () => {
   await uploadVersion(app, project.id, '<html>v1</html>');
   await uploadVersion(app, project.id, '<html>v2</html>');
   const [first] = (await getProject(app, project.id)).versions;
+  // Uploads are preview-only; promote v1 so deletion triggers replacement.
+  await app.request(
+    `/api/projects/${project.id}/versions/${first.id}/activate`,
+    { method: 'PUT' }
+  );
 
   const res = await app.request(
     `/api/projects/${project.id}/versions/${first.id}`,
@@ -288,11 +303,25 @@ test('deleting the active version promotes a replacement', async () => {
 test('serves the active version via /deploy/:slug/', async () => {
   const project = await createProject(app, 'demo-app');
   await uploadVersion(app, project.id, '<html><body>deployed</body></html>');
+  // Upload alone is not live; activate before serving.
+  const [version] = (await getProject(app, project.id)).versions;
+  await app.request(
+    `/api/projects/${project.id}/versions/${version.id}/activate`,
+    { method: 'PUT' }
+  );
 
   const res = await app.request('/deploy/demo-app/');
   expect(res.status).toBe(200);
   expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
   expect(await res.text()).toBe('<html><body>deployed</body></html>');
+});
+
+test('returns 404 on /deploy/:slug/ when no version is active', async () => {
+  const project = await createProject(app, 'demo-app');
+  await uploadVersion(app, project.id, '<html><body>preview</body></html>');
+
+  const res = await app.request('/deploy/demo-app/');
+  expect(res.status).toBe(404);
 });
 
 test('returns 404 for a missing path when SPA mode is off', async () => {
@@ -306,6 +335,12 @@ test('returns 404 for a missing path when SPA mode is off', async () => {
 test('falls back to index.html for a missing path when SPA mode is on', async () => {
   const project = await createProject(app, 'demo-app');
   await uploadVersion(app, project.id, '<html><body>spa</body></html>');
+  // Upload alone is not live; activate so SPA fallback has a version to serve.
+  const [version] = (await getProject(app, project.id)).versions;
+  await app.request(
+    `/api/projects/${project.id}/versions/${version.id}/activate`,
+    { method: 'PUT' }
+  );
   await app.request(`/api/projects/${project.id}/settings`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -373,9 +408,8 @@ test('records structured metadata on upload and activate history events', async 
   });
   expect(upload.metadata.size).toBeGreaterThan(0);
   // The activate event records which version was active before the switch.
-  expect(activate.metadata).toEqual({
-    previousActiveVersionId: expect.any(String),
-  });
+  // Nothing was active before this explicit activate (uploads are preview-only).
+  expect(activate.metadata).toEqual({ previousActiveVersionId: null });
 });
 
 test('cleans up and returns 500 when zip extraction fails', async () => {

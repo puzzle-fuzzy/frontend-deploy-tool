@@ -152,9 +152,9 @@ export function createVersionService(
         fileCount: countFiles(versionDir),
         sourceType,
       };
-      const isFirstVersion = project.versions.length === 0;
+      // Uploads are preview-only; production is reached only by an explicit
+      // activate action (上传≠上线). Do not auto-set activeVersionId here.
       project.versions.push(version);
-      if (isFirstVersion) project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.upload', project, version, {
         sourceType: version.sourceType,
