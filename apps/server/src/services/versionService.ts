@@ -52,6 +52,8 @@ export function createVersionService(
       throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
 
     const previousActiveVersionId = project.activeVersionId;
+    if (previousActiveVersionId === version.id) return;
+
     const publishedAt = new Date().toISOString();
     project.activeVersionId = version.id;
     project.versions = syncProductionStatus(project.versions, version.id);

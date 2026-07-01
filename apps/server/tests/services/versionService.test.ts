@@ -55,6 +55,49 @@ function config(storageDir: string): AppConfig {
 }
 
 describe('createVersionService', () => {
+  test('does not record history when promoting the already active version', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const activeVersion = version('v1');
+    activeVersion.status = 'production';
+    activeVersion.publishedAt = '2026-07-01T00:00:00.000Z';
+    activeVersion.publishedBy = 'user-1';
+    const demoProject = project();
+    demoProject.versions = [activeVersion, version('v2')];
+    demoProject.updatedAt = '2026-07-01T00:00:00.000Z';
+
+    const data: Data = {
+      schemaVersion: 1,
+      projects: [demoProject],
+      users: [],
+      history: [],
+    };
+    let saved = false;
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {
+        saved = true;
+      },
+    };
+
+    try {
+      createVersionService(repo, config(storageDir)).publishVersion(
+        'p1',
+        'v1',
+        'user-2'
+      );
+
+      expect(saved).toBe(false);
+      expect(data.history).toHaveLength(0);
+      expect(activeVersion.publishedAt).toBe('2026-07-01T00:00:00.000Z');
+      expect(activeVersion.publishedBy).toBe('user-1');
+      expect(demoProject.updatedAt).toBe('2026-07-01T00:00:00.000Z');
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('removes artifact files when deleting a version', () => {
     const storageDir = mkdtempSync(
       join(tmpdir(), 'deploykit-version-service-')
