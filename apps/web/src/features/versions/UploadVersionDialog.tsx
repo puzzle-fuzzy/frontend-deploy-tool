@@ -1,18 +1,18 @@
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
+import { api } from '@/shared/api';
+import { Button } from '@/shared/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog';
-import { Progress } from '@/components/ui/progress';
-import { Textarea } from '@/components/ui/textarea';
-import { api } from '@/lib/api';
-import { useToast } from '@/lib/toast-context';
+} from '@/shared/ui/dialog';
+import { Progress } from '@/shared/ui/progress';
+import { Textarea } from '@/shared/ui/textarea';
+import { useToast } from '@/shared/ui/toast-context';
 
 interface Props {
   open: boolean;

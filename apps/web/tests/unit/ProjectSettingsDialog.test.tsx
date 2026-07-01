@@ -2,10 +2,10 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectSettingsDialog } from '@/features/settings/ProjectSettingsDialog';
-import { api } from '@/lib/api';
-import type { Project } from '@/types';
+import { api } from '@/shared/api';
+import type { Project } from '@/shared/types';
 
-vi.mock('@/lib/api');
+vi.mock('@/shared/api');
 
 const noop = () => {};
 

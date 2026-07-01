@@ -1,6 +1,6 @@
 import type { ApiApp } from '@deploykit/server/api';
 import { hc } from 'hono/client';
-import type { Project, Settings } from '../types';
+import type { Project, Settings } from './types';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');

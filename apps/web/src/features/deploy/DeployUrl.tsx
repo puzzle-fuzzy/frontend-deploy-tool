@@ -1,13 +1,9 @@
 import { Copy, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { publicBaseURL } from '@/config';
-import { useToast } from '@/lib/toast-context';
+import { Button } from '@/shared/ui/button';
+import { useToast } from '@/shared/ui/toast-context';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip';
 
 export function DeployUrl({ slug }: { slug: string }) {
   const { t } = useTranslation();

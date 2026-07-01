@@ -1,8 +1,6 @@
 import { FolderOpen, Plus } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { DeployUrl } from '@/features/deploy/DeployUrl';
 import { LanguageToggle } from '@/features/i18n/LanguageToggle';
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog';
@@ -12,6 +10,8 @@ import { ProjectSettingsDialog } from '@/features/settings/ProjectSettingsDialog
 import { ThemeToggle } from '@/features/theme/ThemeToggle';
 import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
 import { VersionList } from '@/features/versions/VersionList';
+import { Button } from '@/shared/ui/button';
+import { Separator } from '@/shared/ui/separator';
 
 export function DeployPage() {
   const { t } = useTranslation();
