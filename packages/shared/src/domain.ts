@@ -17,6 +17,45 @@ export const settingsSchema = z.object({
  */
 export const versionSourceTypeSchema = z.enum(['zip', 'folder', 'unknown']);
 
+export const auditProfileSchema = z.enum([
+  'demo',
+  'production-web',
+  'h5-campaign',
+  'admin-app',
+  'docs',
+]);
+
+export const auditStatusSchema = z.enum(['passed', 'warning', 'failed']);
+export const auditSeveritySchema = z.enum(['info', 'warning', 'error']);
+export const auditCategorySchema = z.enum([
+  'metadata',
+  'seo',
+  'links',
+  'images',
+  'social',
+  'assets',
+  'deploy',
+]);
+
+export const auditCheckSchema = z.object({
+  id: z.string(),
+  category: auditCategorySchema,
+  severity: auditSeveritySchema,
+  title: z.string(),
+  message: z.string(),
+  location: z.string().optional(),
+});
+
+export const auditReportSchema = z.object({
+  projectId: z.string(),
+  versionId: z.string(),
+  profile: auditProfileSchema,
+  status: auditStatusSchema,
+  score: z.number().int().min(0).max(100),
+  checks: z.array(auditCheckSchema),
+  createdAt: z.string(),
+});
+
 export const versionSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -80,6 +119,12 @@ export interface CreateProjectInput {
 
 export type Settings = z.infer<typeof settingsSchema>;
 export type VersionSourceType = z.infer<typeof versionSourceTypeSchema>;
+export type AuditProfile = z.infer<typeof auditProfileSchema>;
+export type AuditStatus = z.infer<typeof auditStatusSchema>;
+export type AuditSeverity = z.infer<typeof auditSeveritySchema>;
+export type AuditCategory = z.infer<typeof auditCategorySchema>;
+export type AuditCheck = z.infer<typeof auditCheckSchema>;
+export type AuditReport = z.infer<typeof auditReportSchema>;
 export type Version = z.infer<typeof versionSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type HistoryAction = z.infer<typeof historyEventSchema>['action'];
