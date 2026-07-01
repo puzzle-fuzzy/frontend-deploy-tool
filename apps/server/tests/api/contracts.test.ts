@@ -387,8 +387,14 @@ test('records structured metadata on upload and activate history events', async 
   const project = await createProject(app);
   await uploadVersion(app, project.id, '<html>v1</html>');
   await uploadVersion(app, project.id, '<html>v2</html>');
-  const [, second] = (await getProject(app, project.id)).versions;
+  const [first, second] = (await getProject(app, project.id)).versions;
 
+  // Uploads are preview-only; promote v1 first so activating v2 is a real
+  // switch (the activate event should record v1 as the previous active id).
+  await app.request(
+    `/api/projects/${project.id}/versions/${first.id}/activate`,
+    { method: 'PUT' }
+  );
   await app.request(
     `/api/projects/${project.id}/versions/${second.id}/activate`,
     { method: 'PUT' }
@@ -398,6 +404,7 @@ test('records structured metadata on upload and activate history events', async 
   const upload = events.find(
     (e: { action: string }) => e.action === 'version.upload'
   );
+  // History is newest-first, so the first activate event is the v2 switch.
   const activate = events.find(
     (e: { action: string }) => e.action === 'version.activate'
   );
@@ -408,8 +415,7 @@ test('records structured metadata on upload and activate history events', async 
   });
   expect(upload.metadata.size).toBeGreaterThan(0);
   // The activate event records which version was active before the switch.
-  // Nothing was active before this explicit activate (uploads are preview-only).
-  expect(activate.metadata).toEqual({ previousActiveVersionId: null });
+  expect(activate.metadata).toEqual({ previousActiveVersionId: first.id });
 });
 
 test('cleans up and returns 500 when zip extraction fails', async () => {
