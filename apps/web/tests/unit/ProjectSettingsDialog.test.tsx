@@ -73,6 +73,23 @@ describe('ProjectSettingsDialog', () => {
     expect(screen.getByRole('button', { name: 'common.delete' }));
   });
 
+  it('hides the project delete action when deletion is not allowed', () => {
+    render(
+      <ProjectSettingsDialog
+        open
+        onOpenChange={noop}
+        project={project({ spaMode: false, routingType: 'hash' })}
+        onDeleted={noop}
+        onSaved={noop}
+        canDeleteProject={false}
+      />
+    );
+
+    expect(
+      screen.queryByRole('button', { name: 'common.delete' })
+    ).not.toBeInTheDocument();
+  });
+
   it('resets unsaved edits when the dialog closes', async () => {
     const user = userEvent.setup();
     const props = {

@@ -26,6 +26,7 @@ interface Props {
   project: Project | null;
   onDeleted: () => void;
   onSaved: () => void;
+  canDeleteProject?: boolean;
 }
 
 export function ProjectSettingsDialog({
@@ -34,6 +35,7 @@ export function ProjectSettingsDialog({
   project,
   onDeleted,
   onSaved,
+  canDeleteProject = true,
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -233,52 +235,56 @@ export function ProjectSettingsDialog({
               </div>
             </div>
 
-            <Separator />
+            {canDeleteProject && (
+              <>
+                <Separator />
 
-            {/* Danger zone */}
-            <div className="space-y-2">
-              <Label className="text-destructive">
-                {t('settings.dangerZone')}
-              </Label>
-              <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-destructive/20">
-                <div className="space-y-1 min-w-0">
-                  <p className="text-base font-medium">
-                    {t('settings.deleteProject')}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t('settings.deleteProjectDesc')}
-                  </p>
-                </div>
-                {!confirmDelete ? (
-                  <Button
-                    variant="destructive"
-                    size="default"
-                    className="shrink-0"
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    <Trash2 className="size-4" />
-                    {t('common.delete')}
-                  </Button>
-                ) : (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="default"
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      {t('common.close')}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="default"
-                      onClick={handleDelete}
-                    >
-                      {t('common.confirm')}
-                    </Button>
+                {/* Danger zone */}
+                <div className="space-y-2">
+                  <Label className="text-destructive">
+                    {t('settings.dangerZone')}
+                  </Label>
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-destructive/20">
+                    <div className="space-y-1 min-w-0">
+                      <p className="text-base font-medium">
+                        {t('settings.deleteProject')}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.deleteProjectDesc')}
+                      </p>
+                    </div>
+                    {!confirmDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="default"
+                        className="shrink-0"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="size-4" />
+                        {t('common.delete')}
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="default"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          {t('common.close')}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="default"
+                          onClick={handleDelete}
+                        >
+                          {t('common.confirm')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 
