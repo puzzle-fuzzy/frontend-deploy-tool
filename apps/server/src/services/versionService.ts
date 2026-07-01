@@ -141,7 +141,11 @@ export function createVersionService(
       project.versions.push(version);
       if (isFirstVersion) project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.upload', project, version);
+      appendHistoryEvent(data, 'version.upload', project, version, {
+        sourceType: version.sourceType,
+        size: version.size,
+        fileCount: version.fileCount,
+      });
       repo.save(data);
       return { version: { id: version.id, name: version.name } };
     },
@@ -164,9 +168,12 @@ export function createVersionService(
           404
         );
 
+      const previousActiveVersionId = project.activeVersionId;
       project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.activate', project, version);
+      appendHistoryEvent(data, 'version.activate', project, version, {
+        previousActiveVersionId,
+      });
       repo.save(data);
     },
 
@@ -187,6 +194,7 @@ export function createVersionService(
           404
         );
 
+      const wasActive = project.activeVersionId === versionId;
       const replacementActiveVersionId = chooseReplacementActiveVersionId(
         project.versions,
         versionId,
@@ -198,7 +206,9 @@ export function createVersionService(
       )[0];
       project.activeVersionId = replacementActiveVersionId;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.delete', project, removed);
+      appendHistoryEvent(data, 'version.delete', project, removed, {
+        wasActive,
+      });
       repo.save(data);
     },
   };
