@@ -35,6 +35,7 @@ const event: HistoryEvent = {
   versionId: version.id,
   versionName: version.name,
   timestamp: '2026-06-30T00:00:00.000Z',
+  actorId: 'user-1',
 };
 
 void event;
