@@ -6,6 +6,19 @@
     "settings": "设置",
     "newProject": "新建项目"
   },
+  "auth": {
+    "subtitle": "登录以管理部署",
+    "email": "邮箱",
+    "password": "密码",
+    "signIn": "登录",
+    "invalid": "邮箱或密码错误",
+    "logout": "退出登录",
+    "roles": {
+      "admin": "管理员",
+      "developer": "开发者",
+      "viewer": "只读用户"
+    }
+  },
   "projects": {
     "title": "项目列表",
     "empty": "暂无项目",

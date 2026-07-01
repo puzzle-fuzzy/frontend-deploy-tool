@@ -6,6 +6,19 @@
     "settings": "Settings",
     "newProject": "New Project"
   },
+  "auth": {
+    "subtitle": "Sign in to manage deployments",
+    "email": "Email",
+    "password": "Password",
+    "signIn": "Sign in",
+    "invalid": "Invalid email or password",
+    "logout": "Log out",
+    "roles": {
+      "admin": "Admin",
+      "developer": "Developer",
+      "viewer": "Viewer"
+    }
+  },
   "projects": {
     "title": "Projects",
     "empty": "No projects yet",

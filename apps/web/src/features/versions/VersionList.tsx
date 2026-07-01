@@ -12,6 +12,8 @@ import { ScrollArea } from '@/shared/ui/scroll-area';
 interface Props {
   project: Project;
   pendingVersionId: string | null;
+  /** When true (viewer), hide activate/delete actions. */
+  readOnly?: boolean;
   onActivate: (versionId: string) => void;
   onDelete: (versionId: string) => void;
 }
@@ -19,6 +21,7 @@ interface Props {
 export function VersionList({
   project,
   pendingVersionId,
+  readOnly = false,
   onActivate,
   onDelete,
 }: Props) {
@@ -100,7 +103,7 @@ export function VersionList({
                   <Loader2 className="size-5 animate-spin text-muted-foreground ml-3" />
                 ) : (
                   <div className="flex items-center gap-1.5 ml-3">
-                    {!isActive(v) && (
+                    {!readOnly && !isActive(v) && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -118,14 +121,16 @@ export function VersionList({
                         {t('versions.preview')}
                       </a>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive/80"
-                      onClick={() => setConfirmVersionId(v.id)}
-                    >
-                      {t('common.delete')}
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive/80"
+                        onClick={() => setConfirmVersionId(v.id)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
