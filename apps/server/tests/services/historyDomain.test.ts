@@ -1,6 +1,9 @@
 import { describe, expect, test } from 'bun:test';
 import type { Data } from '@deploykit/shared';
-import { appendHistoryEvent } from '../../src/domain/history';
+import {
+  appendHistoryEvent,
+  parseHistoryLimit,
+} from '../../src/domain/history';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 
 function makeData(): Data {
@@ -59,5 +62,20 @@ describe('appendHistoryEvent', () => {
     expect(data.history).toHaveLength(200);
     // Newest events are kept at the front.
     expect(data.history[0].projectId).toBe('p1');
+  });
+});
+
+describe('parseHistoryLimit', () => {
+  test('uses the default for missing, invalid, zero, or negative limits', () => {
+    expect(parseHistoryLimit()).toBe(50);
+    expect(parseHistoryLimit('abc')).toBe(50);
+    expect(parseHistoryLimit('0')).toBe(50);
+    expect(parseHistoryLimit('-1')).toBe(50);
+  });
+
+  test('accepts positive integer limits and caps them at 200', () => {
+    expect(parseHistoryLimit('1')).toBe(1);
+    expect(parseHistoryLimit('25')).toBe(25);
+    expect(parseHistoryLimit('999')).toBe(200);
   });
 });

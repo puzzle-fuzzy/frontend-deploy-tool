@@ -4,7 +4,7 @@ import type {
   Project,
   Settings,
 } from '@deploykit/shared';
-import { appendHistoryEvent } from '../domain/history';
+import { appendHistoryEvent, parseHistoryLimit } from '../domain/history';
 import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -171,7 +171,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
     },
 
     listHistory(limit?: string): HistoryEvent[] {
-      const max = Math.min(Number(limit) || 50, 200);
+      const max = parseHistoryLimit(limit);
       return repo.load().history.slice(0, max);
     },
 
@@ -184,7 +184,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
           'Project not found',
           404
         );
-      const max = Math.min(Number(limit) || 50, 200);
+      const max = parseHistoryLimit(limit);
       return data.history
         .filter((event) => event.projectId === projectId)
         .slice(0, max);
