@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type SetStateAction,
+} from 'react';
 import { api } from '@/shared/api';
 import type { AuditProfile, AuditReport, Project } from '@/shared/types';
 
@@ -17,15 +24,57 @@ export function useVersionAudit(project: Project | null) {
   const [report, setReport] = useState<AuditReport | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = useRef(0);
+  const targetKey = `${project?.id ?? ''}\u0000${selectedVersionId}\u0000${profile}`;
+  const targetKeyRef = useRef(targetKey);
+  targetKeyRef.current = targetKey;
+
+  const invalidateAuditState = useCallback(() => {
+    requestIdRef.current += 1;
+    setReport(null);
+    setError(null);
+    setLoading(false);
+  }, []);
 
   useEffect(() => {
+    requestIdRef.current += 1;
     setSelectedVersionId(defaultVersionId);
     setReport(null);
     setError(null);
+    setLoading(false);
   }, [defaultVersionId]);
+
+  const selectVersionId = useCallback(
+    (next: SetStateAction<string>) => {
+      setSelectedVersionId((prev) => {
+        const nextValue = typeof next === 'function' ? next(prev) : next;
+        if (nextValue !== prev) invalidateAuditState();
+        return nextValue;
+      });
+    },
+    [invalidateAuditState]
+  );
+
+  const selectProfile = useCallback(
+    (next: SetStateAction<AuditProfile>) => {
+      setProfile((prev) => {
+        const nextValue = typeof next === 'function' ? next(prev) : next;
+        if (nextValue !== prev) invalidateAuditState();
+        return nextValue;
+      });
+    },
+    [invalidateAuditState]
+  );
 
   const runAudit = useCallback(async () => {
     if (!project || !selectedVersionId) return;
+
+    const requestId = requestIdRef.current + 1;
+    requestIdRef.current = requestId;
+    const requestTargetKey = targetKeyRef.current;
+    const isCurrentRequest = () =>
+      requestIdRef.current === requestId &&
+      targetKeyRef.current === requestTargetKey;
 
     setLoading(true);
     setError(null);
@@ -35,19 +84,19 @@ export function useVersionAudit(project: Project | null) {
         selectedVersionId,
         profile
       );
-      setReport(nextReport);
+      if (isCurrentRequest()) setReport(nextReport);
     } catch (err) {
-      setError(getErrorMessage(err));
+      if (isCurrentRequest()) setError(getErrorMessage(err));
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
   }, [project, selectedVersionId, profile]);
 
   return {
     selectedVersionId,
-    setSelectedVersionId,
+    setSelectedVersionId: selectVersionId,
     profile,
-    setProfile,
+    setProfile: selectProfile,
     report,
     loading,
     error,
