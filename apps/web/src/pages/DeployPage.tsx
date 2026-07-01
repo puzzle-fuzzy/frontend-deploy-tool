@@ -71,7 +71,10 @@ export function DeployPage() {
                         {selectedProject.slug}
                       </p>
                     </div>
-                    <DeployUrl slug={selectedProject.slug} />
+                    <DeployUrl
+                      slug={selectedProject.slug}
+                      hasProduction={selectedProject.activeVersionId != null}
+                    />
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
