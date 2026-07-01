@@ -9,4 +9,5 @@ apps/server/.voasx/
 apps/web/dist/
 
 *.tsbuildinfo
+.turbo/
 .DS_Store

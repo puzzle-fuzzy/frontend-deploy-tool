@@ -12,6 +12,7 @@
       "apps/**",
       "packages/**",
       "package.json",
+      "turbo.json",
       "biome.json",
       "!**/node_modules",
       "!**/dist",
