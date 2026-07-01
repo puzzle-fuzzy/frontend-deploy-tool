@@ -90,6 +90,7 @@
   "settings": {
     "title": "Project Settings",
     "desc": "Configure deployment behavior",
+    "projectInfo": "Project information",
     "selectProject": "Select Project",
     "selectProjectPlaceholder": "Choose a project...",
     "spaMode": "SPA Mode",
