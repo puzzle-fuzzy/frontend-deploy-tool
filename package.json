@@ -5,7 +5,8 @@
   "packageManager": "bun@1.3.14",
   "workspaces": {
     "packages": [
-      "apps/*",
+      "apps/server",
+      "apps/web",
       "packages/*"
     ],
     "catalog": {
