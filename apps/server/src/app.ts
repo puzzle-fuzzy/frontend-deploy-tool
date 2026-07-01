@@ -6,6 +6,7 @@ import type { AppConfig } from './config';
 import { ApiError, ErrorCode } from './errors';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
+import { createAuditService } from './services/auditService';
 import { createProjectService } from './services/projectService';
 import { createVersionService } from './services/versionService';
 
@@ -22,10 +23,12 @@ export function createApp(config: AppConfig) {
   const repo = createJsonProjectRepository(config.dataFile);
   const projectService = createProjectService(repo);
   const versionService = createVersionService(repo, config);
+  const auditService = createAuditService(repo, config.storageDir);
 
   return createApiApp({
     projectService,
     versionService,
+    auditService,
     removeProjectDir: (projectId) =>
       rmSync(join(config.storageDir, projectId), {
         recursive: true,

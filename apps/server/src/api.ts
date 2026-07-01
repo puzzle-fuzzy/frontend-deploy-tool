@@ -1,12 +1,18 @@
 import { Hono } from 'hono';
+import { createAuditRoutes } from './routes/audits';
 import { createHistoryRoutes } from './routes/history';
 import { createProjectRoutes } from './routes/projects';
 import { createVersionRoutes } from './routes/versions';
-import type { ProjectService, VersionService } from './services/contracts';
+import type {
+  AuditService,
+  ProjectService,
+  VersionService,
+} from './services/contracts';
 
 export interface ApiDeps {
   projectService: ProjectService;
   versionService: VersionService;
+  auditService: AuditService;
   removeProjectDir: (projectId: string) => void;
   removeVersionDir: (projectId: string, versionId: string) => void;
 }
@@ -33,6 +39,7 @@ export function createApiApp(deps: ApiDeps) {
         removeVersionDir: deps.removeVersionDir,
       })
     )
+    .route('/', createAuditRoutes({ auditService: deps.auditService }))
     .route('/', createHistoryRoutes({ projectService: deps.projectService }));
 }
 

@@ -1,4 +1,6 @@
 import type {
+  AuditProfile,
+  AuditReport,
   CreateProjectInput,
   HistoryEvent,
   Project,
@@ -34,4 +36,12 @@ export interface VersionService {
   ): Promise<{ version: { id: string; name: string } }>;
   activateVersion(projectId: string, versionId: string): void;
   deleteVersion(projectId: string, versionId: string): void;
+}
+
+export interface AuditService {
+  runVersionAudit(
+    projectId: string,
+    versionId: string,
+    profile?: AuditProfile
+  ): AuditReport;
 }
