@@ -10,6 +10,7 @@ interface Props {
   loading: boolean;
   selectedProjectId?: string;
   onSelect: (project: Project) => void;
+  canCreate?: boolean;
   onCreate: () => void;
 }
 
@@ -18,6 +19,7 @@ export function ProjectList({
   loading,
   selectedProjectId,
   onSelect,
+  canCreate = true,
   onCreate,
 }: Props) {
   const { t } = useTranslation();
@@ -28,10 +30,12 @@ export function ProjectList({
         <p className="text-sm font-medium text-muted-foreground">
           {t('projects.title')}
         </p>
-        <Button variant="ghost" size="default" onClick={onCreate}>
-          <Plus className="size-4" />
-          {t('projects.create')}
-        </Button>
+        {canCreate && (
+          <Button variant="ghost" size="default" onClick={onCreate}>
+            <Plus className="size-4" />
+            {t('projects.create')}
+          </Button>
+        )}
       </div>
       <ScrollArea className="flex-1">
         {loading ? (

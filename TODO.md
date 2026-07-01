@@ -48,13 +48,13 @@ Enterprise docs §6.1, §7.4, Phase 1 acceptance. Quick, high-value, currently m
 
 Enterprise docs §7.9, plan Phase 1 §2.1. Elevated to near-term per product direction.
 
-- [ ] Add a simple login flow + session.
+- [x] Add a simple login flow + session.
   - `POST /api/auth/login`, `GET /api/me`; login-state retention.
   - Start with a seeded admin account / local admin token; enterprise SSO is later.
-- [ ] Add Phase 1 roles: `admin` / `developer` / `viewer`.
+- [x] Add Phase 1 roles: `admin` / `developer` / `viewer`.
   - Permission middleware on mutating routes: create project, upload, publish/rollback, delete, edit settings, manage members.
   - Phase 1 acceptance: "非授权用户不能发布正式环境".
-- [ ] Record `actorId` on history events once users exist.
+- [x] Record `actorId` on history events once users exist.
   - Wire `actorId` into `appendHistoryEvent`; backfill as `system` for legacy events.
   - Unblocks `uploadedBy` / `publishedBy` version metadata in P2.
 

@@ -1,6 +1,6 @@
 import type { ApiApp } from '@deploykit/server/api';
 import { hc } from 'hono/client';
-import type { Project, Settings } from './types';
+import type { Project, SafeUser, Settings } from './types';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
@@ -26,6 +26,28 @@ async function checkOk(res: {
 }
 
 export const api = {
+  getMe: async (): Promise<SafeUser | null> => {
+    // hono/client uses same-origin fetch, so the session cookie is sent.
+    const res = await client.api.me.$get();
+    if (res.status === 401) return null;
+    await checkOk(res);
+    return res.json();
+  },
+
+  login: async (email: string, password: string): Promise<SafeUser> => {
+    const res = await client.api.auth.login.$post({
+      json: { email, password },
+    });
+    await checkOk(res);
+    const body = await res.json();
+    return body.user;
+  },
+
+  logout: async (): Promise<void> => {
+    const res = await client.api.auth.logout.$post();
+    await checkOk(res);
+  },
+
   listProjects: async (): Promise<Project[]> => {
     const res = await client.api.projects.$get();
     await checkOk(res);
