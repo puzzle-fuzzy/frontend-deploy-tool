@@ -1,4 +1,4 @@
-import type { Version } from '@deploykit/shared';
+import type { Project, Version } from '@deploykit/shared';
 
 /**
  * Returns the `activeVersionId` to use after `deletedVersionId` is removed.
@@ -17,4 +17,18 @@ export function chooseReplacementActiveVersionId(
     (version) => version.id !== deletedVersionId
   );
   return remaining.at(-1)?.id ?? null;
+}
+
+/**
+ * Domain invariant: a version always belongs to exactly one project. Versions
+ * are nested under `project.versions` (never referenced by id alone across
+ * projects), so the owning project is the only scope in which a version is
+ * looked up. Returns the version or `undefined` if it does not belong to
+ * `project`.
+ */
+export function findProjectVersion(
+  project: Project,
+  versionId: string
+): Version | undefined {
+  return project.versions.find((version) => version.id === versionId);
 }

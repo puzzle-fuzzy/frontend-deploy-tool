@@ -3,7 +3,10 @@ import { join } from 'node:path';
 import type { Version } from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
-import { chooseReplacementActiveVersionId } from '../domain/version';
+import {
+  chooseReplacementActiveVersionId,
+  findProjectVersion,
+} from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -146,7 +149,7 @@ export function createVersionService(
           404
         );
 
-      const version = project.versions.find((v) => v.id === versionId);
+      const version = findProjectVersion(project, versionId);
       if (!version)
         throw new ApiError(
           ErrorCode.VERSION_NOT_FOUND,
@@ -169,8 +172,8 @@ export function createVersionService(
           'Project not found',
           404
         );
-      const vIdx = project.versions.findIndex((v) => v.id === versionId);
-      if (vIdx === -1)
+      const version = findProjectVersion(project, versionId);
+      if (!version)
         throw new ApiError(
           ErrorCode.VERSION_NOT_FOUND,
           'Version not found',
@@ -182,7 +185,10 @@ export function createVersionService(
         versionId,
         project.activeVersionId
       );
-      const removed = project.versions.splice(vIdx, 1)[0];
+      const removed = project.versions.splice(
+        project.versions.indexOf(version),
+        1
+      )[0];
       project.activeVersionId = replacementActiveVersionId;
       project.updatedAt = new Date().toISOString();
       appendHistoryEvent(data, 'version.delete', project, removed);

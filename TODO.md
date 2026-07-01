@@ -90,11 +90,11 @@ This project is moving from a local Vite demo deployment tool toward an enterpri
   - [x] `server/src/utils/id.ts`: ID generation.
   - [x] `server/src/utils/safePath.ts`: filesystem safety helpers.
   - [x] `server/src/utils/mime.ts`: MIME lookup.
-- [ ] Introduce explicit domain invariants.
+- [x] Introduce explicit domain invariants.
   - [x] Prefer `project.activeVersionId` over `version.active`.
   - [x] A project can have zero or one active version.
-  - [ ] A version must belong to exactly one project.
-  - [ ] Slug must be unique.
+  - [x] A version must belong to exactly one project.
+  - [x] Slug must be unique.
 - [x] Introduce typed request validation.
   - [x] Validate JSON bodies before passing to services.
   - [x] Validate route params.
