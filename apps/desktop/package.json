@@ -25,6 +25,7 @@
     "@deploykit/shared": "workspace:*",
     "electron-squirrel-startup": "catalog:",
     "electron-store": "catalog:",
+    "lucide-react": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

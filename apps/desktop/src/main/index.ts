@@ -56,6 +56,7 @@ app.whenReady().then(() => {
   const ses = session.fromPartition(PARTITION);
   registerIpc({
     session: ses,
+    partition: PARTITION,
     getOrigin: () => getServerOrigin(),
     getMainWindow,
     onAuthExpired: (cb) => authExpiredSubscribers.push(cb),

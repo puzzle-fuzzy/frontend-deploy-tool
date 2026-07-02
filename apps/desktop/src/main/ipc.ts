@@ -15,11 +15,12 @@ import { serverRequest } from './serverRequest';
  */
 export function registerIpc(deps: {
   session: Session;
+  partition: string;
   getOrigin: () => string;
   getMainWindow: () => BrowserWindow | null;
   onAuthExpired: (cb: () => void) => void;
 }) {
-  const { session, getOrigin, getMainWindow, onAuthExpired } = deps;
+  const { session, partition, getOrigin, getMainWindow, onAuthExpired } = deps;
 
   // ---- API methods (mirror ApiClient over IPC) -------------------------------
   ipcMain.handle('api:getMe', async () => getMe(session, getOrigin()));
@@ -113,7 +114,7 @@ export function registerIpc(deps: {
   ipcMain.handle('native:getServerOrigin', async () => getServerOrigin());
   ipcMain.handle('native:loginViaWeb', async () => {
     const parent = getMainWindow();
-    return parent ? loginViaWeb(session, getOrigin(), parent) : null;
+    return parent ? loginViaWeb(session, partition, getOrigin(), parent) : null;
   });
   ipcMain.on('native:onAuthExpiredSubscribe', (e) => {
     onAuthExpired(() => e.sender.send('native:authExpired'));
