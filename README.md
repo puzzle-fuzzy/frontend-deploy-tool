@@ -72,7 +72,7 @@ bun run dev:server   # 或 bun run apps/server/src/index.ts
 
 ## 工作区结构
 
-本项目是一个 Bun 工作区（`apps/*` + `packages/*`）。
+本项目是一个 Bun 工作区（`apps/server`、`apps/web` + `packages/*`）。
 
 ```
 deploykit/
@@ -100,8 +100,8 @@ deploykit/
 │       │   ├── App.tsx            # Provider + DeployPage
 │       │   ├── pages/DeployPage.tsx   # 页面外壳
 │       │   ├── features/          # 功能模块（projects/versions/settings/deploy/theme/i18n）
-│       │   ├── lib/api.ts         # hono/client 类型化客户端（上传用 XHR）
-│       │   ├── components/ui/     # shadcn/ui 组件
+│       │   ├── shared/api.ts      # hono/client 类型化客户端（上传用 XHR）
+│       │   ├── shared/ui/         # shadcn/ui 组件
 │       │   └── i18n/              # i18next（中/英）
 │       ├── dist/                  # 构建产物（gitignore）
 │       └── tests/unit/            # Vitest + RTL 单元测试
@@ -150,25 +150,40 @@ deploykit/
 
 ## API 接口
 
-所有接口前缀为 `/api`，无认证。错误响应格式：`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见 `apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经 `hono/client` 自动获得类型。
+所有接口前缀为 `/api`。除登录/登出外，API 需要 session cookie；权限分为
+`admin` / `developer` / `viewer`。错误响应格式：
+`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见
+`apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经
+`hono/client` 自动获得类型。
+
+### 认证
+
+| 方法 | 路径 | 说明 | 请求体 |
+|------|------|------|--------|
+| POST | `/api/auth/login` | 登录并设置 session cookie | `{ email, password }` |
+| POST | `/api/auth/logout` | 清除 session cookie | — |
+| GET | `/api/me` | 获取当前用户 | — |
 
 ### 项目
 
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
 | GET | `/api/projects` | 获取项目列表 | — |
-| POST | `/api/projects` | 创建项目 | `{ name, slug, description }` |
-| DELETE | `/api/projects/:id` | 删除项目及其文件 | — |
-| PATCH | `/api/projects/:id/settings` | 更新项目设置 | `{ spaMode, routingType }` |
+| POST | `/api/projects` | 创建项目（admin） | `{ name, slug, description }` |
+| PATCH | `/api/projects/:id` | 更新项目信息（developer+） | `{ name?, slug?, description? }` |
+| PATCH | `/api/projects/:id/settings` | 更新项目设置（developer+） | `{ spaMode, routingType }` |
+| DELETE | `/api/projects/:id` | 删除项目及其文件（admin） | — |
 | GET | `/api/projects/:id/versions` | 获取项目（含版本列表） | — |
 
 ### 版本
 
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
-| POST | `/api/projects/:id/versions` | 上传新版本 | `FormData`（`file` 或 `folderFiles[]`） |
-| PUT | `/api/projects/:id/versions/:vid/activate` | 设为正式版本 | — |
-| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件 | — |
+| POST | `/api/projects/:id/versions` | 上传新版本（developer+，预览态） | `FormData`（`file` 或 `folderFiles[]`） |
+| POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer+） | — |
+| POST | `/api/projects/:id/versions/:vid/rollback` | 回滚到指定版本（developer+） | — |
+| PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer+） | — |
+| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件（developer+） | — |
 
 ### 历史
 

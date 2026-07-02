@@ -17,8 +17,8 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
                  ┌──────────── packages/shared（跨包领域类型）────────────┐
                  └──────────────────────────────────────────────────────┘
                                         ▲
-                 ┌──────── apps/web（React SPA，hono/client）─────────────┐
-                 │  features/* + lib/api.ts (hc<ApiApp>)                   │
+                ┌──────── apps/web（React SPA，hono/client）─────────────┐
+                │  features/* + shared/api.ts (hc<ApiApp>)                │
                  └────────────────────────────────────────────────────────┘
 ```
 
@@ -35,7 +35,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug 校验、`parseSettings`）、`version.ts`（激活、替换活跃版本）、`history.ts`（追加事件，上限 200） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（接口）、`jsonProjectRepository.ts`（JSON 实现，**原子写入**：临时文件 + rename；读取时为缺失的 `settings` 补默认值，损坏文件降级为空数据） |
-| `services/` | 用例 | `projectService`、`versionService`（上传/激活/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
 | `app.ts` | 组合根 | `createApp(config)`：`createApiApp().route('/', deploy).onError().use('/*', 安全头).use('/*', serveStatic).get('*', SPA fallback)` |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
@@ -54,7 +54,9 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 前端 `tsc`（`types: ["vite/client"]`，无 `bun-types`）会沿 `import type { ApiApp }` 追踪到后端源文件；任何 `Bun.*` 或 `node:fs` 引用都会让前端类型检查失败。因此：
 - 服务接口集中在 `services/contracts.ts`（类型 + `File`，无 Bun/Node）。
-- `routes/{projects,versions,history}` 不直接 import `node:fs`——文件清理以 DI 回调（`removeProjectDir` / `removeVersionDir`）注入，实现在 `app.ts` 中。
+- `routes/{projects,versions,history}` 不直接 import `node:fs`。项目目录清理以
+  DI 回调（`removeProjectDir`）注入，实现在 `app.ts` 中；版本目录清理由
+  `versionService` 负责，和版本生命周期保持在同一用例边界。
 - 部署路由依赖 `artifactService`（用 `Bun.file`），故不在 `api.ts` 图中。
 
 ## API 契约
@@ -81,17 +83,19 @@ apps/server/
 
 - `pages/DeployPage.tsx` — 薄外壳，调用 `useProjects()` 并组合各功能模块。
 - `features/` — 按领域拆分：`projects`（`useProjects` 钩子、`ProjectList`、`CreateProjectDialog`）、`versions`（`VersionList`、`UploadVersionDialog`）、`settings`、`deploy`（`DeployUrl`）、`theme`、`i18n`。
-- `lib/api.ts` — `hono/client` 类型化客户端；`uploadVersion` 保留 XHR 以追踪进度。
+- `shared/api.ts` — `hono/client` 类型化客户端；`uploadVersion` 保留 XHR 以追踪进度。
 - 类型来自 `@deploykit/shared`（`src/types` 再导出）。
 
 ## 数据模型（packages/shared）
 
 ```ts
 Settings  { spaMode: boolean; routingType: 'hash' | 'path' }
-Version   { id; name; description; createdAt; active: boolean }
-Project   { id; name; slug; description; createdAt; updatedAt; versions: Version[]; settings: Settings }
-HistoryEvent { id; action; projectId; projectName; versionId; versionName; timestamp }
-Data      { projects: Project[]; history: HistoryEvent[] }
+Version   { id; name; description; createdAt; size; fileCount; sourceType; status; publishedAt; publishedBy; checksum }
+Project   { id; name; slug; description; createdAt; updatedAt; versions: Version[]; activeVersionId: string | null; settings: Settings }
+HistoryEvent { id; action; projectId; projectName; versionId; versionName; timestamp; actorId; metadata? }
+User      { id; name; email; passwordHash; role; createdAt; updatedAt }
+Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryEvent[] }
 ```
 
-> 注：当前版本以 `version.active` 标记活跃版本（每项目至多一个）。计划演进为 `project.activeVersionId`（见 TODO "数据模型演进"）。
+> 注：`project.activeVersionId` 是线上版本唯一真源；`version.status` 用于展示、
+> 筛选与发布语义同步，不应重新引入 `version.active`。
