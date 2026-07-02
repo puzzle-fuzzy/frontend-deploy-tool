@@ -3,7 +3,11 @@ import { useTranslation } from 'react-i18next';
 import { publicBaseURL } from '../../shared/config';
 import { Button } from '../../shared/ui/button';
 import { useToast } from '../../shared/ui/toast-context';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../../shared/ui/tooltip';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '../../shared/ui/tooltip';
 
 interface Props {
   slug: string;

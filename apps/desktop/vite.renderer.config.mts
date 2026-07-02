@@ -14,8 +14,14 @@ export default defineConfig({
     preserveSymlinks: false,
     alias: [
       { find: '@deploykit/client', replacement: clientSrc },
-      { find: '@deploykit/shared', replacement: path.resolve(__dirname, '../../packages/shared/src') },
-      { find: '@deploykit/server', replacement: path.resolve(__dirname, '../../apps/server/src') },
+      {
+        find: '@deploykit/shared',
+        replacement: path.resolve(__dirname, '../../packages/shared/src'),
+      },
+      {
+        find: '@deploykit/server',
+        replacement: path.resolve(__dirname, '../../apps/server/src'),
+      },
     ],
   },
   // Allow files in packages/ to be served by the renderer Vite dev server.
