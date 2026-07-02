@@ -72,7 +72,7 @@ bun run dev:server   # 或 bun run apps/server/src/index.ts
 
 ## 工作区结构
 
-本项目是一个 Bun 工作区（`apps/server`、`apps/web` + `packages/*`）。
+本项目是一个 Bun 工作区（`apps/server`、`apps/web`、`apps/desktop` + `packages/*`）。
 
 ```
 deploykit/
@@ -94,6 +94,7 @@ deploykit/
 │   │   ├── public/                # 管理面板（由打包脚本同步，gitignore）
 │   │   └── .voasx/storage/        # 部署产物（gitignore）
 │   │       └── {projectId}/{versionId}/
+│   ├── desktop/                   # Electron 桌面端（Vite + React，封装管理面板）
 │   └── web/                       # @deploykit/web — React 管理面板
 │       ├── src/
 │       │   ├── main.tsx           # 应用入口
