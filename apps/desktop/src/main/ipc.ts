@@ -6,7 +6,7 @@ import {
   setServerOrigin,
 } from '../shared/config';
 import { getMe, login, loginViaWeb, logout, validateServer } from './auth';
-import { pickDirectory, uploadFolder } from './nativeUpload';
+import { pickDirectory, uploadFolder, uploadZipPath } from './nativeUpload';
 import { serverRequest } from './serverRequest';
 
 /**
@@ -137,6 +137,26 @@ export function registerIpc(deps: {
         getOrigin(),
         projectId,
         directoryPath,
+        description,
+        win ? (p) => win.webContents.send(progressChannel, p) : undefined
+      );
+    }
+  );
+  ipcMain.handle(
+    'nativeUpload:uploadZipPath',
+    async (
+      _e,
+      projectId: string,
+      zipPath: string,
+      description: string,
+      progressChannel: string
+    ) => {
+      const win = getMainWindow();
+      return uploadZipPath(
+        session,
+        getOrigin(),
+        projectId,
+        zipPath,
         description,
         win ? (p) => win.webContents.send(progressChannel, p) : undefined
       );

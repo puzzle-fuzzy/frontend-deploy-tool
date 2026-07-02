@@ -1,3 +1,4 @@
+import type { NativeBridge } from '@deploykit/client';
 import {
   ApiClientProvider,
   App,
@@ -13,8 +14,34 @@ import { createIpcApiClient } from './ipcApiClient';
 
 type Phase = 'loading' | 'onboarding' | 'auth' | 'ready';
 
+/**
+ * Composes the renderer-facing `NativeBridge` (consumed via `useNative()`) from
+ * the raw `window.deploykit` bridge. The disk-backed upload methods are wired
+ * through `nativeUpload.*` so the shared UI never imports Electron types.
+ */
+function useNativeBridge(): NativeBridge {
+  const bridge = window.deploykit;
+  return {
+    ...bridge.native,
+    uploadFolder: (projectId, directoryPath, description, onProgress) =>
+      bridge.nativeUpload.uploadFolder(
+        projectId,
+        directoryPath,
+        description,
+        onProgress
+      ),
+    uploadZipPath: (projectId, zipPath, description, onProgress) =>
+      bridge.nativeUpload.uploadZipPath(
+        projectId,
+        zipPath,
+        description,
+        onProgress
+      ),
+  };
+}
+
 export function DesktopApp() {
-  const native = window.deploykit.native;
+  const native = useNativeBridge();
   const [phase, setPhase] = useState<Phase>('loading');
   const [origin, setOrigin] = useState('');
   const [user, setUser] = useState<SafeUser | null>(null);

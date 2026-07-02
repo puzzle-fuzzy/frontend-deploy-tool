@@ -6,6 +6,7 @@ export type {
   NativeBridge,
   NativeFile,
   PickedDirectory,
+  UploadResult,
   ValidateServerResult,
 } from './NativeBridge';
 export { NativeProvider, useNative } from './NativeProvider';

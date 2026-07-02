@@ -13,14 +13,24 @@ export interface NativeFile {
 
 export interface PickedDirectory {
   directoryName: string;
+  /** Absolute on-disk path of the picked directory (empty in the web path). */
+  directoryPath: string;
   files: NativeFile[];
 }
 
 export type ValidateServerResult = { ok: true } | { ok: false; reason: string };
 
+/** Result shape of a version-creating upload. */
+export type UploadResult = { version: { id: string; name: string } };
+
 /**
  * Desktop-only capabilities (spec §4.5). Lives on `window.deploykit.native`,
  * NOT on `ApiClient`. Web provides `null` (features gated on `useNative()`).
+ *
+ * The upload methods read bytes from disk in the main process (so the
+ * renderer never marshals file bytes over IPC) and report progress back via
+ * `onProgress`. They live here — rather than on `ApiClient` — because they
+ * take disk paths, not browser `File` objects.
  */
 export interface NativeBridge {
   pickDirectory(): Promise<PickedDirectory | null>;
@@ -33,4 +43,18 @@ export interface NativeBridge {
   loginViaWeb(): Promise<SafeUser | null>;
   /** Fires when the main process sees a 401 mid-session. Returns unsubscribe. */
   onAuthExpired(cb: () => void): () => void;
+  /** Upload a whole directory tree (read from disk) as a new version. */
+  uploadFolder(
+    projectId: string,
+    directoryPath: string,
+    description: string,
+    onProgress?: (percent: number) => void
+  ): Promise<UploadResult>;
+  /** Upload a single zip file (read from disk) as a new version. */
+  uploadZipPath(
+    projectId: string,
+    zipPath: string,
+    description: string,
+    onProgress?: (percent: number) => void
+  ): Promise<UploadResult>;
 }

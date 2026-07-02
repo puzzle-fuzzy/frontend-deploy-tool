@@ -1,4 +1,4 @@
-import { useApiClient } from '@deploykit/client';
+import { useApiClient, useNative } from '@deploykit/client';
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -30,9 +30,15 @@ export function UploadVersionDialog({
   const { t } = useTranslation();
   const { toast } = useToast();
   const api = useApiClient();
+  const native = useNative();
   const releaseNotesId = 'upload-release-notes';
   const [file, setFile] = useState<File | null>(null);
   const [folderFiles, setFolderFiles] = useState<File[] | null>(null);
+  // Native-picked directory: absolute disk path + its NativeFile entries.
+  const [nativeDir, setNativeDir] = useState<{
+    path: string;
+    files: File[];
+  } | null>(null);
   const [desc, setDesc] = useState('');
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
@@ -41,15 +47,18 @@ export function UploadVersionDialog({
     if (open) return;
     setFile(null);
     setFolderFiles(null);
+    setNativeDir(null);
     setDesc('');
     setProgress(0);
   }, [open]);
 
   const label = file
     ? file.name
-    : folderFiles
-      ? t('upload.selectedFiles', { count: folderFiles.length })
-      : null;
+    : nativeDir
+      ? t('upload.selectedFiles', { count: nativeDir.files.length })
+      : folderFiles
+        ? t('upload.selectedFiles', { count: folderFiles.length })
+        : null;
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
@@ -57,6 +66,7 @@ export function UploadVersionDialog({
     if (f) {
       setFile(f);
       setFolderFiles(null);
+      setNativeDir(null);
     }
   };
 
@@ -68,6 +78,7 @@ export function UploadVersionDialog({
       if (input.files?.[0]) {
         setFile(input.files[0]);
         setFolderFiles(null);
+        setNativeDir(null);
       }
     };
     input.click();
@@ -82,6 +93,7 @@ export function UploadVersionDialog({
       if (input.files && input.files.length > 0) {
         setFolderFiles(Array.from(input.files));
         setFile(null);
+        setNativeDir(null);
       }
     };
     input.click();
@@ -89,13 +101,27 @@ export function UploadVersionDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!file && !folderFiles) || !projectId) return;
+    if ((!file && !folderFiles && !nativeDir) || !projectId) return;
     setUploading(true);
     try {
-      await api.uploadVersion(projectId, file, folderFiles, desc, setProgress);
+      if (native && nativeDir) {
+        // Desktop path: the main process reads bytes from disk and reports
+        // progress over IPC. nativeDir holds the absolute directory path.
+        await native.uploadFolder(projectId, nativeDir.path, desc, setProgress);
+      } else {
+        // Web path (unchanged): XHR upload of the picked File objects.
+        await api.uploadVersion(
+          projectId,
+          file,
+          folderFiles,
+          desc,
+          setProgress
+        );
+      }
       toast(t('common.uploaded'));
       setFile(null);
       setFolderFiles(null);
+      setNativeDir(null);
       setDesc('');
       setProgress(0);
       onUploaded();
@@ -151,6 +177,29 @@ export function UploadVersionDialog({
               <FolderOpen className="size-4" />
               {t('upload.selectFolder')}
             </Button>
+            {native && (
+              <Button
+                variant="default"
+                size="default"
+                type="button"
+                onClick={async () => {
+                  const picked = await native.pickDirectory();
+                  if (picked) {
+                    // NativeFile is structurally compatible with File (the
+                    // native upload branch never touches File-only APIs).
+                    setNativeDir({
+                      path: picked.directoryPath,
+                      files: picked.files as unknown as File[],
+                    });
+                    setFile(null);
+                    setFolderFiles(null);
+                  }
+                }}
+              >
+                <FolderOpen className="size-4" />
+                Pick directory…
+              </Button>
+            )}
           </div>
 
           {uploading && (
@@ -189,7 +238,7 @@ export function UploadVersionDialog({
             </Button>
             <Button
               type="submit"
-              disabled={(!file && !folderFiles) || uploading}
+              disabled={(!file && !folderFiles && !nativeDir) || uploading}
               size="default"
             >
               {uploading ? `${progress}%` : t('upload.submit')}

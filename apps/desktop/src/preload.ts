@@ -76,12 +76,25 @@ contextBridge.exposeInMainWorld('deploykit', {
         });
     },
     uploadZipPath: (
-      _projectId: string,
-      _zipPath: string,
-      _description: string,
-      _onProgress?: (percent: number) => void
+      projectId: string,
+      zipPath: string,
+      description: string,
+      onProgress?: (percent: number) => void
     ) => {
-      throw new Error('uploadZipPath wired in Task 8');
+      const channel = SUB_ID();
+      const handler = (_e: unknown, p: number) => onProgress?.(p);
+      if (onProgress) ipcRenderer.on(channel, handler);
+      return ipcRenderer
+        .invoke(
+          'nativeUpload:uploadZipPath',
+          projectId,
+          zipPath,
+          description,
+          channel
+        )
+        .finally(() => {
+          if (onProgress) ipcRenderer.removeListener(channel, handler);
+        });
     },
   },
 });
