@@ -5,6 +5,12 @@ export interface AppConfig {
   storageDir: string;
   publicDir: string;
   publicBaseURL?: string;
+  // Auth
+  sessionSecret?: string;
+  adminEmail: string;
+  adminPassword: string;
+  /** Mark session cookies Secure (only when served over https). */
+  secureCookies: boolean;
   // Upload limits
   maxZipSize?: number;
   maxExtractedSize?: number;
@@ -31,6 +37,11 @@ export function loadConfig({
     storageDir: env.STORAGE_DIR ?? join(appDir, '.voasx', 'storage'),
     publicDir: env.PUBLIC_DIR ?? join(appDir, 'public'),
     publicBaseURL: env.PUBLIC_BASE_URL,
+    // Auth
+    sessionSecret: env.SESSION_SECRET,
+    adminEmail: env.ADMIN_EMAIL ?? 'admin@deploykit.local',
+    adminPassword: env.ADMIN_PASSWORD ?? '',
+    secureCookies: env.PUBLIC_BASE_URL?.startsWith('https://') ?? false,
     // Upload limits with defaults (values in bytes/count)
     maxZipSize: parseSize(env.MAX_ZIP_SIZE),
     maxExtractedSize: parseSize(env.MAX_EXTRACTED_SIZE),

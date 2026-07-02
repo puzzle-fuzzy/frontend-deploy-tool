@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -40,6 +41,47 @@ function isSystemMetadata(relativePath: string): boolean {
 }
 
 /**
+ * Directory segments that never belong in a deployable build artifact. Rejecting
+ * the whole upload (rather than silently stripping) surfaces accidental inclusions
+ * of VCS history, dependencies, or other non-artifact trees.
+ */
+const DANGEROUS_DIR_SEGMENTS = new Set(['.git', 'node_modules', '.svn', '.hg']);
+
+/**
+ * File basenames that carry secrets or credentials. Matches `.env` and dotenv
+ * variants, private keys (`*.pem`/`*.key`), and common SSH key files.
+ */
+const DANGEROUS_FILE_PATTERNS = [
+  /^\.env(\..*)?$/i, // .env, .env.local, .env.production, ...
+  /\.(pem|key)$/i, // any *.pem / *.key
+  /^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/i, // SSH private keys (+ .pub)
+];
+
+/** True for an entry whose path leaks secrets or drags in non-artifact trees. */
+function isDangerousPath(relativePath: string): boolean {
+  const segments = relativePath.split('/');
+  for (const segment of segments) {
+    if (DANGEROUS_DIR_SEGMENTS.has(segment)) return true;
+  }
+  const basename = segments[segments.length - 1] ?? '';
+  return DANGEROUS_FILE_PATTERNS.some((pattern) => pattern.test(basename));
+}
+
+/**
+ * Asserts the extracted/flattened layout has a root `index.html`. Without one,
+ * the upload would "succeed" but `/deploy/:slug/` would 404. Throws `ApiError`
+ * (400) so the caller cleans up the version directory.
+ */
+export function assertIndexHtml(dir: string): void {
+  if (!existsSync(join(dir, 'index.html'))) {
+    throw new ApiError(
+      ErrorCode.MISSING_INDEX_HTML,
+      'Upload must contain an index.html at its root'
+    );
+  }
+}
+
+/**
  * Extracts a zip archive into `destDir` using a pure-JS decoder (no shell-out
  * to `tar`, which can't read zips on GNU tar and would create symlinks). Each
  * entry is validated with `safeJoin` (rejecting absolute/`..` traversal) before
@@ -63,6 +105,12 @@ export async function extractZip(
 
   for (const [entryPath, bytes] of Object.entries(entries)) {
     if (entryPath.endsWith('/') || isSystemMetadata(entryPath)) continue; // directory marker or junk
+    if (isDangerousPath(entryPath)) {
+      throw new ApiError(
+        ErrorCode.UNSAFE_ENTRY,
+        `Upload contains a disallowed entry: ${entryPath}`
+      );
+    }
     const target = safeJoin(destDir, entryPath);
     if (!target) throw new Error(`Unsafe zip entry: ${entryPath}`);
     mkdirSync(dirname(target), { recursive: true });
@@ -131,11 +179,39 @@ export function countFiles(dirPath: string): number {
   return count;
 }
 
+/** Computes a deterministic sha256 digest over every file in an artifact tree. */
+export function checksumDirectory(dirPath: string): string {
+  const hash = createHash('sha256');
+
+  function walk(currentPath: string, relativePrefix: string) {
+    const entries = readdirSync(currentPath, { withFileTypes: true }).sort(
+      (a, b) => a.name.localeCompare(b.name)
+    );
+    for (const entry of entries) {
+      const relativePath = relativePrefix
+        ? `${relativePrefix}/${entry.name}`
+        : entry.name;
+      const absolutePath = join(currentPath, entry.name);
+      if (entry.isDirectory()) {
+        walk(absolutePath, relativePath);
+      } else if (entry.isFile()) {
+        hash.update(relativePath);
+        hash.update('\0');
+        hash.update(readFileSync(absolutePath));
+        hash.update('\0');
+      }
+    }
+  }
+
+  walk(dirPath, '');
+  return hash.digest('hex');
+}
+
 /**
  * Writes uploaded folder files into `destDir`, preserving each file's relative
  * directory structure. Returns the total bytes written. OS metadata entries are
- * skipped. Throws `ApiError` (400) when a path exceeds `maxPathLength`, and a
- * plain `Error` for unsafe (traversal) paths so the caller can map it to a 500.
+ * skipped. Throws `ApiError` (400) when a path is unsafe or exceeds
+ * `maxPathLength`.
  */
 export async function writeFolderFiles(
   destDir: string,
@@ -152,6 +228,13 @@ export async function writeFolderFiles(
 
     if (!relativePath || isSystemMetadata(relativePath)) continue;
 
+    if (isDangerousPath(relativePath)) {
+      throw new ApiError(
+        ErrorCode.UNSAFE_ENTRY,
+        `Upload contains a disallowed entry: ${relativePath}`
+      );
+    }
+
     if (maxPathLength && relativePath.length > maxPathLength) {
       throw new ApiError(
         ErrorCode.PATH_TOO_LONG,
@@ -160,7 +243,12 @@ export async function writeFolderFiles(
     }
 
     const filePath = safeJoin(destDir, relativePath);
-    if (!filePath) throw new Error(`Unsafe upload path: ${relativePath}`);
+    if (!filePath) {
+      throw new ApiError(
+        ErrorCode.UNSAFE_ENTRY,
+        `Upload contains an unsafe path: ${relativePath}`
+      );
+    }
     mkdirSync(dirname(filePath), { recursive: true });
     await Bun.write(filePath, f);
     totalSize += f.size;

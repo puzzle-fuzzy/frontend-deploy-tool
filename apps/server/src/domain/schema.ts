@@ -3,10 +3,13 @@ import {
   historyEventSchema,
   type Project,
   settingsSchema,
+  userSchema,
   versionSourceTypeSchema,
+  versionStatusSchema,
 } from '@deploykit/shared';
 import { z } from 'zod';
 import { DEFAULT_PROJECT_SETTINGS } from './project';
+import { syncProductionStatus } from './version';
 
 /**
  * The schema version this build reads and writes. Old data files lacking a
@@ -15,8 +18,12 @@ import { DEFAULT_PROJECT_SETTINGS } from './project';
  * - v1: initial shape (`activeVersionId`, hydrated `settings`).
  * - v2: versions carry upload metadata (`size`, `fileCount`, `sourceType`);
  *   legacy versions default to `0`/`0`/`'unknown'`.
+ * - v3: history events carry `actorId` (legacy → `'system'`); top-level `users`
+ *   (absent before auth → `[]`, then seeded by the app).
+ * - v4: versions carry release metadata (`status`, `publishedAt`,
+ *   `publishedBy`, `checksum`); status is derived from `activeVersionId`.
  */
-export const CURRENT_SCHEMA_VERSION = 2;
+export const CURRENT_SCHEMA_VERSION = 4;
 
 export interface MigrationResult {
   data: Data;
@@ -25,10 +32,11 @@ export interface MigrationResult {
 }
 
 /**
- * Lenient schema describing any historical on-disk shape (v0 or v1). Tolerates a
+ * Lenient schema describing any historical on-disk shape (v0–v3). Tolerates a
  * missing `schemaVersion`, the legacy per-version `active` flag, a missing
- * `activeVersionId`, and missing `settings`/optional text fields. Used only to
- * parse persisted data before normalizing it to the current shape.
+ * `activeVersionId`, missing `settings`/optional text fields, a missing
+ * `users` table, and history events lacking `actorId`. Used only to parse
+ * persisted data before normalizing it to the current shape.
  */
 const legacyDataSchema = z.object({
   schemaVersion: z.number().optional(),
@@ -51,6 +59,10 @@ const legacyDataSchema = z.object({
             size: z.number().default(0),
             fileCount: z.number().default(0),
             sourceType: versionSourceTypeSchema.default('unknown'),
+            status: versionStatusSchema.optional(),
+            publishedAt: z.string().nullable().optional(),
+            publishedBy: z.string().nullable().optional(),
+            checksum: z.string().default(''),
           })
         )
         .default([]),
@@ -58,11 +70,19 @@ const legacyDataSchema = z.object({
       settings: settingsSchema.optional(),
     })
   ),
-  history: z.array(historyEventSchema).default([]),
+  users: z.array(userSchema).default([]),
+  history: z
+    .array(historyEventSchema.extend({ actorId: z.string().default('system') }))
+    .default([]),
 });
 
 export function createEmptyData(): Data {
-  return { schemaVersion: CURRENT_SCHEMA_VERSION, projects: [], history: [] };
+  return {
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    users: [],
+    history: [],
+  };
 }
 
 /**
@@ -78,19 +98,26 @@ export function migrate(raw: unknown): MigrationResult {
   const inputVersion = input.schemaVersion ?? 0;
 
   const projects: Project[] = input.projects.map((p) => {
-    const versions = p.versions.map((v) => ({
-      id: v.id,
-      name: v.name,
-      description: v.description,
-      createdAt: v.createdAt,
-      size: v.size,
-      fileCount: v.fileCount,
-      sourceType: v.sourceType,
-    }));
     const activeVersionId =
       p.activeVersionId ??
       p.versions.find((v) => v.active === true)?.id ??
       null;
+    const versions = syncProductionStatus(
+      p.versions.map((v) => ({
+        id: v.id,
+        name: v.name,
+        description: v.description,
+        createdAt: v.createdAt,
+        size: v.size,
+        fileCount: v.fileCount,
+        sourceType: v.sourceType,
+        status: v.status ?? 'preview',
+        publishedAt: v.publishedAt ?? null,
+        publishedBy: v.publishedBy ?? null,
+        checksum: v.checksum,
+      })),
+      activeVersionId
+    );
     return {
       id: p.id,
       name: p.name,
@@ -109,7 +136,12 @@ export function migrate(raw: unknown): MigrationResult {
       ? CURRENT_SCHEMA_VERSION
       : inputVersion;
   return {
-    data: { schemaVersion: version, projects, history: input.history },
+    data: {
+      schemaVersion: version,
+      projects,
+      users: input.users,
+      history: input.history,
+    },
     migrated: version !== inputVersion,
   };
 }

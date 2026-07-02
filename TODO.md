@@ -30,15 +30,15 @@
 
 Enterprise docs §6.1, §7.4, Phase 1 acceptance. Quick, high-value, currently missing.
 
-- [ ] Block dangerous files at upload (both zip extraction and folder write).
+- [x] Block dangerous files at upload (both zip extraction and folder write).
   - Current `SYSTEM_METADATA` ([artifactService.ts:21](apps/server/src/services/artifactService.ts#L21)) only catches OS junk (`.DS_Store`, `Thumbs.db`, `__MACOSX`, `._*`).
   - Reject entries whose path contains: `.env` / `.env.*`, `*.pem`, `*.key`, `id_rsa`, `.git/`, `node_modules/`, `.svn/`, `.hg/`.
   - Tests: a zip and a folder upload containing `.env` / `.git/` / `id_rsa` are rejected with a clear error code.
-- [ ] Require `index.html` after extraction/flatten; reject the upload if it is absent.
+- [x] Require `index.html` after extraction/flatten; reject the upload if it is absent.
   - Today `flattenOutput` ([artifactService.ts:78](apps/server/src/services/artifactService.ts#L78)) silently no-ops when no `index.html` exists anywhere → upload succeeds, deploy 404s.
   - Phase 1 acceptance: "没有 index.html 时上传失败".
   - Note: Version Audit (P4) detects a missing `index.html` at *audit* time; this is the *upload*-time gate and must exist independently.
-- [ ] Stop auto-publishing the first version.
+- [x] Stop auto-publishing the first version.
   - Today the first upload sets `activeVersionId` immediately ([versionService.ts:142](apps/server/src/services/versionService.ts#L142)), violating principle §6.1 "上传≠上线".
   - Change: every upload (including the first) creates a **preview-only** version; production is reached only by an explicit publish action.
   - The `no-active` state already returns 404 "No active version" ([deployResolver.ts:37](apps/server/src/services/deployResolver.ts#L37)), so a project with versions but no active version is already handled server-side.
@@ -48,13 +48,13 @@ Enterprise docs §6.1, §7.4, Phase 1 acceptance. Quick, high-value, currently m
 
 Enterprise docs §7.9, plan Phase 1 §2.1. Elevated to near-term per product direction.
 
-- [ ] Add a simple login flow + session.
+- [x] Add a simple login flow + session.
   - `POST /api/auth/login`, `GET /api/me`; login-state retention.
   - Start with a seeded admin account / local admin token; enterprise SSO is later.
-- [ ] Add Phase 1 roles: `admin` / `developer` / `viewer`.
+- [x] Add Phase 1 roles: `admin` / `developer` / `viewer`.
   - Permission middleware on mutating routes: create project, upload, publish/rollback, delete, edit settings, manage members.
   - Phase 1 acceptance: "非授权用户不能发布正式环境".
-- [ ] Record `actorId` on history events once users exist.
+- [x] Record `actorId` on history events once users exist.
   - Wire `actorId` into `appendHistoryEvent`; backfill as `system` for legacy events.
   - Unblocks `uploadedBy` / `publishedBy` version metadata in P2.
 
@@ -62,20 +62,20 @@ Enterprise docs §7.9, plan Phase 1 §2.1. Elevated to near-term per product dir
 
 Enterprise docs §6.2–6.5, §7.3, §7.5, §7.10.
 
-- [ ] Add an explicit version `status` field: `preview | production | archived | failed`.
+- [x] Add an explicit version `status` field: `preview | production | archived | failed`.
   - Today "production" is implicit (`activeVersionId === v.id`). Make it first-class to match the enterprise model and to support filtering / UI badges / archived state.
   - Migration: derive initial `status` from the existing `activeVersionId`.
-- [ ] Track publish metadata on versions: `publishedAt`, `publishedBy` (needs P1), `checksum` (sha256 of the upload), and a later `commit` / CI slot.
+- [x] Track publish metadata on versions: `publishedAt`, `publishedBy` (needs P1), `checksum` (sha256 of the upload), and a later `commit` / CI slot.
   - `checksum` and the field scaffolding can land before auth; `uploadedBy` / `publishedBy` wait for P1.
-- [ ] Make rollback a distinct action.
+- [x] Make rollback a distinct action.
   - Add a `version.rollback` history event; either treat "activate a version older than the current active one" as rollback, or add an explicit endpoint (`POST /api/projects/:id/versions/:versionId/rollback`).
   - The audit log must show "谁回滚到哪个版本".
-- [ ] Record history for project-info and settings edits.
+- [x] Record history for project-info and settings edits.
   - `updateProject` ([projectService.ts:79](apps/server/src/services/projectService.ts#L79)) and `updateProjectSettings` currently append no history event.
   - Add `project.update` / `project.update_settings` to the history action enum in `packages/shared`.
-- [ ] Add per-project audit-log filtering.
+- [x] Add per-project audit-log filtering.
   - Today only global `/api/history` exists. Add `GET /api/projects/:id/history` (or a `?projectId=` filter) for the project-detail "日志" tab.
-- [ ] Add confirmation dialogs for publish & rollback.
+- [x] Add confirmation dialogs for publish & rollback.
   - Delete already confirms ([VersionList.tsx:137](apps/web/src/features/versions/VersionList.tsx#L137)); publish (activate) is one-click today. Enterprise docs require 二次确认 for both publish and rollback.
 
 ## P3 — Ops & deployment packaging

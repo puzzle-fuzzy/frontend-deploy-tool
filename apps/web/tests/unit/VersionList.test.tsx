@@ -6,18 +6,26 @@ import type { Project, Version } from '@/shared/types';
 
 const noop = () => {};
 
-const version = (id: string): Version => ({
+const version = (
+  id: string,
+  status: Version['status'] = 'preview',
+  createdAt = '2026-06-30T00:00:00.000Z'
+): Version => ({
   id,
   name: id,
   description: '',
-  createdAt: '',
+  createdAt,
   size: 0,
   fileCount: 0,
   sourceType: 'unknown',
+  status,
+  publishedAt: status === 'production' ? createdAt : null,
+  publishedBy: status === 'production' ? 'user-1' : null,
+  checksum: '',
 });
 
-const v1 = version('v1');
-const v2 = version('v2');
+const v1 = version('v1', 'production', '2026-06-30T00:00:00.000Z');
+const v2 = version('v2', 'preview', '2026-06-30T00:01:00.000Z');
 
 const makeProject = (versions: Version[] = [v1, v2]): Project =>
   ({
@@ -38,13 +46,31 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject()}
         pendingVersionId={null}
-        onActivate={noop}
+        onPublish={noop}
+        onRollback={noop}
         onDelete={noop}
       />
     );
 
     expect(screen.getByText('versions.production')).toBeInTheDocument();
-    expect(screen.getByText('versions.setProduction')).toBeInTheDocument();
+    expect(screen.getByText('versions.publish')).toBeInTheDocument();
+  });
+
+  it('uses activeVersionId as the production source of truth', () => {
+    render(
+      <VersionList
+        project={makeProject([version('v1', 'preview')])}
+        pendingVersionId={null}
+        onPublish={noop}
+        onRollback={noop}
+        onDelete={noop}
+      />
+    );
+
+    expect(screen.getByText('versions.production')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'versions.publish' })
+    ).not.toBeInTheDocument();
   });
 
   it('renders the empty state when the project has no versions', () => {
@@ -52,7 +78,8 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([])}
         pendingVersionId={null}
-        onActivate={noop}
+        onPublish={noop}
+        onRollback={noop}
         onDelete={noop}
       />
     );
@@ -66,7 +93,8 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([v1])}
         pendingVersionId={null}
-        onActivate={noop}
+        onPublish={noop}
+        onRollback={noop}
         onDelete={onDelete}
       />
     );
@@ -86,7 +114,8 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([v1])}
         pendingVersionId="v1"
-        onActivate={noop}
+        onPublish={noop}
+        onRollback={noop}
         onDelete={noop}
       />
     );
@@ -95,7 +124,7 @@ describe('VersionList', () => {
       screen.queryByRole('button', { name: 'common.delete' })
     ).not.toBeInTheDocument();
     expect(
-      screen.queryByRole('button', { name: 'versions.setProduction' })
+      screen.queryByRole('button', { name: 'versions.publish' })
     ).not.toBeInTheDocument();
   });
 });

@@ -9,6 +9,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zip } from 'fflate';
+import { ErrorCode } from '../../src/errors';
 import {
   countFiles,
   extractZip,
@@ -101,7 +102,7 @@ test('writeFolderFiles throws on an unsafe traversal path', async () => {
   const destDir = join(tempDir, 'out');
   await expect(
     writeFolderFiles(destDir, [fileWithRelativePath('x', '../../evil.txt')])
-  ).rejects.toThrow('Unsafe upload path');
+  ).rejects.toMatchObject({ code: ErrorCode.UNSAFE_ENTRY });
 });
 
 test('writeFolderFiles rejects a path that exceeds maxPathLength', async () => {
@@ -153,4 +154,28 @@ test('extractZip rejects a path-traversal entry', async () => {
   await expect(extractZip(zipPath, destDir)).rejects.toThrow(
     'Unsafe zip entry'
   );
+});
+
+test('extractZip rejects dangerous entries (.env, .git/, id_rsa)', async () => {
+  const destDir = join(tempDir, 'out');
+
+  for (const path of ['.env', '.git/config', 'id_rsa', 'cert.pem']) {
+    const zipPath = await makeZip({
+      'index.html': new TextEncoder().encode('<html></html>'),
+      [path]: new TextEncoder().encode('secret'),
+    });
+    await expect(extractZip(zipPath, destDir)).rejects.toThrow(
+      'disallowed entry'
+    );
+  }
+});
+
+test('writeFolderFiles rejects dangerous entries', async () => {
+  const destDir = join(tempDir, 'out');
+
+  for (const path of ['.env', 'proj/.git/config', 'proj/id_rsa', 'cert.key']) {
+    await expect(
+      writeFolderFiles(destDir, [fileWithRelativePath('x', path)])
+    ).rejects.toThrow('disallowed entry');
+  }
 });

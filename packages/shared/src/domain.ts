@@ -11,11 +11,37 @@ export const settingsSchema = z.object({
   routingType: z.enum(['hash', 'path']),
 });
 
+/** Global role governing what a user may do. */
+export const roleSchema = z.enum(['admin', 'developer', 'viewer']);
+
+/** A user account, including the hashed password (server-side only). */
+export const userSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  email: z.string(),
+  passwordHash: z.string(),
+  role: roleSchema,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+
+/**
+ * The user shape exposed over the API (`/api/me`, login response). Never
+ * includes `passwordHash`.
+ */
+export const safeUserSchema = userSchema.omit({ passwordHash: true });
+
 /**
  * How a version's artifacts entered storage. `unknown` is the migration default
  * for versions written before this field existed.
  */
 export const versionSourceTypeSchema = z.enum(['zip', 'folder', 'unknown']);
+export const versionStatusSchema = z.enum([
+  'preview',
+  'production',
+  'archived',
+  'failed',
+]);
 
 export const versionSchema = z.object({
   id: z.string(),
@@ -28,6 +54,14 @@ export const versionSchema = z.object({
   fileCount: z.number().int().nonnegative(),
   /** How the artifacts were uploaded. */
   sourceType: versionSourceTypeSchema,
+  /** Lifecycle state used for filtering, badges, and release semantics. */
+  status: versionStatusSchema,
+  /** Set when the version was last promoted to production. */
+  publishedAt: z.string().nullable(),
+  /** User id that last promoted this version to production. */
+  publishedBy: z.string().nullable(),
+  /** sha256 digest of the extracted artifact tree. */
+  checksum: z.string(),
 });
 
 export const projectSchema = z.object({
@@ -47,9 +81,13 @@ export const historyEventSchema = z.object({
   id: z.string(),
   action: z.enum([
     'project.create',
+    'project.update',
+    'project.update_settings',
     'project.delete',
     'version.upload',
+    'version.publish',
     'version.activate',
+    'version.rollback',
     'version.delete',
   ]),
   projectId: z.string(),
@@ -57,6 +95,11 @@ export const historyEventSchema = z.object({
   versionId: z.string(),
   versionName: z.string(),
   timestamp: z.string(),
+  /**
+   * Id of the user who triggered the event. Legacy events (pre-auth) are
+   * backfilled with `'system'` during migration.
+   */
+  actorId: z.string(),
   /**
    * Structured, action-specific payload for future filtering/analytics (e.g.
    * upload `{ sourceType, size, fileCount }`, activate `{ previousActiveVersionId }`).
@@ -68,6 +111,7 @@ export const historyEventSchema = z.object({
 export const dataSchema = z.object({
   schemaVersion: z.number(),
   projects: z.array(projectSchema),
+  users: z.array(userSchema),
   history: z.array(historyEventSchema),
 });
 
@@ -79,7 +123,11 @@ export interface CreateProjectInput {
 }
 
 export type Settings = z.infer<typeof settingsSchema>;
+export type Role = z.infer<typeof roleSchema>;
+export type User = z.infer<typeof userSchema>;
+export type SafeUser = z.infer<typeof safeUserSchema>;
 export type VersionSourceType = z.infer<typeof versionSourceTypeSchema>;
+export type VersionStatus = z.infer<typeof versionStatusSchema>;
 export type Version = z.infer<typeof versionSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type HistoryAction = z.infer<typeof historyEventSchema>['action'];

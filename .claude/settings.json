@@ -46,7 +46,19 @@
       "Bash(bun --filter @deploykit/server test)",
       "Bash(bun --filter @deploykit/server typecheck)",
       "Bash(git commit -m ' *)",
-      "Bash(git -C g:/frontend-deploy-tool diff main...feat/domain-invariants)"
+      "Bash(git -C g:/frontend-deploy-tool diff main...feat/domain-invariants)",
+      "Bash(bun --filter '@deploykit/*' typecheck)",
+      "Bash(bun --filter '@deploykit/server' test)",
+      "Bash(grep -n '^- \\\\[ \\\\] Block dangerous files\\\\|^- \\\\[ \\\\] Require `index.html`\\\\|^- \\\\[ \\\\] Stop auto-publishing' TODO.md)",
+      "Bash(bun -e \"import\\('hono/utils/jwt'\\).then\\(m=>console.log\\('jwt sign/verify:', typeof m.sign, typeof m.verify\\)\\).catch\\(e=>console.log\\('jwt FAIL', e.message\\)\\)\")",
+      "Bash(bun -e \"import\\('hono/cookie'\\).then\\(m=>console.log\\('cookie get/set:', typeof m.getCookie, typeof m.setCookie\\)\\).catch\\(e=>console.log\\('cookie FAIL', e.message\\)\\)\")",
+      "Bash(bun -e \"Bun.password.hash\\('x'\\).then\\(h=>Bun.password.verify\\('x',h\\)\\).then\\(ok=>console.log\\('Bun.password ok:', ok\\)\\)\")",
+      "Bash(bun -e \"import\\('hono/utils/jwt'\\).then\\(m=>console.log\\('jwt:', typeof m.sign, typeof m.verify, typeof m.decode\\)\\)\")",
+      "Bash(bun -e \"import\\('hono/cookie'\\).then\\(m=>console.log\\('cookie:', typeof m.getCookie, typeof m.setCookie\\)\\)\")",
+      "Bash(bun --filter @deploykit/shared test)",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('apps/web/src/i18n/locales/en.json'\\)\\);print\\(list\\(d.keys\\(\\)\\)\\)\")",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('apps/web/src/i18n/locales/en.json'\\)\\);print\\('auth' in d\\)\")",
+      "Bash(python3 -c \"import json;d=json.load\\(open\\('apps/web/src/i18n/locales/zh.json'\\)\\);print\\(list\\(d.keys\\(\\)\\)\\)\")"
     ]
   }
 }

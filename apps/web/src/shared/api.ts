@@ -1,6 +1,6 @@
 import type { ApiApp } from '@deploykit/server/api';
 import { hc } from 'hono/client';
-import type { Project, Settings } from './types';
+import type { Project, SafeUser, Settings } from './types';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
@@ -26,6 +26,28 @@ async function checkOk(res: {
 }
 
 export const api = {
+  getMe: async (): Promise<SafeUser | null> => {
+    // hono/client uses same-origin fetch, so the session cookie is sent.
+    const res = await client.api.me.$get();
+    if (res.status === 401) return null;
+    await checkOk(res);
+    return res.json();
+  },
+
+  login: async (email: string, password: string): Promise<SafeUser> => {
+    const res = await client.api.auth.login.$post({
+      json: { email, password },
+    });
+    await checkOk(res);
+    const body = await res.json();
+    return body.user;
+  },
+
+  logout: async (): Promise<void> => {
+    const res = await client.api.auth.logout.$post();
+    await checkOk(res);
+  },
+
   listProjects: async (): Promise<Project[]> => {
     const res = await client.api.projects.$get();
     await checkOk(res);
@@ -42,11 +64,14 @@ export const api = {
     return res.json();
   },
 
-  updateProject: async (id: string, data: {
-    name?: string;
-    slug?: string;
-    description?: string;
-  }): Promise<Project> => {
+  updateProject: async (
+    id: string,
+    data: {
+      name?: string;
+      slug?: string;
+      description?: string;
+    }
+  ): Promise<Project> => {
     const res = await client.api.projects[':id'].$patch({
       param: { id },
       json: data,
@@ -81,7 +106,9 @@ export const api = {
       const form = new FormData();
       if (file) form.append('file', file);
       if (folderFiles) {
-        for (const f of folderFiles) form.append('folderFiles', f);
+        for (const f of folderFiles) {
+          form.append('folderFiles', f, f.webkitRelativePath || f.name);
+        }
       }
       form.append('versionDesc', description);
 
@@ -108,13 +135,24 @@ export const api = {
       xhr.send(form);
     }),
 
-  activateVersion: async (
+  publishVersion: async (
     projectId: string,
     versionId: string
   ): Promise<{ ok: boolean }> => {
     const res = await client.api.projects[':id'].versions[
       ':versionId'
-    ].activate.$put({ param: { id: projectId, versionId } });
+    ].publish.$post({ param: { id: projectId, versionId } });
+    await checkOk(res);
+    return res.json();
+  },
+
+  rollbackVersion: async (
+    projectId: string,
+    versionId: string
+  ): Promise<{ ok: boolean }> => {
+    const res = await client.api.projects[':id'].versions[
+      ':versionId'
+    ].rollback.$post({ param: { id: projectId, versionId } });
     await checkOk(res);
     return res.json();
   },

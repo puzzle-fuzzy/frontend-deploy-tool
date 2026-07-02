@@ -1,16 +1,14 @@
 import { Hono } from 'hono';
 import { parseIdParam } from '../domain/schemas';
-import type { VersionService } from '../services/contracts';
+import { assertRole } from '../middleware/auth';
+import type { AppEnv, VersionService } from '../services/contracts';
 
-export function createVersionRoutes(deps: {
-  versionService: VersionService;
-  /** Removes the on-disk artifacts for a deleted version. */
-  removeVersionDir: (projectId: string, versionId: string) => void;
-}) {
-  const { versionService, removeVersionDir } = deps;
+export function createVersionRoutes(deps: { versionService: VersionService }) {
+  const { versionService } = deps;
 
-  return new Hono()
+  return new Hono<AppEnv>()
     .post('/api/projects/:id/versions', async (c) => {
+      assertRole(c, 'developer');
       const projectId = parseIdParam(c.req.param('id'));
       const formData = await c.req.formData();
 
@@ -24,24 +22,59 @@ export function createVersionRoutes(deps: {
         .getAll('folderFiles')
         .filter((entry): entry is File => entry instanceof File);
 
-      const result = await versionService.uploadVersion(projectId, {
-        versionDesc,
-        file,
-        folderFiles,
-      });
+      const result = await versionService.uploadVersion(
+        projectId,
+        {
+          versionDesc,
+          file,
+          folderFiles,
+        },
+        c.get('user')?.id ?? 'system'
+      );
       return c.json(result, 201);
     })
     .put('/api/projects/:id/versions/:versionId/activate', (c) => {
+      assertRole(c, 'developer');
       const projectId = parseIdParam(c.req.param('id'));
       const versionId = parseIdParam(c.req.param('versionId'));
-      versionService.activateVersion(projectId, versionId);
+      versionService.activateVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
+      return c.json({ ok: true });
+    })
+    .post('/api/projects/:id/versions/:versionId/publish', (c) => {
+      assertRole(c, 'developer');
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      versionService.publishVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
+      return c.json({ ok: true });
+    })
+    .post('/api/projects/:id/versions/:versionId/rollback', (c) => {
+      assertRole(c, 'developer');
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      versionService.rollbackVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
       return c.json({ ok: true });
     })
     .delete('/api/projects/:id/versions/:versionId', (c) => {
+      assertRole(c, 'developer');
       const projectId = parseIdParam(c.req.param('id'));
       const versionId = parseIdParam(c.req.param('versionId'));
-      versionService.deleteVersion(projectId, versionId);
-      removeVersionDir(projectId, versionId);
+      versionService.deleteVersion(
+        projectId,
+        versionId,
+        c.get('user')?.id ?? 'system'
+      );
       return c.json({ ok: true });
     });
 }

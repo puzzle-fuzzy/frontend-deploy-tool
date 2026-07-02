@@ -24,8 +24,9 @@ function setHashProjectId(id: string | null) {
 
 /**
  * Owns the project list, the selected project, and the URL-hash deep-linking.
- * Actions (`activateVersion`, `deleteVersion`, `onProjectDeleted`) call the API
- * and refresh the list, surfacing errors via toast.
+ * Actions (`publishVersion`, `rollbackVersion`, `deleteVersion`,
+ * `onProjectDeleted`) call the API and refresh the list, surfacing errors via
+ * toast.
  */
 export function useProjects() {
   const { t } = useTranslation();
@@ -38,7 +39,11 @@ export function useProjects() {
   const refresh = useCallback(async () => {
     try {
       const data = await api.listProjects();
+      const hashId = getHashProjectId();
       setProjects(data);
+      if (hashId && !data.some((p) => p.id === hashId)) {
+        setHashProjectId(null);
+      }
       setSelectedProject((prev) =>
         prev ? (data.find((p) => p.id === prev.id) ?? null) : prev
       );
@@ -64,6 +69,7 @@ export function useProjects() {
         if (hashId) {
           const found = data.find((p) => p.id === hashId);
           if (found) setSelectedProject(found);
+          else setHashProjectId(null);
         }
         setLoading(false);
       })
@@ -82,13 +88,30 @@ export function useProjects() {
     return () => window.removeEventListener('hashchange', handler);
   }, [projects]);
 
-  const activateVersion = useCallback(
+  const publishVersion = useCallback(
     async (versionId: string) => {
       if (!selectedProject) return;
       setPendingVersionId(versionId);
       try {
-        await api.activateVersion(selectedProject.id, versionId);
-        toast(t('common.activated'));
+        await api.publishVersion(selectedProject.id, versionId);
+        toast(t('common.published'));
+        await refresh();
+      } catch (err) {
+        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      } finally {
+        setPendingVersionId(null);
+      }
+    },
+    [selectedProject, refresh, toast, t]
+  );
+
+  const rollbackVersion = useCallback(
+    async (versionId: string) => {
+      if (!selectedProject) return;
+      setPendingVersionId(versionId);
+      try {
+        await api.rollbackVersion(selectedProject.id, versionId);
+        toast(t('common.rolledBack'));
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : t('common.failed'), 'error');
@@ -128,7 +151,8 @@ export function useProjects() {
     pendingVersionId,
     selectProject,
     refresh,
-    activateVersion,
+    publishVersion,
+    rollbackVersion,
     deleteVersion,
     onProjectDeleted,
   };

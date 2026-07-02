@@ -12,20 +12,33 @@ import { ScrollArea } from '@/shared/ui/scroll-area';
 interface Props {
   project: Project;
   pendingVersionId: string | null;
-  onActivate: (versionId: string) => void;
+  /** When true (viewer), hide activate/delete actions. */
+  readOnly?: boolean;
+  onPublish: (versionId: string) => void;
+  onRollback: (versionId: string) => void;
   onDelete: (versionId: string) => void;
 }
+
+type ConfirmAction = {
+  type: 'publish' | 'rollback' | 'delete';
+  versionId: string;
+} | null;
 
 export function VersionList({
   project,
   pendingVersionId,
-  onActivate,
+  readOnly = false,
+  onPublish,
+  onRollback,
   onDelete,
 }: Props) {
   const { t } = useTranslation();
-  const isActive = (v: Version) => project.activeVersionId === v.id;
+  const productionVersion = project.versions.find(
+    (version) => version.id === project.activeVersionId
+  );
+  const isProduction = (v: Version) => v.id === project.activeVersionId;
   const isPending = (v: Version) => pendingVersionId === v.id;
-  const [confirmVersionId, setConfirmVersionId] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
 
   const sourceLabel = (sourceType: VersionSourceType): string =>
     t(
@@ -45,13 +58,27 @@ export function VersionList({
     });
   };
   const confirmVersion = project.versions.find(
-    (v) => v.id === confirmVersionId
+    (v) => v.id === confirmAction?.versionId
   );
 
-  const handleConfirmDelete = () => {
-    const id = confirmVersionId;
-    setConfirmVersionId(null);
-    if (id) onDelete(id);
+  const isRollbackTarget = (v: Version): boolean =>
+    Boolean(
+      productionVersion &&
+        v.id !== productionVersion.id &&
+        new Date(v.createdAt).getTime() <
+          new Date(productionVersion.createdAt).getTime()
+    );
+
+  const releaseActionLabel = (v: Version): string =>
+    isRollbackTarget(v) ? t('versions.rollback') : t('versions.publish');
+
+  const handleConfirm = () => {
+    const action = confirmAction;
+    setConfirmAction(null);
+    if (!action) return;
+    if (action.type === 'publish') onPublish(action.versionId);
+    if (action.type === 'rollback') onRollback(action.versionId);
+    if (action.type === 'delete') onDelete(action.versionId);
   };
 
   return (
@@ -77,7 +104,7 @@ export function VersionList({
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <code className="text-sm font-mono">{v.name}</code>
-                    {isActive(v) && (
+                    {isProduction(v) && (
                       <Badge
                         variant="secondary"
                         className="text-xs px-2 py-0.5"
@@ -100,13 +127,18 @@ export function VersionList({
                   <Loader2 className="size-5 animate-spin text-muted-foreground ml-3" />
                 ) : (
                   <div className="flex items-center gap-1.5 ml-3">
-                    {!isActive(v) && (
+                    {!readOnly && !isProduction(v) && (
                       <Button
                         variant="outline"
                         size="sm"
-                        onClick={() => onActivate(v.id)}
+                        onClick={() =>
+                          setConfirmAction({
+                            type: isRollbackTarget(v) ? 'rollback' : 'publish',
+                            versionId: v.id,
+                          })
+                        }
                       >
-                        {t('versions.setProduction')}
+                        {releaseActionLabel(v)}
                       </Button>
                     )}
                     <Button variant="ghost" size="sm" asChild>
@@ -118,14 +150,18 @@ export function VersionList({
                         {t('versions.preview')}
                       </a>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-destructive hover:text-destructive/80"
-                      onClick={() => setConfirmVersionId(v.id)}
-                    >
-                      {t('common.delete')}
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-destructive hover:text-destructive/80"
+                        onClick={() =>
+                          setConfirmAction({ type: 'delete', versionId: v.id })
+                        }
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    )}
                   </div>
                 )}
               </div>
@@ -135,18 +171,34 @@ export function VersionList({
       </ScrollArea>
 
       <ConfirmDialog
-        open={confirmVersionId !== null}
+        open={confirmAction !== null}
         onOpenChange={(open) => {
-          if (!open) setConfirmVersionId(null);
+          if (!open) setConfirmAction(null);
         }}
-        title={t('common.delete')}
-        description={t('common.deleteVersionConfirm', {
-          name: confirmVersion?.name ?? '',
-        })}
+        title={
+          confirmAction?.type === 'rollback'
+            ? t('versions.rollback')
+            : confirmAction?.type === 'publish'
+              ? t('versions.publish')
+              : t('common.delete')
+        }
+        description={
+          confirmAction?.type === 'rollback'
+            ? t('common.rollbackVersionConfirm', {
+                name: confirmVersion?.name ?? '',
+              })
+            : confirmAction?.type === 'publish'
+              ? t('common.publishVersionConfirm', {
+                  name: confirmVersion?.name ?? '',
+                })
+              : t('common.deleteVersionConfirm', {
+                  name: confirmVersion?.name ?? '',
+                })
+        }
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
-        destructive
-        onConfirm={handleConfirmDelete}
+        destructive={confirmAction?.type === 'delete'}
+        onConfirm={handleConfirm}
       />
     </>
   );

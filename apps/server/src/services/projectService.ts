@@ -4,7 +4,7 @@ import type {
   Project,
   Settings,
 } from '@deploykit/shared';
-import { appendHistoryEvent } from '../domain/history';
+import { appendHistoryEvent, parseHistoryLimit } from '../domain/history';
 import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -19,7 +19,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return repo.load().projects;
     },
 
-    createProject(input: CreateProjectInput): Project {
+    createProject(input: CreateProjectInput, actorId: string): Project {
       const data = repo.load();
       if (!isSlugUnique(data.projects, input.slug)) {
         throw new ApiError(
@@ -40,7 +40,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         settings: { ...DEFAULT_PROJECT_SETTINGS },
       };
       data.projects.push(project);
-      appendHistoryEvent(data, 'project.create', project);
+      appendHistoryEvent(data, 'project.create', project, actorId);
       repo.save(data);
       return project;
     },
@@ -60,25 +60,10 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return repo.load().projects.find((p) => p.slug === slug);
     },
 
-    updateProjectSettings(id: string, settings: Settings): Project {
-      const data = repo.load();
-      const project = data.projects.find((p) => p.id === id);
-      if (!project)
-        throw new ApiError(
-          ErrorCode.PROJECT_NOT_FOUND,
-          'Project not found',
-          404
-        );
-
-      project.settings = settings;
-      project.updatedAt = new Date().toISOString();
-      repo.save(data);
-      return project;
-    },
-
-    updateProject(
+    updateProjectSettings(
       id: string,
-      updates: { name?: string; slug?: string; description?: string }
+      settings: Settings,
+      actorId: string
     ): Project {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === id);
@@ -89,7 +74,50 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
           404
         );
 
-      if (updates.name !== undefined) project.name = updates.name;
+      const previousSettings = project.settings;
+      const changed =
+        previousSettings.spaMode !== settings.spaMode ||
+        previousSettings.routingType !== settings.routingType;
+      if (!changed) return project;
+
+      project.settings = settings;
+      project.updatedAt = new Date().toISOString();
+      appendHistoryEvent(
+        data,
+        'project.update_settings',
+        project,
+        actorId,
+        undefined,
+        {
+          previousSettings,
+          settings,
+        }
+      );
+      repo.save(data);
+      return project;
+    },
+
+    updateProject(
+      id: string,
+      updates: { name?: string; slug?: string; description?: string },
+      actorId: string
+    ): Project {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === id);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
+
+      const changes: Record<string, { from: string; to: string }> = {};
+      if (updates.name !== undefined) {
+        if (project.name !== updates.name) {
+          changes.name = { from: project.name, to: updates.name };
+        }
+        project.name = updates.name;
+      }
       if (updates.slug !== undefined) {
         const newSlug = updates.slug;
         // Check slug uniqueness
@@ -102,16 +130,31 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
             'Slug already exists',
             400
           );
+        if (project.slug !== newSlug) {
+          changes.slug = { from: project.slug, to: newSlug };
+        }
         project.slug = newSlug;
       }
-      if (updates.description !== undefined)
+      if (updates.description !== undefined) {
+        if (project.description !== updates.description) {
+          changes.description = {
+            from: project.description,
+            to: updates.description,
+          };
+        }
         project.description = updates.description;
+      }
+      if (Object.keys(changes).length === 0) return project;
+
       project.updatedAt = new Date().toISOString();
+      appendHistoryEvent(data, 'project.update', project, actorId, undefined, {
+        changes,
+      });
       repo.save(data);
       return project;
     },
 
-    deleteProject(id: string): Project {
+    deleteProject(id: string, actorId: string): Project {
       const data = repo.load();
       const idx = data.projects.findIndex((p) => p.id === id);
       if (idx === -1)
@@ -122,14 +165,29 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         );
 
       const removed = data.projects.splice(idx, 1)[0];
-      appendHistoryEvent(data, 'project.delete', removed);
+      appendHistoryEvent(data, 'project.delete', removed, actorId);
       repo.save(data);
       return removed;
     },
 
     listHistory(limit?: string): HistoryEvent[] {
-      const max = Math.min(Number(limit) || 50, 200);
+      const max = parseHistoryLimit(limit);
       return repo.load().history.slice(0, max);
+    },
+
+    listProjectHistory(projectId: string, limit?: string): HistoryEvent[] {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
+      const max = parseHistoryLimit(limit);
+      return data.history
+        .filter((event) => event.projectId === projectId)
+        .slice(0, max);
     },
   };
 }

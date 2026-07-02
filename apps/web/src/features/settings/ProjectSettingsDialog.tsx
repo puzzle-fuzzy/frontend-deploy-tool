@@ -1,6 +1,7 @@
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { normalizeProjectSlugInput } from '@/features/projects/slug';
 import { api } from '@/shared/api';
 import type { Project, Settings } from '@/shared/types';
 import { Button } from '@/shared/ui/button';
@@ -24,6 +25,8 @@ interface Props {
   onOpenChange: (open: boolean) => void;
   project: Project | null;
   onDeleted: () => void;
+  onSaved: () => void;
+  canDeleteProject?: boolean;
 }
 
 export function ProjectSettingsDialog({
@@ -31,6 +34,8 @@ export function ProjectSettingsDialog({
   onOpenChange,
   project,
   onDeleted,
+  onSaved,
+  canDeleteProject = true,
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
@@ -53,7 +58,19 @@ export function ProjectSettingsDialog({
       setDescription(project.description || '');
       setSettings(project.settings);
     }
+    setConfirmDelete(false);
   }, [project]);
+
+  useEffect(() => {
+    if (open) return;
+    if (project) {
+      setName(project.name);
+      setSlug(project.slug);
+      setDescription(project.description || '');
+      setSettings(project.settings);
+    }
+    setConfirmDelete(false);
+  }, [open, project]);
 
   const handleSave = async () => {
     if (!project) return;
@@ -68,6 +85,7 @@ export function ProjectSettingsDialog({
       // Update settings
       await api.updateSettings(project.id, settings);
       toast(t('settings.saved'));
+      onSaved();
       onOpenChange(false);
     } catch (err) {
       toast(err instanceof Error ? err.message : t('common.failed'), 'error');
@@ -92,9 +110,7 @@ export function ProjectSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>
-            {t('settings.title')}
-          </DialogTitle>
+          <DialogTitle>{t('settings.title')}</DialogTitle>
           <DialogDescription>{t('settings.desc')}</DialogDescription>
         </DialogHeader>
 
@@ -102,7 +118,9 @@ export function ProjectSettingsDialog({
           <div className="space-y-5">
             {/* Project info */}
             <div className="space-y-3">
-              <Label className="text-base font-medium">{t('settings.projectInfo')}</Label>
+              <Label className="text-base font-medium">
+                {t('settings.projectInfo')}
+              </Label>
               <div className="space-y-2">
                 <div>
                   <Label htmlFor="project-name" className="text-sm">
@@ -123,7 +141,7 @@ export function ProjectSettingsDialog({
                     id="project-slug"
                     value={slug}
                     onChange={(e) =>
-                      setSlug(e.target.value.replace(/[^a-zA-Z0-9\-_]/g, ''))
+                      setSlug(normalizeProjectSlugInput(e.target.value))
                     }
                     placeholder={t('create.slugPlaceholder')}
                     className="font-mono"
@@ -217,52 +235,56 @@ export function ProjectSettingsDialog({
               </div>
             </div>
 
-            <Separator />
+            {canDeleteProject && (
+              <>
+                <Separator />
 
-            {/* Danger zone */}
-            <div className="space-y-2">
-              <Label className="text-destructive">
-                {t('settings.dangerZone')}
-              </Label>
-              <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-destructive/20">
-                <div className="space-y-1 min-w-0">
-                  <p className="text-base font-medium">
-                    {t('settings.deleteProject')}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {t('settings.deleteProjectDesc')}
-                  </p>
-                </div>
-                {!confirmDelete ? (
-                  <Button
-                    variant="destructive"
-                    size="default"
-                    className="shrink-0"
-                    onClick={() => setConfirmDelete(true)}
-                  >
-                    <Trash2 className="size-4" />
-                    {t('common.delete')}
-                  </Button>
-                ) : (
-                  <div className="flex items-center gap-2 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="default"
-                      onClick={() => setConfirmDelete(false)}
-                    >
-                      {t('common.close')}
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="default"
-                      onClick={handleDelete}
-                    >
-                      {t('common.confirm')}
-                    </Button>
+                {/* Danger zone */}
+                <div className="space-y-2">
+                  <Label className="text-destructive">
+                    {t('settings.dangerZone')}
+                  </Label>
+                  <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-destructive/20">
+                    <div className="space-y-1 min-w-0">
+                      <p className="text-base font-medium">
+                        {t('settings.deleteProject')}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {t('settings.deleteProjectDesc')}
+                      </p>
+                    </div>
+                    {!confirmDelete ? (
+                      <Button
+                        variant="destructive"
+                        size="default"
+                        className="shrink-0"
+                        onClick={() => setConfirmDelete(true)}
+                      >
+                        <Trash2 className="size-4" />
+                        {t('common.delete')}
+                      </Button>
+                    ) : (
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Button
+                          variant="outline"
+                          size="default"
+                          onClick={() => setConfirmDelete(false)}
+                        >
+                          {t('common.close')}
+                        </Button>
+                        <Button
+                          variant="destructive"
+                          size="default"
+                          onClick={handleDelete}
+                        >
+                          {t('common.confirm')}
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            </div>
+                </div>
+              </>
+            )}
           </div>
         )}
 

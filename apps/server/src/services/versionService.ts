@@ -1,16 +1,23 @@
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Version, VersionSourceType } from '@deploykit/shared';
+import type {
+  HistoryAction,
+  Version,
+  VersionSourceType,
+} from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
 import {
   chooseReplacementActiveVersionId,
   findProjectVersion,
+  syncProductionStatus,
 } from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
+  assertIndexHtml,
+  checksumDirectory,
   countFiles,
   extractZip,
   flattenOutput,
@@ -26,8 +33,48 @@ export function createVersionService(
   repo: ProjectRepository,
   config: AppConfig
 ): VersionService {
+  const promoteVersion = (
+    projectId: string,
+    versionId: string,
+    actorId: string,
+    action: Extract<
+      HistoryAction,
+      'version.publish' | 'version.activate' | 'version.rollback'
+    >
+  ) => {
+    const data = repo.load();
+    const project = data.projects.find((p) => p.id === projectId);
+    if (!project)
+      throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+
+    const version = findProjectVersion(project, versionId);
+    if (!version)
+      throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
+
+    const previousActiveVersionId = project.activeVersionId;
+    if (previousActiveVersionId === version.id) return;
+
+    const publishedAt = new Date().toISOString();
+    project.activeVersionId = version.id;
+    project.versions = syncProductionStatus(project.versions, version.id);
+    const publishedVersion = findProjectVersion(project, version.id);
+    if (publishedVersion) {
+      publishedVersion.publishedAt = publishedAt;
+      publishedVersion.publishedBy = actorId;
+    }
+    project.updatedAt = publishedAt;
+    appendHistoryEvent(data, action, project, actorId, version, {
+      previousActiveVersionId,
+    });
+    repo.save(data);
+  };
+
   return {
-    async uploadVersion(projectId, { versionDesc, file, folderFiles }) {
+    async uploadVersion(
+      projectId,
+      { versionDesc, file, folderFiles },
+      actorId
+    ) {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -118,6 +165,10 @@ export function createVersionService(
         } else {
           throw new ApiError(ErrorCode.INVALID_UPLOAD, 'Please upload files');
         }
+
+        // A deployable build must expose an index.html; otherwise the upload
+        // would "succeed" but /deploy/:slug/ would 404.
+        assertIndexHtml(versionDir);
       } catch (err) {
         removeDir(versionDir);
         if (err instanceof ApiError) throw err;
@@ -136,12 +187,16 @@ export function createVersionService(
         size: getDirectorySize(versionDir),
         fileCount: countFiles(versionDir),
         sourceType,
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+        checksum: checksumDirectory(versionDir),
       };
-      const isFirstVersion = project.versions.length === 0;
+      // Upload ≠ go-live (principle §6.1): every version starts preview-only.
+      // Production is reached only by an explicit publish (activateVersion).
       project.versions.push(version);
-      if (isFirstVersion) project.activeVersionId = version.id;
       project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.upload', project, version, {
+      appendHistoryEvent(data, 'version.upload', project, actorId, version, {
         sourceType: version.sourceType,
         size: version.size,
         fileCount: version.fileCount,
@@ -150,34 +205,19 @@ export function createVersionService(
       return { version: { id: version.id, name: version.name } };
     },
 
-    activateVersion(projectId, versionId) {
-      const data = repo.load();
-      const project = data.projects.find((p) => p.id === projectId);
-      if (!project)
-        throw new ApiError(
-          ErrorCode.PROJECT_NOT_FOUND,
-          'Project not found',
-          404
-        );
-
-      const version = findProjectVersion(project, versionId);
-      if (!version)
-        throw new ApiError(
-          ErrorCode.VERSION_NOT_FOUND,
-          'Version not found',
-          404
-        );
-
-      const previousActiveVersionId = project.activeVersionId;
-      project.activeVersionId = version.id;
-      project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.activate', project, version, {
-        previousActiveVersionId,
-      });
-      repo.save(data);
+    publishVersion(projectId, versionId, actorId) {
+      promoteVersion(projectId, versionId, actorId, 'version.publish');
     },
 
-    deleteVersion(projectId, versionId) {
+    activateVersion(projectId, versionId, actorId) {
+      promoteVersion(projectId, versionId, actorId, 'version.activate');
+    },
+
+    rollbackVersion(projectId, versionId, actorId) {
+      promoteVersion(projectId, versionId, actorId, 'version.rollback');
+    },
+
+    deleteVersion(projectId, versionId, actorId) {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -205,11 +245,26 @@ export function createVersionService(
         1
       )[0];
       project.activeVersionId = replacementActiveVersionId;
-      project.updatedAt = new Date().toISOString();
-      appendHistoryEvent(data, 'version.delete', project, removed, {
+      const updatedAt = new Date().toISOString();
+      project.versions = syncProductionStatus(
+        project.versions,
+        replacementActiveVersionId
+      );
+      const replacementVersion =
+        replacementActiveVersionId === null
+          ? undefined
+          : findProjectVersion(project, replacementActiveVersionId);
+      if (replacementVersion) {
+        replacementVersion.publishedAt = updatedAt;
+        replacementVersion.publishedBy = actorId;
+      }
+      project.updatedAt = updatedAt;
+      appendHistoryEvent(data, 'version.delete', project, actorId, removed, {
         wasActive,
+        replacementActiveVersionId,
       });
       repo.save(data);
+      removeDir(join(config.storageDir, projectId, versionId));
     },
   };
 }

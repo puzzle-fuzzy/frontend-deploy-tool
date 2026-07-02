@@ -47,4 +47,42 @@ describe('UploadVersionDialog', () => {
       expect.any(Function)
     );
   });
+
+  it('clears selected upload state when closed', async () => {
+    const { rerender } = render(
+      <UploadVersionDialog
+        open
+        onOpenChange={noop}
+        projectId="p"
+        onUploaded={noop}
+      />
+    );
+    const submit = screen.getByText('upload.submit');
+    const dropzone = screen.getByText('upload.dropzone');
+    const file = new File(['x'], 'test.zip', { type: 'application/zip' });
+
+    fireEvent.drop(dropzone, { dataTransfer: { files: [file] } });
+    expect(await screen.findByText('test.zip')).toBeInTheDocument();
+    expect(submit).not.toBeDisabled();
+
+    rerender(
+      <UploadVersionDialog
+        open={false}
+        onOpenChange={noop}
+        projectId="p"
+        onUploaded={noop}
+      />
+    );
+    rerender(
+      <UploadVersionDialog
+        open
+        onOpenChange={noop}
+        projectId="p"
+        onUploaded={noop}
+      />
+    );
+
+    expect(screen.getByText('upload.dropzone')).toBeInTheDocument();
+    expect(screen.getByText('upload.submit')).toBeDisabled();
+  });
 });

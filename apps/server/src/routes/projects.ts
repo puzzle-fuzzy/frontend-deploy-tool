@@ -7,7 +7,8 @@ import {
   parseUpdateProject,
 } from '../domain/schemas';
 import { ApiError, ErrorCode } from '../errors';
-import type { ProjectService } from '../services/contracts';
+import { assertRole } from '../middleware/auth';
+import type { AppEnv, ProjectService } from '../services/contracts';
 
 export function createProjectRoutes(deps: {
   projectService: ProjectService;
@@ -16,21 +17,34 @@ export function createProjectRoutes(deps: {
 }) {
   const { projectService, removeProjectDir } = deps;
 
-  return new Hono()
+  return new Hono<AppEnv>()
     .get('/api/projects', (c) => c.json(projectService.listProjects()))
     .post('/api/projects', validator('json', parseCreateProject), (c) => {
-      const project = projectService.createProject(c.req.valid('json'));
+      assertRole(c, 'admin');
+      const project = projectService.createProject(
+        c.req.valid('json'),
+        c.get('user')?.id ?? 'system'
+      );
       return c.json(project, 201);
     })
     .delete('/api/projects/:id', (c) => {
+      assertRole(c, 'admin');
       const id = parseIdParam(c.req.param('id'));
-      const removed = projectService.deleteProject(id);
+      const removed = projectService.deleteProject(
+        id,
+        c.get('user')?.id ?? 'system'
+      );
       removeProjectDir(removed.id);
       return c.json({ ok: true });
     })
     .patch('/api/projects/:id', validator('json', parseUpdateProject), (c) => {
+      assertRole(c, 'developer');
       const id = parseIdParam(c.req.param('id'));
-      const project = projectService.updateProject(id, c.req.valid('json'));
+      const project = projectService.updateProject(
+        id,
+        c.req.valid('json'),
+        c.get('user')?.id ?? 'system'
+      );
       return c.json(project);
     })
     .patch(
@@ -45,10 +59,12 @@ export function createProjectRoutes(deps: {
         return settings;
       }),
       (c) => {
+        assertRole(c, 'developer');
         const id = parseIdParam(c.req.param('id'));
         const project = projectService.updateProjectSettings(
           id,
-          c.req.valid('json')
+          c.req.valid('json'),
+          c.get('user')?.id ?? 'system'
         );
         return c.json(project);
       }

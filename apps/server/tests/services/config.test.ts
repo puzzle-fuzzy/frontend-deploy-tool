@@ -14,6 +14,10 @@ describe('loadConfig', () => {
       storageDir: join(appDir, '.voasx', 'storage'),
       publicDir: join(appDir, 'public'),
       publicBaseURL: undefined,
+      sessionSecret: undefined,
+      adminEmail: 'admin@deploykit.local',
+      adminPassword: '',
+      secureCookies: false,
       maxZipSize: 100 * 1024 * 1024, // 100MB
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,
@@ -38,6 +42,10 @@ describe('loadConfig', () => {
       storageDir: join('tmp', 'storage'),
       publicDir: join('tmp', 'public'),
       publicBaseURL: undefined,
+      sessionSecret: undefined,
+      adminEmail: 'admin@deploykit.local',
+      adminPassword: '',
+      secureCookies: false,
       maxZipSize: 100 * 1024 * 1024, // 100MB
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,

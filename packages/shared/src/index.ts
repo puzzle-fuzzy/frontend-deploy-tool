@@ -4,15 +4,23 @@ export type {
   HistoryAction,
   HistoryEvent,
   Project,
+  Role,
+  SafeUser,
   Settings,
+  User,
   Version,
   VersionSourceType,
+  VersionStatus,
 } from './domain';
 export {
   dataSchema,
   historyEventSchema,
   projectSchema,
+  roleSchema,
+  safeUserSchema,
   settingsSchema,
+  userSchema,
   versionSchema,
   versionSourceTypeSchema,
+  versionStatusSchema,
 } from './domain';

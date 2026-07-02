@@ -13,6 +13,10 @@ const version: Version = {
   size: 1024,
   fileCount: 3,
   sourceType: 'zip',
+  status: 'production',
+  publishedAt: '2026-06-30T00:01:00.000Z',
+  publishedBy: 'user-1',
+  checksum: 'a'.repeat(64),
 };
 
 const project: Project = {
@@ -35,6 +39,7 @@ const event: HistoryEvent = {
   versionId: version.id,
   versionName: version.name,
   timestamp: '2026-06-30T00:00:00.000Z',
+  actorId: 'user-1',
 };
 
 void event;
