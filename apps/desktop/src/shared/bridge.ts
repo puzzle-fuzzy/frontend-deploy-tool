@@ -19,6 +19,8 @@ export interface DesktopBridge {
     getServerOrigin(): Promise<string>;
     loginViaWeb(): Promise<SafeUser | null>;
     onAuthExpired(cb: () => void): () => void;
+    showNotification(title: string, body: string): void;
+    openExternal(url: string): Promise<void>;
   };
   /** Internal: upload by absolute disk path, reporting progress over IPC. */
   nativeUpload: {

@@ -119,6 +119,7 @@ export function UploadVersionDialog({
         );
       }
       toast(t('common.uploaded'));
+      native?.showNotification('DeployKit', t('common.uploaded'));
       setFile(null);
       setFolderFiles(null);
       setNativeDir(null);

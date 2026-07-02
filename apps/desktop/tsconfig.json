@@ -10,7 +10,6 @@
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": true,
     "sourceMap": true,
-    "outDir": "dist",
     "moduleResolution": "bundler",
     "resolveJsonModule": true,
     "types": ["node"],

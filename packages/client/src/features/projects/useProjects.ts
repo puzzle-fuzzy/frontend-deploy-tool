@@ -1,4 +1,4 @@
-import { useApiClient } from '@deploykit/client';
+import { useApiClient, useNative } from '@deploykit/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from '@/shared/types';
@@ -32,6 +32,7 @@ export function useProjects() {
   const { t } = useTranslation();
   const { toast } = useToast();
   const api = useApiClient();
+  const native = useNative();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -96,6 +97,7 @@ export function useProjects() {
       try {
         await api.publishVersion(selectedProject.id, versionId);
         toast(t('common.published'));
+        native?.showNotification('DeployKit', t('common.published'));
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : t('common.failed'), 'error');
@@ -103,7 +105,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [api, selectedProject, refresh, toast, t]
+    [api, native, selectedProject, refresh, toast, t]
   );
 
   const rollbackVersion = useCallback(
@@ -113,6 +115,7 @@ export function useProjects() {
       try {
         await api.rollbackVersion(selectedProject.id, versionId);
         toast(t('common.rolledBack'));
+        native?.showNotification('DeployKit', t('common.rolledBack'));
         await refresh();
       } catch (err) {
         toast(err instanceof Error ? err.message : t('common.failed'), 'error');
@@ -120,7 +123,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [api, selectedProject, refresh, toast, t]
+    [api, native, selectedProject, refresh, toast, t]
   );
 
   const deleteVersion = useCallback(
@@ -137,7 +140,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [api, selectedProject, refresh, toast, t]
+    [api, native, selectedProject, refresh, toast, t]
   );
 
   const onProjectDeleted = useCallback(() => {

@@ -3,11 +3,27 @@ import { app, BrowserWindow, session, shell } from 'electron';
 import squirrelStartup from 'electron-squirrel-startup';
 import { getServerOrigin } from '../shared/config';
 import { registerIpc } from './ipc';
+import { createTray, destroyTray, isQuitting } from './tray';
 
 if (squirrelStartup) {
   app.quit();
 }
 
+// ---- Single-instance lock ------------------------------------------------
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+// ---- App state -----------------------------------------------------------
 const PARTITION = 'persist:deploykit';
 let mainWindow: BrowserWindow | null = null;
 const authExpiredSubscribers: Array<() => void> = [];
@@ -37,6 +53,14 @@ function createMainWindow(): BrowserWindow {
     return { action: 'deny' };
   });
 
+  // Close-to-tray: hide instead of quit unless the user chose "Quit".
+  win.on('close', (event) => {
+    if (!isQuitting()) {
+      event.preventDefault();
+      win.hide();
+    }
+  });
+
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
   } else {
@@ -63,6 +87,7 @@ app.whenReady().then(() => {
   });
 
   mainWindow = createMainWindow();
+  createTray(mainWindow);
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -73,4 +98,9 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Clean up tray when the app is about to quit so the icon disappears promptly.
+app.on('before-quit', () => {
+  destroyTray();
 });

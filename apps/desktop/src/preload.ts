@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld('deploykit', {
       ipcRenderer.on('native:authExpired', handler);
       return () => ipcRenderer.removeListener('native:authExpired', handler);
     },
+    showNotification: (title: string, body: string) =>
+      ipcRenderer.invoke('native:showNotification', title, body),
+    openExternal: (url: string) =>
+      ipcRenderer.invoke('native:openExternal', url),
   },
   nativeUpload: {
     uploadFolder: (

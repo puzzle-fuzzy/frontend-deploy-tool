@@ -57,4 +57,8 @@ export interface NativeBridge {
     description: string,
     onProgress?: (percent: number) => void
   ): Promise<UploadResult>;
+  /** Show a system notification (OS notification center / tray balloon). */
+  showNotification(title: string, body: string): void;
+  /** Open a URL in the system default browser. */
+  openExternal(url: string): Promise<void>;
 }

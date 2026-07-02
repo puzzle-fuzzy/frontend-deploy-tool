@@ -1,4 +1,10 @@
-import { type BrowserWindow, ipcMain, type Session } from 'electron';
+import {
+  type BrowserWindow,
+  ipcMain,
+  Notification,
+  type Session,
+  shell,
+} from 'electron';
 import {
   clearServerOrigin,
   getServerOrigin,
@@ -118,6 +124,16 @@ export function registerIpc(deps: {
   });
   ipcMain.on('native:onAuthExpiredSubscribe', (e) => {
     onAuthExpired(() => e.sender.send('native:authExpired'));
+  });
+  ipcMain.handle(
+    'native:showNotification',
+    async (_e, title: string, body: string) => {
+      const n = new Notification({ title, body });
+      n.show();
+    }
+  );
+  ipcMain.handle('native:openExternal', async (_e, url: string) => {
+    await shell.openExternal(url);
   });
 
   // ---- Native upload (disk-backed) ------------------------------------------
