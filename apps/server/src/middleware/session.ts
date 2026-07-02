@@ -9,6 +9,7 @@ import type { UserService } from '../services/userService';
 export const SESSION_COOKIE = 'deploykit_session';
 /** Session lifetime in seconds (7 days). */
 export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const ROLES = new Set<Role>(['admin', 'developer', 'viewer']);
 
 export interface SessionPayload {
   /** User id. */
@@ -53,6 +54,9 @@ export function verifySessionToken(
       Buffer.from(body, 'base64url').toString('utf8')
     ) as SessionPayload;
     if (
+      typeof payload.sub !== 'string' ||
+      !payload.sub ||
+      !ROLES.has(payload.role) ||
       typeof payload.exp !== 'number' ||
       payload.exp < Math.floor(Date.now() / 1000)
     ) {

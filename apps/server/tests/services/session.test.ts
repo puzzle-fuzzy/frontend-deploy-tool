@@ -36,3 +36,18 @@ test('rejects an expired token', () => {
     verifySessionToken(createSessionToken(expired, SECRET), SECRET)
   ).toBeNull();
 });
+
+test('rejects a signed token with an invalid payload shape', () => {
+  const invalid = {
+    sub: '',
+    role: 'owner',
+    exp: future,
+  };
+
+  expect(
+    verifySessionToken(
+      createSessionToken(invalid as typeof payload, SECRET),
+      SECRET
+    )
+  ).toBeNull();
+});
