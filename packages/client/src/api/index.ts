@@ -1,5 +1,6 @@
 export type { ApiClient, UploadableFile, UploadProgress } from './ApiClient';
 export { ApiClientProvider, useApiClient } from './ApiClientProvider';
+export { desktopAuthorize } from './desktopAuth';
 export { checkOk, extractMessage } from './errors';
 export { createFetchApiClient } from './fetchApiClient';
 export type {

@@ -6,6 +6,7 @@ import type { Context } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { createApiApp } from './api';
 import type { AppConfig } from './config';
+import { createDesktopAuthCodeStore } from './desktopAuth';
 import { ApiError, ErrorCode } from './errors';
 import {
   clearSessionCookie,
@@ -75,6 +76,17 @@ export function createApp(config: AppConfig) {
   const clearSession = (c: Context) => {
     clearSessionCookie(c, config.secureCookies);
   };
+  // Signs a session token for the desktop auth exchange (no cookie set here).
+  const signSessionToken = (user: SafeUser) =>
+    createSessionToken(
+      {
+        sub: user.id,
+        role: user.role,
+        exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
+      },
+      sessionSecret
+    );
+  const desktopAuth = createDesktopAuthCodeStore();
 
   return createApiApp({
     projectService,
@@ -86,6 +98,8 @@ export function createApp(config: AppConfig) {
     }),
     issueSession,
     clearSession,
+    signSessionToken,
+    desktopAuth,
     removeProjectDir: (projectId) =>
       rmSync(join(config.storageDir, projectId), {
         recursive: true,

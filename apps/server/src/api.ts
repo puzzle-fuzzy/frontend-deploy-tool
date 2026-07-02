@@ -19,6 +19,32 @@ const loginBodySchema = z.object({
   password: z.string(),
 });
 
+const desktopAuthorizeBodySchema = z.object({
+  redirectUri: z.string(),
+});
+
+const desktopExchangeBodySchema = z.object({
+  code: z.string().min(1),
+});
+
+/**
+ * A loopback redirect URI for the desktop auth flow: `http:` only, host is
+ * `127.0.0.1` or `localhost`, an explicit port, and no userinfo. Rejects
+ * anything else to prevent open-redirect / SSRF via the authorize endpoint.
+ */
+function isLoopbackRedirectUri(uri: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== 'http:') return false;
+  if (u.username || u.password) return false;
+  if (u.hostname !== '127.0.0.1' && u.hostname !== 'localhost') return false;
+  return Boolean(u.port);
+}
+
 export interface ApiDeps {
   projectService: ProjectService;
   versionService: VersionService;
@@ -29,6 +55,16 @@ export interface ApiDeps {
   issueSession: (c: Context, user: SafeUser) => void;
   /** Clears the session cookie (Node-backed; injected). */
   clearSession: (c: Context) => void;
+  /** Signs a session token string without setting a cookie (Node-backed). */
+  signSessionToken: (user: SafeUser) => string;
+  /** One-time code store for the desktop auth flow (Node-backed; injected). */
+  desktopAuth: {
+    issueCode(userId: string, redirectUri: string): string;
+    consumeCode(code: string): {
+      userId: string;
+      redirectUri: string;
+    } | null;
+  };
   removeProjectDir: (projectId: string) => void;
 }
 
@@ -77,6 +113,75 @@ export function createApiApp(deps: ApiDeps) {
       return c.json({ ok: true });
     })
     .get('/api/me', (c) => c.json(c.get('user')))
+    .post(
+      '/api/desktop/authorize',
+      validator('json', (value) => {
+        const parsed = desktopAuthorizeBodySchema.safeParse(value);
+        if (!parsed.success) {
+          throw new ApiError(
+            ErrorCode.INVALID_REQUEST,
+            'redirectUri is required',
+            400
+          );
+        }
+        if (!isLoopbackRedirectUri(parsed.data.redirectUri)) {
+          throw new ApiError(
+            ErrorCode.INVALID_REQUEST,
+            'Redirect URI must be a loopback address',
+            400
+          );
+        }
+        return parsed.data;
+      }),
+      async (c) => {
+        const user = c.get('user');
+        if (!user) {
+          throw new ApiError(
+            ErrorCode.UNAUTHORIZED,
+            'Authentication required',
+            401
+          );
+        }
+        const { redirectUri } = c.req.valid('json');
+        const code = deps.desktopAuth.issueCode(user.id, redirectUri);
+        return c.json({ code, redirectUri });
+      }
+    )
+    .post(
+      '/api/desktop/exchange',
+      validator('json', (value) => {
+        const parsed = desktopExchangeBodySchema.safeParse(value);
+        if (!parsed.success) {
+          throw new ApiError(
+            ErrorCode.INVALID_REQUEST,
+            'code is required',
+            400
+          );
+        }
+        return parsed.data;
+      }),
+      async (c) => {
+        const { code } = c.req.valid('json');
+        const entry = deps.desktopAuth.consumeCode(code);
+        if (!entry) {
+          throw new ApiError(
+            ErrorCode.DESKTOP_AUTH_CODE_INVALID,
+            'Authorization code is invalid or expired',
+            400
+          );
+        }
+        const user = deps.userService.getSafeUser(entry.userId);
+        if (!user) {
+          throw new ApiError(
+            ErrorCode.UNAUTHORIZED,
+            'Authentication required',
+            401
+          );
+        }
+        const token = deps.signSessionToken(user);
+        return c.json({ token, user });
+      }
+    )
     .route(
       '/',
       createProjectRoutes({

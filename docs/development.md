@@ -15,7 +15,7 @@ bun install      # 安装整个 Bun 工作区（apps/* + packages/*）
 | 命令 | 说明 |
 |------|------|
 | `bun run dev:server` | 仅后端（API + 部署，`localhost:3000`）。`public/` 为空时无管理面板 |
-| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5173`），`/api` 代理到 `localhost:3000` |
+| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 代理到 `localhost:3000` |
 | `bun run dev` | 同 `dev:server` |
 | `bun run build` | 构建所有包并将 `apps/web/dist` 打包到 `apps/server/public` |
 | `bun run package` | 仅执行打包脚本（`scripts/package-web.ts`） |
@@ -28,7 +28,7 @@ bun install      # 安装整个 Bun 工作区（apps/* + packages/*）
 ### 三种本地开发形态
 
 1. **仅后端**：`bun run dev:server`。用于调试 API / 部署路由；管理面板不渲染（`public/` 为空时 `/` 返回 404 SPA fallback）。
-2. **前端开发（全栈）**：开两个终端——`bun run dev:server` 与 `bun run dev:web`。在 `localhost:5173` 操作，Vite 把 `/api` 代理到后端，享受 HMR。
+2. **前端开发（全栈）**：开两个终端——`bun run dev:server` 与 `bun run dev:web`。在 `localhost:5018` 操作，Vite 把 `/api` 代理到后端，享受 HMR。
 3. **生产形态**：`bun run build && bun run dev:server`。后端从 `apps/server/public` 托管已构建的管理面板，与线上行为一致。
 
 ## 测试

@@ -2,16 +2,14 @@ import { expect, mock, test } from 'bun:test';
 import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { electronStub } from './electron-stub';
 
 // nativeUpload imports `dialog` from electron and pulls in serverRequest
 // (which imports `net`), so the electron stub must cover both. Only
 // collectDirectory is exercised here — it touches node:fs only — so net/dialog
-// are no-ops.
-mock.module('electron', () => ({
-  net: { request: () => ({ on() {}, write() {}, end() {}, setHeader() {} }) },
-  dialog: { showOpenDialog: () => ({ canceled: true, filePaths: [] }) },
-  session: { fromPartition: () => ({}) },
-}));
+// are no-ops. The shared stub keeps this file from clobbering other electron-
+// mocking tests under bun's single-process model.
+mock.module('electron', () => electronStub);
 
 const { collectDirectory } = await import('../src/main/nativeUpload');
 

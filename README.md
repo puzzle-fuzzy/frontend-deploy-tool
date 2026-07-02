@@ -45,7 +45,7 @@ bun install
 | 命令 | 说明 |
 |------|------|
 | `bun run dev:server` | 仅后端（API + 部署访问）。`apps/server/public/` 为空时不含管理面板 |
-| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5173`），`/api` 自动代理到 `localhost:3000` |
+| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 自动代理到 `localhost:3000` |
 | `bun run dev` | 同 `dev:server` |
 
 全栈开发：开两个终端分别运行 `bun run dev:server` 与 `bun run dev:web`。

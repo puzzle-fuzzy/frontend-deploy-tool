@@ -16,7 +16,7 @@ All commands run from the repo root.
 |---|---|
 | `bun install` | Install workspace deps (Bun catalogs resolve versions) |
 | `bun run dev` / `dev:server` | Backend only (API + deploy serving) on `:3000` |
-| `bun run dev:web` | Frontend Vite dev server on `:5173`; `/api` proxies to `:3000` |
+| `bun run dev:web` | Frontend Vite dev server on `:5018`; `/api` proxies to `:3000` |
 | `bun run build` | Build all workspaces, then `scripts/package-web.ts` mirrors `apps/web/dist` → `apps/server/public` |
 | `bun run package` | Re-run just the web→server packaging step |
 | `bun run test` | Run tests across all workspaces |

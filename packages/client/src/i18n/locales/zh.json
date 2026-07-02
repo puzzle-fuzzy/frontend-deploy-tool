@@ -13,6 +13,16 @@
     "signIn": "登录",
     "invalid": "邮箱或密码错误",
     "logout": "退出登录",
+    "desktopAuth": {
+      "title": "授权桌面客户端",
+      "desc": "允许 DeployKit 桌面端访问你的账户。",
+      "authorize": "授权",
+      "authorizing": "授权中…",
+      "signedInAs": "已登录：{{email}}",
+      "notYou": "切换账户",
+      "missingCallback": "缺少回调地址。",
+      "failed": "授权失败"
+    },
     "roles": {
       "admin": "管理员",
       "developer": "开发者",

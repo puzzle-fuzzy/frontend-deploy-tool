@@ -181,6 +181,7 @@ function LoginGate({
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
+  const [webWaiting, setWebWaiting] = useState(false);
   const [localErr, setLocalErr] = useState<string | null>(null);
 
   const submit = async (e: FormEvent) => {
@@ -199,12 +200,14 @@ function LoginGate({
 
   const webLogin = async () => {
     setBusy(true);
+    setWebWaiting(true);
     setLocalErr(null);
     try {
       const me = await window.deploykit.native.loginViaWeb();
       if (me) onLoggedIn(me);
     } finally {
       setBusy(false);
+      setWebWaiting(false);
     }
   };
 
@@ -245,8 +248,14 @@ function LoginGate({
         disabled={busy}
         type="button"
       >
-        Sign in via web page
+        {webWaiting ? 'Waiting for browser…' : 'Sign in via web page'}
       </button>
+      {webWaiting && (
+        <p className="text-sm text-muted-foreground">
+          A sign-in page opened in your browser. Sign in and click Authorize,
+          then you will return here automatically.
+        </p>
+      )}
     </div>
   );
 }

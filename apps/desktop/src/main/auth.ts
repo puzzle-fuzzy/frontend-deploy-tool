@@ -1,5 +1,5 @@
 import type { SafeUser } from '@deploykit/shared';
-import { BrowserWindow, type Session } from 'electron';
+import type { Session } from 'electron';
 import { ServerError, serverRequest } from './serverRequest';
 
 export async function getMe(
@@ -55,58 +55,4 @@ export async function validateServer(
       e instanceof Error ? e.message : 'Could not reach the server';
     return { ok: false, reason };
   }
-}
-
-export async function loginViaWeb(
-  ses: Session,
-  partition: string,
-  origin: string,
-  parent: BrowserWindow
-): Promise<SafeUser | null> {
-  return new Promise((resolve) => {
-    let settled = false;
-    let poll: ReturnType<typeof setInterval> | undefined;
-    const finish = async () => {
-      if (settled) return;
-      const me = await getMe(ses, origin);
-      if (me) {
-        settled = true;
-        ses.cookies.off('changed', onCookie);
-        if (poll) clearInterval(poll);
-        child.close();
-        resolve(me);
-      }
-    };
-
-    const onCookie = () => void finish();
-    ses.cookies.on('changed', onCookie);
-
-    // Fallback poll (~1s) in case the changed event misses.
-    poll = setInterval(() => void finish(), 1000);
-
-    const child = new BrowserWindow({
-      parent,
-      modal: true,
-      width: 480,
-      height: 640,
-      webPreferences: {
-        // Share the partition so the deployed SPA's login sets the same cookie
-        // the main window's net requests read.
-        partition,
-        contextIsolation: true,
-        nodeIntegration: false,
-      },
-    });
-
-    child.on('closed', () => {
-      if (!settled) {
-        settled = true;
-        ses.cookies.off('changed', onCookie);
-        if (poll) clearInterval(poll);
-        resolve(null); // user cancelled
-      }
-    });
-
-    child.loadURL(origin);
-  });
 }

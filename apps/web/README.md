@@ -5,7 +5,7 @@
 ## 架构
 
 ```
-浏览器 (localhost:5173)          Bun 服务器 (localhost:3000)
+浏览器 (localhost:5018)          Bun 服务器 (localhost:3000)
    |                                  |
    |── /api/* ── Vite proxy ─────────>│── API 处理
    |                                  |
@@ -45,7 +45,7 @@ bun install
 bun run dev:web
 ```
 
-开发服务器运行在 `http://localhost:5173`，`/api` 自动代理到 `localhost:3000`。需同时运行后端：另开终端 `bun run dev:server`。
+开发服务器运行在 `http://localhost:5018`，`/api` 自动代理到 `localhost:3000`。需同时运行后端：另开终端 `bun run dev:server`。
 
 ## 构建
 

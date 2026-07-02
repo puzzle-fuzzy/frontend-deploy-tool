@@ -13,6 +13,16 @@
     "signIn": "Sign in",
     "invalid": "Invalid email or password",
     "logout": "Log out",
+    "desktopAuth": {
+      "title": "Authorize desktop client",
+      "desc": "Grant the DeployKit desktop app access to your account.",
+      "authorize": "Authorize",
+      "authorizing": "Authorizing…",
+      "signedInAs": "Signed in as {{email}}",
+      "notYou": "Use a different account",
+      "missingCallback": "Missing callback URL.",
+      "failed": "Authorization failed"
+    },
     "roles": {
       "admin": "Admin",
       "developer": "Developer",
