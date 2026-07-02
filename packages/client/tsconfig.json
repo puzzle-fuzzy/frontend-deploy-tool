@@ -17,8 +17,7 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "esModuleInterop": true,
-    "types": ["vite/client", "@testing-library/jest-dom"],
-    "paths": { "@/*": ["./src/*"] }
+    "types": ["vite/client", "@testing-library/jest-dom"]
   },
   "include": ["src", "tests"]
 }

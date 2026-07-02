@@ -1,17 +1,17 @@
 import { useApiClient } from '@deploykit/client';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/shared/ui/button';
+import { Button } from '../../shared/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/shared/ui/dialog';
-import { Input } from '@/shared/ui/input';
-import { Textarea } from '@/shared/ui/textarea';
-import { useToast } from '@/shared/ui/toast-context';
+} from '../../shared/ui/dialog';
+import { Input } from '../../shared/ui/input';
+import { Textarea } from '../../shared/ui/textarea';
+import { useToast } from '../../shared/ui/toast-context';
 import { normalizeProjectSlugInput } from './slug';
 
 interface Props {

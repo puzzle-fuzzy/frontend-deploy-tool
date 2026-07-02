@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/shared/ui/button';
-import { Input } from '@/shared/ui/input';
-import { Label } from '@/shared/ui/label';
+import { Button } from '../../shared/ui/button';
+import { Input } from '../../shared/ui/input';
+import { Label } from '../../shared/ui/label';
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<unknown>;

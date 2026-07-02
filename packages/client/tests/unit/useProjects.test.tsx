@@ -3,8 +3,8 @@ import { ApiClientProvider } from '@deploykit/client';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { useProjects } from '@/features/projects/useProjects';
-import type { Project, Version } from '@/shared/types';
+import { useProjects } from '../../src/features/projects/useProjects';
+import type { Project, Version } from '../../src/shared/types';
 import { mockApiClient } from '../helpers/renderWithClient';
 
 const version = (id: string): Version => ({

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type { ApiClient } from '@/api/ApiClient';
-import { createFetchApiClient } from '@/api/fetchApiClient';
+import type { ApiClient } from '../../src/api/ApiClient';
+import { createFetchApiClient } from '../../src/api/fetchApiClient';
 
 const EXPECTED_METHODS = [
   'getMe',

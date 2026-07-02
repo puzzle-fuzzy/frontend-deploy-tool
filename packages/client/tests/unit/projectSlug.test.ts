@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeProjectSlugInput } from '@/features/projects/slug';
+import { normalizeProjectSlugInput } from '../../src/features/projects/slug';
 
 describe('normalizeProjectSlugInput', () => {
   it('lowercases and keeps only slug-safe characters', () => {

@@ -13,9 +13,6 @@ export default defineConfig({
   resolve: {
     preserveSymlinks: false,
     alias: [
-      // Use regex so the @/ pattern matches inside any file Vite processes,
-      // including files resolved through workspace symlinks outside the root.
-      { find: /^@\//, replacement: `${clientSrc}/` },
       { find: '@deploykit/client', replacement: clientSrc },
       { find: '@deploykit/shared', replacement: path.resolve(__dirname, '../../packages/shared/src') },
       { find: '@deploykit/server', replacement: path.resolve(__dirname, '../../apps/server/src') },

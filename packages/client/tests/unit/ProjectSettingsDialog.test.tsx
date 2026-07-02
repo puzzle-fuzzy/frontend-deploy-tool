@@ -2,8 +2,8 @@ import type { ApiClient } from '@deploykit/client';
 import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ProjectSettingsDialog } from '@/features/settings/ProjectSettingsDialog';
-import type { Project } from '@/shared/types';
+import { ProjectSettingsDialog } from '../../src/features/settings/ProjectSettingsDialog';
+import type { Project } from '../../src/shared/types';
 import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};

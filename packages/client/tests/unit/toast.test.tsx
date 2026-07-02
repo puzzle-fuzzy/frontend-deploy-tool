@@ -1,8 +1,8 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ToastProvider } from '@/shared/ui/toast';
-import { useToast } from '@/shared/ui/toast-context';
+import { ToastProvider } from '../../src/shared/ui/toast';
+import { useToast } from '../../src/shared/ui/toast-context';
 
 // setup.ts no-ops the toast module globally so other tests don't need a
 // provider; this file exercises the real provider, so restore the real module.

@@ -1,21 +1,21 @@
 import { FolderOpen, LogOut, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { DeployUrl } from '@/features/deploy/DeployUrl';
-import { LanguageToggle } from '@/features/i18n/LanguageToggle';
-import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog';
-import { ProjectList } from '@/features/projects/ProjectList';
-import { useProjects } from '@/features/projects/useProjects';
-import { ProjectSettingsDialog } from '@/features/settings/ProjectSettingsDialog';
-import { ThemeToggle } from '@/features/theme/ThemeToggle';
-import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
-import { VersionList } from '@/features/versions/VersionList';
-import type { SafeUser } from '@/shared/types';
-import { Badge } from '@/shared/ui/badge';
-import { Button } from '@/shared/ui/button';
-import { Separator } from '@/shared/ui/separator';
-import { useToast } from '@/shared/ui/toast-context';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/shared/ui/tooltip';
+import { DeployUrl } from '../features/deploy/DeployUrl';
+import { LanguageToggle } from '../features/i18n/LanguageToggle';
+import { CreateProjectDialog } from '../features/projects/CreateProjectDialog';
+import { ProjectList } from '../features/projects/ProjectList';
+import { useProjects } from '../features/projects/useProjects';
+import { ProjectSettingsDialog } from '../features/settings/ProjectSettingsDialog';
+import { ThemeToggle } from '../features/theme/ThemeToggle';
+import { UploadVersionDialog } from '../features/versions/UploadVersionDialog';
+import { VersionList } from '../features/versions/VersionList';
+import type { SafeUser } from '../shared/types';
+import { Badge } from '../shared/ui/badge';
+import { Button } from '../shared/ui/button';
+import { Separator } from '../shared/ui/separator';
+import { useToast } from '../shared/ui/toast-context';
+import { Tooltip, TooltipContent, TooltipTrigger } from '../shared/ui/tooltip';
 
 interface Props {
   user: SafeUser;

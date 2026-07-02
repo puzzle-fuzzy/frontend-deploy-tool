@@ -1,11 +1,11 @@
-import './i18n';
-import './index.css';
-import { Loader2 } from 'lucide-react';
-import { ToastProvider } from '@/shared/ui/toast';
-import { TooltipProvider } from '@/shared/ui/tooltip';
-import { LoginPage } from './features/auth/LoginPage';
-import { useAuth } from './features/auth/useAuth';
-import { DeployPage } from './pages/DeployPage';
+import "./i18n";
+import "./index.css";
+import { Loader2 } from "lucide-react";
+import { LoginPage } from "./features/auth/LoginPage";
+import { useAuth } from "./features/auth/useAuth";
+import { DeployPage } from "./pages/DeployPage";
+import { ToastProvider } from "./shared/ui/toast";
+import { TooltipProvider } from "./shared/ui/tooltip";
 
 export default function App() {
   const { user, loading, login, logout } = useAuth();

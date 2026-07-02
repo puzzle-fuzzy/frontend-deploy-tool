@@ -1,6 +1,6 @@
 import { useApiClient } from '@deploykit/client';
 import { useCallback, useEffect, useState } from 'react';
-import type { SafeUser } from '@/shared/types';
+import type { SafeUser } from '../../shared/types';
 
 export function useAuth() {
   const api = useApiClient();

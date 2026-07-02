@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
-import { VersionList } from '@/features/versions/VersionList';
-import type { Project, Version } from '@/shared/types';
+import { VersionList } from '../../src/features/versions/VersionList';
+import type { Project, Version } from '../../src/shared/types';
 
 const noop = () => {};
 

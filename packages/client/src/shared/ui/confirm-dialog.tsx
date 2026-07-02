@@ -1,4 +1,4 @@
-import { Button } from '@/shared/ui/button';
+import { Button } from '../../shared/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -6,7 +6,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/shared/ui/dialog';
+} from '../../shared/ui/dialog';
 
 interface Props {
   open: boolean;

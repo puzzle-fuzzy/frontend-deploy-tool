@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ApiClient } from '@/api/ApiClient';
-import { ApiClientProvider, useApiClient } from '@/api/ApiClientProvider';
+import type { ApiClient } from '../../src/api/ApiClient';
+import { ApiClientProvider, useApiClient } from '../../src/api/ApiClientProvider';
 
 const stubClient = { getMe: vi.fn() } as unknown as ApiClient;
 

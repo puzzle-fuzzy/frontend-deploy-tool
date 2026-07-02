@@ -1,7 +1,7 @@
 import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
-import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog';
+import { CreateProjectDialog } from '../../src/features/projects/CreateProjectDialog';
 import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};

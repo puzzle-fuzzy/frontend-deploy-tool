@@ -2,7 +2,7 @@ import type { ApiClient } from '@deploykit/client';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
+import { UploadVersionDialog } from '../../src/features/versions/UploadVersionDialog';
 import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};

@@ -2,17 +2,17 @@ import { useApiClient, useNative } from '@deploykit/client';
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '@/shared/ui/button';
+import { Button } from '../../shared/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/shared/ui/dialog';
-import { Progress } from '@/shared/ui/progress';
-import { Textarea } from '@/shared/ui/textarea';
-import { useToast } from '@/shared/ui/toast-context';
+} from '../../shared/ui/dialog';
+import { Progress } from '../../shared/ui/progress';
+import { Textarea } from '../../shared/ui/textarea';
+import { useToast } from '../../shared/ui/toast-context';
 
 interface Props {
   open: boolean;

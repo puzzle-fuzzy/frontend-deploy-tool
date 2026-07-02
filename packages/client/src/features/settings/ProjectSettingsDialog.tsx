@@ -2,9 +2,9 @@ import { useApiClient } from '@deploykit/client';
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { normalizeProjectSlugInput } from '@/features/projects/slug';
-import type { Project, Settings } from '@/shared/types';
-import { Button } from '@/shared/ui/button';
+import { normalizeProjectSlugInput } from '../../features/projects/slug';
+import type { Project, Settings } from '../../shared/types';
+import { Button } from '../../shared/ui/button';
 import {
   Dialog,
   DialogContent,
@@ -12,13 +12,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '@/shared/ui/dialog';
-import { Input } from '@/shared/ui/input';
-import { Label } from '@/shared/ui/label';
-import { Separator } from '@/shared/ui/separator';
-import { Switch } from '@/shared/ui/switch';
-import { Textarea } from '@/shared/ui/textarea';
-import { useToast } from '@/shared/ui/toast-context';
+} from '../../shared/ui/dialog';
+import { Input } from '../../shared/ui/input';
+import { Label } from '../../shared/ui/label';
+import { Separator } from '../../shared/ui/separator';
+import { Switch } from '../../shared/ui/switch';
+import { Textarea } from '../../shared/ui/textarea';
+import { useToast } from '../../shared/ui/toast-context';
 
 interface Props {
   open: boolean;
