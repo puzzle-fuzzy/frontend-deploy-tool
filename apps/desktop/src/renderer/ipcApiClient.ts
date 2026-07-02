@@ -9,6 +9,7 @@ export function createIpcApiClient(): ApiClient {
   return {
     getMe: () => bridge.api.getMe(),
     login: (email, password) => bridge.api.login(email, password),
+    register: (input) => bridge.api.register(input),
     logout: () => bridge.api.logout(),
     listProjects: () => bridge.api.listProjects(),
     createProject: (input) => bridge.api.createProject(input),

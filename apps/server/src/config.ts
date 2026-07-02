@@ -11,6 +11,8 @@ export interface AppConfig {
   adminPassword: string;
   /** Mark session cookies Secure (only when served over https). */
   secureCookies: boolean;
+  /** Whether self-service registration (/api/auth/register) is allowed. */
+  registrationEnabled: boolean;
   // Upload limits
   maxZipSize?: number;
   maxExtractedSize?: number;
@@ -42,12 +44,20 @@ export function loadConfig({
     adminEmail: env.ADMIN_EMAIL ?? 'admin@deploykit.local',
     adminPassword: env.ADMIN_PASSWORD ?? '',
     secureCookies: env.PUBLIC_BASE_URL?.startsWith('https://') ?? false,
+    // Registration defaults to open; set REGISTRATION_ENABLED=false to close it.
+    registrationEnabled: parseFlag(env.REGISTRATION_ENABLED, true),
     // Upload limits with defaults (values in bytes/count)
     maxZipSize: parseSize(env.MAX_ZIP_SIZE),
     maxExtractedSize: parseSize(env.MAX_EXTRACTED_SIZE),
     maxFileCount: parseCount(env.MAX_FILE_COUNT),
     maxPathLength: parseCount(env.MAX_PATH_LENGTH),
   };
+}
+
+/** Parses a boolean env flag, falling back to the default when unset/empty. */
+function parseFlag(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined || value === '') return defaultValue;
+  return !['false', '0', 'no', 'off'].includes(value.toLowerCase().trim());
 }
 
 function parsePort(value: string | undefined): number {

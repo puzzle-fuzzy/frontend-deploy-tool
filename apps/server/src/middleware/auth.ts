@@ -24,9 +24,10 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   await next();
 };
 
-/** API paths that may be reached without a session (login/logout/exchange). */
+/** API paths that may be reached without a session (login/register/logout/exchange). */
 const PUBLIC_API_PATHS = new Set([
   '/api/auth/login',
+  '/api/auth/register',
   '/api/auth/logout',
   // Authenticated by the one-time code, not a session cookie.
   '/api/desktop/exchange',

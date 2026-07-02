@@ -19,6 +19,12 @@ const loginBodySchema = z.object({
   password: z.string(),
 });
 
+const registerBodySchema = z.object({
+  name: z.string().min(1),
+  email: z.string().email(),
+  password: z.string().min(8),
+});
+
 const desktopAuthorizeBodySchema = z.object({
   redirectUri: z.string(),
 });
@@ -55,6 +61,8 @@ export interface ApiDeps {
   issueSession: (c: Context, user: SafeUser) => void;
   /** Clears the session cookie (Node-backed; injected). */
   clearSession: (c: Context) => void;
+  /** Whether self-service registration is allowed on this instance. */
+  registrationEnabled: boolean;
   /** Signs a session token string without setting a cookie (Node-backed). */
   signSessionToken: (user: SafeUser) => string;
   /** One-time code store for the desktop auth flow (Node-backed; injected). */
@@ -104,6 +112,46 @@ export function createApiApp(deps: ApiDeps) {
             401
           );
         }
+        deps.issueSession(c, user);
+        return c.json({ user });
+      }
+    )
+    .post(
+      '/api/auth/register',
+      validator('json', (value) => {
+        const parsed = registerBodySchema.safeParse(value);
+        if (!parsed.success) {
+          throw new ApiError(
+            ErrorCode.INVALID_REQUEST,
+            'Invalid registration details',
+            400
+          );
+        }
+        return parsed.data;
+      }),
+      async (c) => {
+        if (!deps.registrationEnabled) {
+          throw new ApiError(
+            ErrorCode.REGISTRATION_DISABLED,
+            'Registration is disabled',
+            403
+          );
+        }
+        const { name, email, password } = c.req.valid('json');
+        const normalizedEmail = email.toLowerCase();
+        if (deps.userService.findByEmail(normalizedEmail)) {
+          throw new ApiError(
+            ErrorCode.EMAIL_ALREADY_EXISTS,
+            'Email is already registered',
+            400
+          );
+        }
+        const user = deps.userService.createUser({
+          name,
+          email: normalizedEmail,
+          password,
+          role: 'viewer',
+        });
         deps.issueSession(c, user);
         return c.json({ user });
       }

@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('deploykit', {
     getMe: () => ipcRenderer.invoke('api:getMe'),
     login: (email: string, password: string) =>
       ipcRenderer.invoke('api:login', email, password),
+    register: (input: { name: string; email: string; password: string }) =>
+      ipcRenderer.invoke('api:register', input),
     logout: () => ipcRenderer.invoke('api:logout'),
     listProjects: () => ipcRenderer.invoke('api:listProjects'),
     createProject: (input: {

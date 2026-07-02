@@ -47,6 +47,23 @@ export function createUserService(repo: ProjectRepository): UserService {
       return ok ? toSafeUser(user) : null;
     },
 
+    createUser({ name, email, password, role }) {
+      const data = repo.load();
+      const now = new Date().toISOString();
+      const user: User = {
+        id: createId(),
+        name,
+        email,
+        passwordHash: Bun.password.hashSync(password),
+        role,
+        createdAt: now,
+        updatedAt: now,
+      };
+      data.users.push(user);
+      repo.save(data);
+      return toSafeUser(user);
+    },
+
     seedAdminIfMissing(email, password) {
       const data = repo.load();
       if (data.users.length > 0) return null;

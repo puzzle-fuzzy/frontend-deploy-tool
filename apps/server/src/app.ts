@@ -100,6 +100,7 @@ export function createApp(config: AppConfig) {
     clearSession,
     signSessionToken,
     desktopAuth,
+    registrationEnabled: config.registrationEnabled,
     removeProjectDir: (projectId) =>
       rmSync(join(config.storageDir, projectId), {
         recursive: true,

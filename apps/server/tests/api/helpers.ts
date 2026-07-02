@@ -29,6 +29,7 @@ export function createAuthApp(dirs: TmpDirs) {
     adminPassword: ADMIN_PASSWORD,
     sessionSecret: SESSION_SECRET,
     secureCookies: false,
+    registrationEnabled: true,
   });
 }
 

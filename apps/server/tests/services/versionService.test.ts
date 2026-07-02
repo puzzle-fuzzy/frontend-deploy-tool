@@ -51,6 +51,7 @@ function config(storageDir: string): AppConfig {
     adminEmail: 'admin@deploykit.local',
     adminPassword: '',
     secureCookies: false,
+    registrationEnabled: true,
   };
 }
 

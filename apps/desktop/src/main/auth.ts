@@ -35,6 +35,23 @@ export async function login(
   return me;
 }
 
+export async function register(
+  ses: Session,
+  origin: string,
+  input: { name: string; email: string; password: string }
+): Promise<SafeUser> {
+  await serverRequest(ses, origin, {
+    method: 'POST',
+    path: '/api/auth/register',
+    body: input,
+  });
+  const me = await getMe(ses, origin);
+  if (!me) {
+    throw new Error('Registration succeeded but /api/me returned no user');
+  }
+  return me;
+}
+
 export async function logout(ses: Session, origin: string): Promise<void> {
   await serverRequest(ses, origin, {
     method: 'POST',

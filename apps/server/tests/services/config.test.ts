@@ -18,6 +18,7 @@ describe('loadConfig', () => {
       adminEmail: 'admin@deploykit.local',
       adminPassword: '',
       secureCookies: false,
+      registrationEnabled: true,
       maxZipSize: 100 * 1024 * 1024, // 100MB
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,
@@ -46,6 +47,7 @@ describe('loadConfig', () => {
       adminEmail: 'admin@deploykit.local',
       adminPassword: '',
       secureCookies: false,
+      registrationEnabled: true,
       maxZipSize: 100 * 1024 * 1024, // 100MB
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,
@@ -55,5 +57,19 @@ describe('loadConfig', () => {
 
   test('falls back to port 3000 when PORT is invalid', () => {
     expect(loadConfig({ appDir, env: { PORT: 'not-a-port' } }).port).toBe(3000);
+  });
+
+  test('registration is enabled by default and toggled by REGISTRATION_ENABLED', () => {
+    expect(loadConfig({ appDir, env: {} }).registrationEnabled).toBe(true);
+    expect(
+      loadConfig({ appDir, env: { REGISTRATION_ENABLED: 'true' } })
+        .registrationEnabled
+    ).toBe(true);
+    for (const value of ['false', '0', 'no', 'off']) {
+      expect(
+        loadConfig({ appDir, env: { REGISTRATION_ENABLED: value } })
+          .registrationEnabled
+      ).toBe(false);
+    }
   });
 });

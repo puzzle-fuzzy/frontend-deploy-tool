@@ -2,6 +2,7 @@ import type {
   CreateProjectInput,
   HistoryEvent,
   Project,
+  Role,
   SafeUser,
   Settings,
   User,
@@ -65,6 +66,13 @@ export interface UserService {
   findByEmail(email: string): User | undefined;
   getSafeUser(id: string): SafeUser | undefined;
   verifyCredentials(email: string, password: string): Promise<SafeUser | null>;
+  /** Creates a user with the given role and returns the safe view. */
+  createUser(input: {
+    name: string;
+    email: string;
+    password: string;
+    role: Role;
+  }): SafeUser;
   /** Returns the plaintext password if a new admin was seeded, else null. */
   seedAdminIfMissing(email: string, password: string): string | null;
 }

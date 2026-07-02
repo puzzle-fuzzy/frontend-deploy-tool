@@ -13,6 +13,12 @@
     "signIn": "Sign in",
     "invalid": "Invalid email or password",
     "logout": "Log out",
+    "name": "Name",
+    "register": "Register",
+    "registerSubtitle": "Create an account to continue",
+    "registerFailed": "Registration failed",
+    "goToRegister": "Don't have an account? Register",
+    "goToLogin": "Already have an account? Sign in",
     "desktopAuth": {
       "title": "Authorize desktop client",
       "desc": "Grant the DeployKit desktop app access to your account.",

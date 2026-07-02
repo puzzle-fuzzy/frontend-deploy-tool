@@ -11,7 +11,7 @@ import {
   normalizeOrigin,
   setServerOrigin,
 } from '../shared/config';
-import { getMe, login, logout, validateServer } from './auth';
+import { getMe, login, logout, register, validateServer } from './auth';
 import { loginViaWeb } from './desktopAuth';
 import { pickDirectory, uploadFolder, uploadZipPath } from './nativeUpload';
 import { serverRequest } from './serverRequest';
@@ -32,6 +32,11 @@ export function registerIpc(deps: {
   ipcMain.handle('api:getMe', async () => getMe(session, getOrigin()));
   ipcMain.handle('api:login', async (_e, email: string, password: string) =>
     login(session, getOrigin(), email, password)
+  );
+  ipcMain.handle(
+    'api:register',
+    async (_e, input: { name: string; email: string; password: string }) =>
+      register(session, getOrigin(), input)
   );
   ipcMain.handle('api:logout', async () => logout(session, getOrigin()));
   ipcMain.handle('api:listProjects', async () => {

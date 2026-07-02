@@ -30,6 +30,17 @@ export function createFetchApiClient(): ApiClient {
       await checkOk(res);
     },
 
+    async register(input: {
+      name: string;
+      email: string;
+      password: string;
+    }): Promise<SafeUser> {
+      const res = await client.api.auth.register.$post({ json: input });
+      await checkOk(res);
+      const body = (await res.json()) as { user: SafeUser };
+      return body.user;
+    },
+
     async listProjects(): Promise<Project[]> {
       const res = await client.api.projects.$get();
       await checkOk(res);

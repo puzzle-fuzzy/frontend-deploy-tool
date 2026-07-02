@@ -9,7 +9,7 @@ import { ToastProvider } from './shared/ui/toast';
 import { TooltipProvider } from './shared/ui/tooltip';
 
 export default function App() {
-  const { user, loading, login, logout } = useAuth();
+  const { user, loading, login, logout, register } = useAuth();
 
   // The desktop client opens the system browser at `/desktop-auth` to authorize.
   const isDesktopAuth =
@@ -25,7 +25,7 @@ export default function App() {
   ) : user ? (
     <DeployPage user={user} onLogout={logout} />
   ) : (
-    <LoginPage onLogin={login} />
+    <LoginPage onLogin={login} onRegister={register} />
   );
 
   return (

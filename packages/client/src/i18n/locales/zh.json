@@ -13,6 +13,12 @@
     "signIn": "登录",
     "invalid": "邮箱或密码错误",
     "logout": "退出登录",
+    "name": "姓名",
+    "register": "注册",
+    "registerSubtitle": "创建账户以继续",
+    "registerFailed": "注册失败",
+    "goToRegister": "没有账户？注册",
+    "goToLogin": "已有账户？登录",
     "desktopAuth": {
       "title": "授权桌面客户端",
       "desc": "允许 DeployKit 桌面端访问你的账户。",

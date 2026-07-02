@@ -26,6 +26,11 @@ export interface ApiClient {
   /** Returns null on 401 (not authenticated). */
   getMe(): Promise<SafeUser | null>;
   login(email: string, password: string): Promise<SafeUser>;
+  register(input: {
+    name: string;
+    email: string;
+    password: string;
+  }): Promise<SafeUser>;
   logout(): Promise<void>;
   listProjects(): Promise<Project[]>;
   createProject(input: {

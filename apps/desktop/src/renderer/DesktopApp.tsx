@@ -178,6 +178,8 @@ function LoginGate({
   error: string | null;
 }) {
   const api = useApiClient();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -189,10 +191,19 @@ function LoginGate({
     setBusy(true);
     setLocalErr(null);
     try {
-      const me = await api.login(email, password);
+      const me =
+        mode === 'login'
+          ? await api.login(email, password)
+          : await api.register({ name: name.trim(), email, password });
       onLoggedIn(me);
     } catch (err) {
-      setLocalErr(err instanceof Error ? err.message : 'Login failed');
+      setLocalErr(
+        err instanceof Error
+          ? err.message
+          : mode === 'login'
+            ? 'Login failed'
+            : 'Registration failed'
+      );
     } finally {
       setBusy(false);
     }
@@ -216,8 +227,18 @@ function LoginGate({
 
   return (
     <div className="flex flex-col gap-3 max-w-sm mx-auto mt-32 p-6">
-      <h1 className="text-xl font-semibold">Sign in</h1>
+      <h1 className="text-xl font-semibold">
+        {mode === 'login' ? 'Sign in' : 'Create account'}
+      </h1>
       <form className="flex flex-col gap-3" onSubmit={submit}>
+        {mode === 'register' && (
+          <input
+            className="border rounded px-3 py-2"
+            placeholder="Name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+          />
+        )}
         <input
           className="border rounded px-3 py-2"
           placeholder="Email"
@@ -239,23 +260,42 @@ function LoginGate({
           type="submit"
           disabled={busy}
         >
-          {busy ? 'Signing in…' : 'Sign in'}
+          {busy
+            ? mode === 'login'
+              ? 'Signing in…'
+              : 'Creating…'
+            : mode === 'login'
+              ? 'Sign in'
+              : 'Register'}
         </button>
       </form>
-      <button
-        className="text-sm underline"
-        onClick={webLogin}
-        disabled={busy}
-        type="button"
-      >
-        {webWaiting ? 'Waiting for browser…' : 'Sign in via web page'}
-      </button>
-      {webWaiting && (
-        <p className="text-sm text-muted-foreground">
-          A sign-in page opened in your browser. Sign in and click Authorize,
-          then you will return here automatically.
-        </p>
+      {mode === 'login' && (
+        <>
+          <button
+            className="text-sm underline"
+            onClick={webLogin}
+            disabled={busy}
+            type="button"
+          >
+            {webWaiting ? 'Waiting for browser…' : 'Sign in via web page'}
+          </button>
+          {webWaiting && (
+            <p className="text-sm text-muted-foreground">
+              A sign-in page opened in your browser. Sign in and click
+              Authorize, then you will return here automatically.
+            </p>
+          )}
+        </>
       )}
+      <button
+        type="button"
+        className="text-sm underline"
+        onClick={() => setMode(mode === 'login' ? 'register' : 'login')}
+      >
+        {mode === 'login'
+          ? 'No account? Register'
+          : 'Already have an account? Sign in'}
+      </button>
     </div>
   );
 }

@@ -29,5 +29,14 @@ export function useAuth() {
     setUser(null);
   }, [api]);
 
-  return { user, loading, login, logout };
+  const register = useCallback(
+    async (input: { name: string; email: string; password: string }) => {
+      const next = await api.register(input);
+      setUser(next);
+      return next;
+    },
+    [api]
+  );
+
+  return { user, loading, login, logout, register };
 }
