@@ -21,11 +21,15 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deploykit/client": "workspace:*",
+    "@deploykit/shared": "workspace:*",
     "electron-squirrel-startup": "catalog:",
+    "electron-store": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },
   "devDependencies": {
+    "@deploykit/server": "workspace:*",
     "@electron-forge/cli": "catalog:",
     "@electron-forge/maker-deb": "catalog:",
     "@electron-forge/maker-rpm": "catalog:",
@@ -37,6 +41,7 @@
     "@electron/fuses": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@types/electron-squirrel-startup": "catalog:",
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",

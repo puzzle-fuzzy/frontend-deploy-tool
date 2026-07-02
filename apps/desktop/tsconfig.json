@@ -2,14 +2,21 @@
   "compilerOptions": {
     "target": "ESNext",
     "jsx": "react-jsx",
-    "module": "commonjs",
+    "module": "esnext",
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "noImplicitAny": true,
+    "strict": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
     "sourceMap": true,
     "outDir": "dist",
     "moduleResolution": "bundler",
-    "resolveJsonModule": true
-  }
+    "resolveJsonModule": true,
+    "types": ["node"],
+    "paths": {
+      "@/*": ["../../packages/client/src/*"]
+    }
+  },
+  "include": ["src", "forge.env.d.ts"]
 }

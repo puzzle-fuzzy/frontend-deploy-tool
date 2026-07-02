@@ -1,3 +1,4 @@
+import path from 'node:path';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
@@ -6,10 +7,12 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   resolve: {
-    // Electron Forge's VitePlugin forces `preserveSymlinks: true`, which breaks
-    // resolution of transitive deps (e.g. react-dom -> scheduler) under bun's
-    // symlinked node_modules layout. Restore Vite's default so the bundler
-    // follows symlinks during the renderer build.
     preserveSymlinks: false,
+    alias: {
+      '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
+      '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
+      '@deploykit/server': path.resolve(__dirname, '../../apps/server/src'),
+      '@': path.resolve(__dirname, './src'),
+    },
   },
 });

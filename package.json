@@ -39,6 +39,7 @@
       "clsx": "^2.1.1",
       "electron": "43.0.0",
       "electron-squirrel-startup": "^1.0.1",
+      "electron-store": "^10.0.1",
       "fflate": "^0.8.2",
       "globals": "^17.5.0",
       "hono": "^4.12.15",
