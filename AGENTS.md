@@ -83,7 +83,7 @@ A project has zero or one active version, tracked by `project.activeVersionId` (
 
 ## Conventions
 
-- **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. `status` is `400 | 404 | 500`. Add new codes to the `ErrorCode` const object in `errors.ts`.
+- **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. `status` is `400 | 401 | 403 | 404 | 500`. Add new codes to the `ErrorCode` const object in `errors.ts`.
 - **Request validation**: prefer zod schemas in `domain/schemas.ts` that throw `ApiError`, wired through Hono `validator('json', ...)` or a `parse*` helper. Routes should receive already-typed values — no `as` casts.
 - **History**: every mutating service call appends an event via `appendHistoryEvent` (capped at 200). New actions must be added to the `historyEventSchema` action enum in `shared`.
 - **Auth + roles**: `/api` requires a session except login/logout. `admin`
