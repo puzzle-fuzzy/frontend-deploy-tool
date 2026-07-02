@@ -1,21 +1,30 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const clientSrc = path.resolve(__dirname, '../../packages/client/src');
 
 // https://vitejs.dev/config
 export default defineConfig({
   plugins: [tailwindcss(), react()],
   resolve: {
     preserveSymlinks: false,
-    alias: {
-      '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
-      '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
-      '@deploykit/server': path.resolve(__dirname, '../../apps/server/src'),
-      // All shared component code lives in packages/client/src and uses @/ aliases.
-      // The desktop renderer never imports via @/ directly; this alias ensures
-      // packages/client internal imports (e.g. @/shared/ui/button) resolve.
-      '@': path.resolve(__dirname, '../../packages/client/src'),
+    alias: [
+      // Use regex so the @/ pattern matches inside any file Vite processes,
+      // including files resolved through workspace symlinks outside the root.
+      { find: /^@\//, replacement: `${clientSrc}/` },
+      { find: '@deploykit/client', replacement: clientSrc },
+      { find: '@deploykit/shared', replacement: path.resolve(__dirname, '../../packages/shared/src') },
+      { find: '@deploykit/server', replacement: path.resolve(__dirname, '../../apps/server/src') },
+    ],
+  },
+  // Allow files in packages/ to be served by the renderer Vite dev server.
+  server: {
+    fs: {
+      allow: [path.resolve(__dirname, '../..')],
     },
   },
 });
