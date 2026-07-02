@@ -11,7 +11,7 @@ export default defineConfig({
     alias: {
       '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
       '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(__dirname, '../../packages/client/src'),
     },
   },
 });

@@ -1,7 +1,7 @@
 import { FolderOpen, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { publicBaseURL } from '@/config';
+import { publicBaseURL } from '@/shared/config';
 import { formatBytes, formatDate } from '@/shared/format';
 import type { Project, Version, VersionSourceType } from '@/shared/types';
 import { Badge } from '@/shared/ui/badge';

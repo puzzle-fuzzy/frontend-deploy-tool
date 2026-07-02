@@ -22,8 +22,8 @@
     "noFallthroughCasesInSwitch": true,
 
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["../../packages/client/src/*"]
     }
   },
-  "include": ["src", "tests"]
+  "include": ["src"]
 }

@@ -18,6 +18,7 @@
     "clsx": "catalog:",
     "hono": "catalog:",
     "i18next": "catalog:",
+    "i18next-browser-languagedetector": "catalog:",
     "lucide-react": "catalog:",
     "radix-ui": "catalog:",
     "react": "catalog:",

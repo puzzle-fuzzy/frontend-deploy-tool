@@ -15,13 +15,18 @@ afterEach(() => {
 });
 
 // Components use useTranslation; render with the i18n key as the label so tests
-// stay locale-independent.
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (key: string) => key,
-    i18n: { language: 'en', changeLanguage: () => {} },
-  }),
-}));
+// stay locale-independent. Keep the real `initReactI18next` export so the i18n
+// side-effect init pulled in via App.tsx does not crash on the missing export.
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string) => key,
+      i18n: { language: 'en', changeLanguage: () => {} },
+    }),
+  };
+});
 
 // Toast is a side-effect channel; no-op it in tests.
 vi.mock('@/shared/ui/toast-context', () => ({

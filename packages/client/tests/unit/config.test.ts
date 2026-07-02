@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { getPublicBaseURL } from '@/config';
+import { getPublicBaseURL } from '@/shared/config';
 
 describe('getPublicBaseURL', () => {
   afterEach(() => {

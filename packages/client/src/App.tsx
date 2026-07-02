@@ -1,3 +1,5 @@
+import './i18n';
+import './index.css';
 import { Loader2 } from 'lucide-react';
 import { ToastProvider } from '@/shared/ui/toast';
 import { TooltipProvider } from '@/shared/ui/tooltip';

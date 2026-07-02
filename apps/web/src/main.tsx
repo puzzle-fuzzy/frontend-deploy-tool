@@ -1,9 +1,10 @@
-import { ApiClientProvider, createFetchApiClient } from '@deploykit/client';
+import {
+  ApiClientProvider,
+  App,
+  createFetchApiClient,
+} from '@deploykit/client';
 import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
-import './i18n';
-import './index.css';
-import App from './App';
 
 const rootElement = document.getElementById('root');
 
