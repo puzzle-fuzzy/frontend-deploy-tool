@@ -12,7 +12,10 @@ export default defineConfig({
       '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
       '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
       '@deploykit/server': path.resolve(__dirname, '../../apps/server/src'),
-      '@': path.resolve(__dirname, './src'),
+      // All shared component code lives in packages/client/src and uses @/ aliases.
+      // The desktop renderer never imports via @/ directly; this alias ensures
+      // packages/client internal imports (e.g. @/shared/ui/button) resolve.
+      '@': path.resolve(__dirname, '../../packages/client/src'),
     },
   },
 });
