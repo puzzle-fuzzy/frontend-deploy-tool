@@ -1,15 +1,18 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { CreateProjectDialog } from '@/features/projects/CreateProjectDialog';
+import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};
 
 describe('CreateProjectDialog', () => {
   it('clears draft fields when closed without creating a project', async () => {
     const user = userEvent.setup();
-    const { rerender } = render(
-      <CreateProjectDialog open onOpenChange={noop} onCreated={noop} />
+    const client = mockApiClient();
+    const { rerender } = renderWithClient(
+      <CreateProjectDialog open onOpenChange={noop} onCreated={noop} />,
+      client
     );
 
     await user.type(screen.getByLabelText('create.name'), 'Demo Site');

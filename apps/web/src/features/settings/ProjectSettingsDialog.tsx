@@ -1,8 +1,8 @@
+import { useApiClient } from '@deploykit/client';
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { normalizeProjectSlugInput } from '@/features/projects/slug';
-import { api } from '@/shared/api';
 import type { Project, Settings } from '@/shared/types';
 import { Button } from '@/shared/ui/button';
 import {
@@ -39,6 +39,7 @@ export function ProjectSettingsDialog({
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const api = useApiClient();
   const [settings, setSettings] = useState<Settings>(
     project?.settings ?? { spaMode: false, routingType: 'hash' }
   );

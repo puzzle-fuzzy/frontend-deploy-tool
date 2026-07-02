@@ -1,28 +1,34 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import type { ApiClient } from '@deploykit/client';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UploadVersionDialog } from '@/features/versions/UploadVersionDialog';
-import { api } from '@/shared/api';
-
-vi.mock('@/shared/api');
+import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};
 
 describe('UploadVersionDialog', () => {
-  beforeEach(() => vi.clearAllMocks());
+  let client: ApiClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = mockApiClient({
+      uploadVersion: vi.fn().mockResolvedValue({
+        version: { id: 'v1', name: 'v1' },
+      }),
+    });
+  });
 
   it('disables submit until a file is dropped, then uploads it', async () => {
-    vi.mocked(api.uploadVersion).mockResolvedValue({
-      version: { id: 'v1', name: 'v1' },
-    });
     const user = userEvent.setup();
-    render(
+    renderWithClient(
       <UploadVersionDialog
         open
         onOpenChange={noop}
         projectId="p"
         onUploaded={noop}
-      />
+      />,
+      client
     );
 
     const submit = screen.getByText('upload.submit');
@@ -38,8 +44,8 @@ describe('UploadVersionDialog', () => {
     expect(submit).not.toBeDisabled();
 
     await user.click(submit);
-    await waitFor(() => expect(api.uploadVersion).toHaveBeenCalled());
-    expect(api.uploadVersion).toHaveBeenCalledWith(
+    await waitFor(() => expect(client.uploadVersion).toHaveBeenCalled());
+    expect(client.uploadVersion).toHaveBeenCalledWith(
       'p',
       file,
       null,
@@ -49,13 +55,14 @@ describe('UploadVersionDialog', () => {
   });
 
   it('clears selected upload state when closed', async () => {
-    const { rerender } = render(
+    const { rerender } = renderWithClient(
       <UploadVersionDialog
         open
         onOpenChange={noop}
         projectId="p"
         onUploaded={noop}
-      />
+      />,
+      client
     );
     const submit = screen.getByText('upload.submit');
     const dropzone = screen.getByText('upload.dropzone');
@@ -65,6 +72,7 @@ describe('UploadVersionDialog', () => {
     expect(await screen.findByText('test.zip')).toBeInTheDocument();
     expect(submit).not.toBeDisabled();
 
+    // The `wrapper` option on render re-applies the provider on rerender.
     rerender(
       <UploadVersionDialog
         open={false}

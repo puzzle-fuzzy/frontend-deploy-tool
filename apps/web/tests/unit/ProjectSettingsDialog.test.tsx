@@ -1,11 +1,10 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import type { ApiClient } from '@deploykit/client';
+import { screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ProjectSettingsDialog } from '@/features/settings/ProjectSettingsDialog';
-import { api } from '@/shared/api';
 import type { Project } from '@/shared/types';
-
-vi.mock('@/shared/api');
+import { mockApiClient, renderWithClient } from '../helpers/renderWithClient';
 
 const noop = () => {};
 
@@ -22,31 +21,36 @@ const project = (settings: Project['settings']): Project => ({
 });
 
 describe('ProjectSettingsDialog', () => {
-  beforeEach(() => vi.clearAllMocks());
+  let client: ApiClient;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    client = mockApiClient();
+  });
 
   it('saves the current settings payload', async () => {
-    vi.mocked(api.updateSettings).mockResolvedValue(
-      project({ spaMode: false, routingType: 'hash' })
-    );
-    vi.mocked(api.updateProject).mockResolvedValue(
-      project({ spaMode: false, routingType: 'hash' })
-    );
+    const saved = project({ spaMode: false, routingType: 'hash' });
+    client = mockApiClient({
+      updateSettings: vi.fn().mockResolvedValue(saved),
+      updateProject: vi.fn().mockResolvedValue(saved),
+    });
     const onSaved = vi.fn();
     const user = userEvent.setup();
-    render(
+    renderWithClient(
       <ProjectSettingsDialog
         open
         onOpenChange={noop}
         project={project({ spaMode: false, routingType: 'hash' })}
         onDeleted={noop}
         onSaved={onSaved}
-      />
+      />,
+      client
     );
 
     await user.click(screen.getByText('settings.save'));
 
     await waitFor(() =>
-      expect(api.updateSettings).toHaveBeenCalledWith('a', {
+      expect(client.updateSettings).toHaveBeenCalledWith('a', {
         spaMode: false,
         routingType: 'hash',
       })
@@ -62,7 +66,10 @@ describe('ProjectSettingsDialog', () => {
       onDeleted: noop,
       onSaved: noop,
     };
-    const { rerender } = render(<ProjectSettingsDialog open {...props} />);
+    const { rerender } = renderWithClient(
+      <ProjectSettingsDialog open {...props} />,
+      client
+    );
 
     await user.click(screen.getByRole('button', { name: 'common.delete' }));
     expect(screen.getByRole('button', { name: 'common.confirm' }));
@@ -74,7 +81,7 @@ describe('ProjectSettingsDialog', () => {
   });
 
   it('hides the project delete action when deletion is not allowed', () => {
-    render(
+    renderWithClient(
       <ProjectSettingsDialog
         open
         onOpenChange={noop}
@@ -82,7 +89,8 @@ describe('ProjectSettingsDialog', () => {
         onDeleted={noop}
         onSaved={noop}
         canDeleteProject={false}
-      />
+      />,
+      client
     );
 
     expect(
@@ -98,7 +106,10 @@ describe('ProjectSettingsDialog', () => {
       onDeleted: noop,
       onSaved: noop,
     };
-    const { rerender } = render(<ProjectSettingsDialog open {...props} />);
+    const { rerender } = renderWithClient(
+      <ProjectSettingsDialog open {...props} />,
+      client
+    );
 
     await user.clear(screen.getByLabelText('create.name'));
     await user.type(screen.getByLabelText('create.name'), 'Unsaved');

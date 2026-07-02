@@ -1,7 +1,7 @@
+import { createFetchApiClient } from '@deploykit/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api } from '@/shared/api';
 
-describe('api.uploadVersion', () => {
+describe('createFetchApiClient().uploadVersion', () => {
   const OriginalXMLHttpRequest = globalThis.XMLHttpRequest;
 
   afterEach(() => {
@@ -36,6 +36,7 @@ describe('api.uploadVersion', () => {
       value: 'dist/assets/app.js',
     });
 
+    const api = createFetchApiClient();
     await api.uploadVersion('project-1', null, [file], 'folder upload');
 
     if (!sentBody) {

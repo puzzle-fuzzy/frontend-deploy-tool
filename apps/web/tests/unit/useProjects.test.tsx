@@ -1,10 +1,11 @@
+import type { ApiClient } from '@deploykit/client';
+import { ApiClientProvider } from '@deploykit/client';
 import { act, renderHook, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useProjects } from '@/features/projects/useProjects';
-import { api } from '@/shared/api';
 import type { Project, Version } from '@/shared/types';
-
-vi.mock('@/shared/api');
+import { mockApiClient } from '../helpers/renderWithClient';
 
 const version = (id: string): Version => ({
   id,
@@ -33,6 +34,12 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   ...overrides,
 });
 
+function wrapper(client: ApiClient) {
+  return ({ children }: { children: ReactNode }) => (
+    <ApiClientProvider client={client}>{children}</ApiClientProvider>
+  );
+}
+
 describe('useProjects', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -40,8 +47,12 @@ describe('useProjects', () => {
   });
 
   it('loads projects on mount', async () => {
-    vi.mocked(api.listProjects).mockResolvedValue([project('a'), project('b')]);
-    const { result } = renderHook(() => useProjects());
+    const client = mockApiClient({
+      listProjects: vi.fn().mockResolvedValue([project('a'), project('b')]),
+    });
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: wrapper(client),
+    });
 
     await waitFor(() => expect(result.current.projects).toHaveLength(2));
     expect(result.current.loading).toBe(false);
@@ -49,9 +60,13 @@ describe('useProjects', () => {
 
   it('clears a stale project hash when the project no longer exists', async () => {
     window.location.hash = '#/projects/missing';
-    vi.mocked(api.listProjects).mockResolvedValue([project('a')]);
+    const client = mockApiClient({
+      listProjects: vi.fn().mockResolvedValue([project('a')]),
+    });
 
-    const { result } = renderHook(() => useProjects());
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: wrapper(client),
+    });
 
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.selectedProject).toBeNull();
@@ -63,10 +78,14 @@ describe('useProjects', () => {
       versions: [version('v1')],
       activeVersionId: 'v1',
     });
-    vi.mocked(api.listProjects).mockResolvedValue([target]);
-    vi.mocked(api.publishVersion).mockResolvedValue({ ok: true });
+    const client = mockApiClient({
+      listProjects: vi.fn().mockResolvedValue([target]),
+      publishVersion: vi.fn().mockResolvedValue({ ok: true }),
+    });
 
-    const { result } = renderHook(() => useProjects());
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: wrapper(client),
+    });
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
 
     act(() => {
@@ -76,8 +95,8 @@ describe('useProjects', () => {
       await result.current.publishVersion('v1');
     });
 
-    expect(api.publishVersion).toHaveBeenCalledWith('a', 'v1');
-    expect(api.listProjects).toHaveBeenCalledTimes(2);
+    expect(client.publishVersion).toHaveBeenCalledWith('a', 'v1');
+    expect(client.listProjects).toHaveBeenCalledTimes(2);
   });
 
   it('tracks the in-flight version id during publish', async () => {
@@ -85,15 +104,19 @@ describe('useProjects', () => {
       versions: [version('v1')],
       activeVersionId: 'v1',
     });
-    vi.mocked(api.listProjects).mockResolvedValue([target]);
     let resolvePublish!: (value: { ok: boolean }) => void;
-    vi.mocked(api.publishVersion).mockReturnValue(
-      new Promise<{ ok: boolean }>((resolve) => {
-        resolvePublish = resolve;
-      })
-    );
+    const client = mockApiClient({
+      listProjects: vi.fn().mockResolvedValue([target]),
+      publishVersion: vi.fn().mockReturnValue(
+        new Promise<{ ok: boolean }>((resolve) => {
+          resolvePublish = resolve;
+        })
+      ),
+    });
 
-    const { result } = renderHook(() => useProjects());
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: wrapper(client),
+    });
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
     act(() => {
       result.current.selectProject(result.current.projects[0]);
@@ -116,10 +139,14 @@ describe('useProjects', () => {
       versions: [version('v1')],
       activeVersionId: 'v1',
     });
-    vi.mocked(api.listProjects).mockResolvedValue([target]);
-    vi.mocked(api.deleteVersion).mockResolvedValue({ ok: true });
+    const client = mockApiClient({
+      listProjects: vi.fn().mockResolvedValue([target]),
+      deleteVersion: vi.fn().mockResolvedValue({ ok: true }),
+    });
 
-    const { result } = renderHook(() => useProjects());
+    const { result } = renderHook(() => useProjects(), {
+      wrapper: wrapper(client),
+    });
     await waitFor(() => expect(result.current.projects).toHaveLength(1));
 
     act(() => {
@@ -129,6 +156,6 @@ describe('useProjects', () => {
       await result.current.deleteVersion('v1');
     });
 
-    expect(api.deleteVersion).toHaveBeenCalledWith('a', 'v1');
+    expect(client.deleteVersion).toHaveBeenCalledWith('a', 'v1');
   });
 });

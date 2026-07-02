@@ -1,7 +1,7 @@
+import { useApiClient } from '@deploykit/client';
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/shared/api';
 import { Button } from '@/shared/ui/button';
 import {
   Dialog,
@@ -29,6 +29,7 @@ export function UploadVersionDialog({
 }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const api = useApiClient();
   const releaseNotesId = 'upload-release-notes';
   const [file, setFile] = useState<File | null>(null);
   const [folderFiles, setFolderFiles] = useState<File[] | null>(null);

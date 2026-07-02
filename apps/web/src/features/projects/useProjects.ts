@@ -1,6 +1,6 @@
+import { useApiClient } from '@deploykit/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/shared/api';
 import type { Project } from '@/shared/types';
 import { useToast } from '@/shared/ui/toast-context';
 
@@ -31,6 +31,7 @@ function setHashProjectId(id: string | null) {
 export function useProjects() {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const api = useApiClient();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
@@ -52,7 +53,7 @@ export function useProjects() {
     } finally {
       setLoading(false);
     }
-  }, [toast, t]);
+  }, [api, toast, t]);
 
   const selectProject = useCallback((p: Project | null) => {
     setSelectedProject(p);
@@ -76,7 +77,7 @@ export function useProjects() {
       .catch(() => {
         setLoading(false);
       });
-  }, []);
+  }, [api]);
 
   // Keep selection in sync with back/forward navigation.
   useEffect(() => {
@@ -102,7 +103,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [selectedProject, refresh, toast, t]
+    [api, selectedProject, refresh, toast, t]
   );
 
   const rollbackVersion = useCallback(
@@ -119,7 +120,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [selectedProject, refresh, toast, t]
+    [api, selectedProject, refresh, toast, t]
   );
 
   const deleteVersion = useCallback(
@@ -136,7 +137,7 @@ export function useProjects() {
         setPendingVersionId(null);
       }
     },
-    [selectedProject, refresh, toast, t]
+    [api, selectedProject, refresh, toast, t]
   );
 
   const onProjectDeleted = useCallback(() => {

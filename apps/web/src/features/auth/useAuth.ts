@@ -1,12 +1,9 @@
+import { useApiClient } from '@deploykit/client';
 import { useCallback, useEffect, useState } from 'react';
-import { api } from '@/shared/api';
 import type { SafeUser } from '@/shared/types';
 
-/**
- * Owns the authenticated session: loads `/api/me` on mount, exposes
- * `login`/`logout`, and the current user (null when unauthenticated).
- */
 export function useAuth() {
+  const api = useApiClient();
   const [user, setUser] = useState<SafeUser | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -16,18 +13,21 @@ export function useAuth() {
       .then(setUser)
       .catch(() => setUser(null))
       .finally(() => setLoading(false));
-  }, []);
+  }, [api]);
 
-  const login = useCallback(async (email: string, password: string) => {
-    const next = await api.login(email, password);
-    setUser(next);
-    return next;
-  }, []);
+  const login = useCallback(
+    async (email: string, password: string) => {
+      const next = await api.login(email, password);
+      setUser(next);
+      return next;
+    },
+    [api]
+  );
 
   const logout = useCallback(async () => {
     await api.logout();
     setUser(null);
-  }, []);
+  }, [api]);
 
   return { user, loading, login, logout };
 }

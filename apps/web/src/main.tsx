@@ -1,3 +1,4 @@
+import { ApiClientProvider, createFetchApiClient } from '@deploykit/client';
 import { StrictMode, Suspense } from 'react';
 import { createRoot } from 'react-dom/client';
 import './i18n';
@@ -13,7 +14,9 @@ if (!rootElement) {
 createRoot(rootElement).render(
   <StrictMode>
     <Suspense>
-      <App />
+      <ApiClientProvider client={createFetchApiClient()}>
+        <App />
+      </ApiClientProvider>
     </Suspense>
   </StrictMode>
 );

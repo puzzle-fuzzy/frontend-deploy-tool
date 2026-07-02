@@ -1,6 +1,6 @@
+import { useApiClient } from '@deploykit/client';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { api } from '@/shared/api';
 import { Button } from '@/shared/ui/button';
 import {
   Dialog,
@@ -23,6 +23,7 @@ interface Props {
 export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
+  const api = useApiClient();
   const nameInputId = 'create-project-name';
   const slugInputId = 'create-project-slug';
   const descInputId = 'create-project-description';

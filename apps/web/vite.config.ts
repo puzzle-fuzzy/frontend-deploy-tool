@@ -18,6 +18,11 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // Client package is consumed from source so its internal `@/` imports
+      // resolve into the client src tree, and web's own `@` keeps pointing at
+      // web src for the few files that remain here during the transition.
+      '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
+      '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
       '@': path.resolve(__dirname, './src'),
     },
   },
