@@ -27,7 +27,9 @@
     "electron-store": "catalog:",
     "lucide-react": "catalog:",
     "react": "catalog:",
-    "react-dom": "catalog:"
+    "react-dom": "catalog:",
+    "shadcn": "catalog:",
+    "tw-animate-css": "catalog:"
   },
   "devDependencies": {
     "@deploykit/server": "workspace:*",
