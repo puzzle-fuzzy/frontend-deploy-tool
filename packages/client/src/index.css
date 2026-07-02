@@ -2,6 +2,9 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
+/* Ensure Tailwind v4 scans the shared component source for class names */
+@source "./";
+
 @font-face {
   font-family: "JetBrainsMapleMono";
   src: url("/JetBrainsMapleMono-Regular.ttf") format("truetype");

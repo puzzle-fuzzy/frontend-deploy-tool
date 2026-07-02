@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 2,
   "projects": [
     {
       "id": "mr08smcryfduwh",
@@ -13,16 +14,45 @@
           "name": "mr08vck",
           "description": "",
           "createdAt": "2026-06-30T06:07:12.760Z",
-          "active": false
+          "size": 0,
+          "fileCount": 0,
+          "sourceType": "unknown"
         },
         {
           "id": "mr08y7d7jugzos",
           "name": "mr08y7d",
           "description": "",
           "createdAt": "2026-06-30T06:09:25.968Z",
-          "active": true
+          "size": 0,
+          "fileCount": 0,
+          "sourceType": "unknown"
         }
       ],
+      "activeVersionId": "mr08y7d7jugzos",
+      "settings": {
+        "spaMode": false,
+        "routingType": "path"
+      }
+    },
+    {
+      "id": "ESld7RYk5vrdqbbvd-dkF",
+      "name": "123",
+      "slug": "123",
+      "description": "",
+      "createdAt": "2026-07-01T06:09:20.992Z",
+      "updatedAt": "2026-07-01T06:09:45.189Z",
+      "versions": [
+        {
+          "id": "6JOws-gaP161xnuIqBByb",
+          "name": "6JOws-g",
+          "description": "",
+          "createdAt": "2026-07-01T06:09:45.189Z",
+          "size": 108731,
+          "fileCount": 12,
+          "sourceType": "folder"
+        }
+      ],
+      "activeVersionId": "6JOws-gaP161xnuIqBByb",
       "settings": {
         "spaMode": false,
         "routingType": "path"
@@ -30,6 +60,29 @@
     }
   ],
   "history": [
+    {
+      "id": "srjJKmT0TD3msA6JD_31k",
+      "action": "version.upload",
+      "projectId": "ESld7RYk5vrdqbbvd-dkF",
+      "projectName": "123",
+      "versionId": "6JOws-gaP161xnuIqBByb",
+      "versionName": "6JOws-g",
+      "timestamp": "2026-07-01T06:09:45.189Z",
+      "metadata": {
+        "sourceType": "folder",
+        "size": 108731,
+        "fileCount": 12
+      }
+    },
+    {
+      "id": "8Vt0gqJRR3_uyQoPqqZfY",
+      "action": "project.create",
+      "projectId": "ESld7RYk5vrdqbbvd-dkF",
+      "projectName": "123",
+      "versionId": "",
+      "versionName": "",
+      "timestamp": "2026-07-01T06:09:20.992Z"
+    },
     {
       "id": "mr08yb5itgmf0u",
       "action": "version.activate",

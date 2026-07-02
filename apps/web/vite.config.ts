@@ -27,6 +27,8 @@ export default defineConfig({
     },
   },
   server: {
+    port: 5018,
+    strictPort: true,
     proxy: {
       '/api': 'http://localhost:3000',
       '/deploy': 'http://localhost:3000',
