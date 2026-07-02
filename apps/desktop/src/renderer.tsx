@@ -6,6 +6,7 @@
  * context in Electron, visit:
  * https://electronjs.org/docs/tutorial/process-model
  */
+/// <reference types="vite/client" />
 
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';

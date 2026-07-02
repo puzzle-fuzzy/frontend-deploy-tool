@@ -1,9 +1,10 @@
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite';
 
 // https://vitejs.dev/config
 export default defineConfig({
-  plugins: [react()],
+  plugins: [tailwindcss(), react()],
   resolve: {
     // Electron Forge's VitePlugin forces `preserveSymlinks: true`, which breaks
     // resolution of transitive deps (e.g. react-dom -> scheduler) under bun's
