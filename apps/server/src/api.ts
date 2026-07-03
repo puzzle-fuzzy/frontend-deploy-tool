@@ -5,7 +5,9 @@ import { z } from 'zod';
 import { ApiError, ErrorCode } from './errors';
 import { requireAuthExceptPublic } from './middleware/auth';
 import { createHistoryRoutes } from './routes/history';
+import { createMemberRoutes } from './routes/members';
 import { createProjectRoutes } from './routes/projects';
+import { createUserSearchRoutes } from './routes/userSearch';
 import { createVersionRoutes } from './routes/versions';
 import type {
   AppEnv,
@@ -241,8 +243,11 @@ export function createApiApp(deps: ApiDeps) {
       '/',
       createVersionRoutes({
         versionService: deps.versionService,
+        projectService: deps.projectService,
       })
     )
+    .route('/', createMemberRoutes({ projectService: deps.projectService }))
+    .route('/', createUserSearchRoutes({ userService: deps.userService }))
     .route('/', createHistoryRoutes({ projectService: deps.projectService }));
 }
 

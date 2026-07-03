@@ -7,7 +7,7 @@ import {
   parseUpdateProject,
 } from '../domain/schemas';
 import { ApiError, ErrorCode } from '../errors';
-import { assertRole } from '../middleware/auth';
+import { requireProjectRole } from '../middleware/auth';
 import type { AppEnv, ProjectService } from '../services/contracts';
 
 export function createProjectRoutes(deps: {
@@ -20,35 +20,42 @@ export function createProjectRoutes(deps: {
   return new Hono<AppEnv>()
     .get('/api/projects', (c) => c.json(projectService.listProjects()))
     .post('/api/projects', validator('json', parseCreateProject), (c) => {
-      assertRole(c, 'admin');
       const project = projectService.createProject(
         c.req.valid('json'),
         c.get('user')?.id ?? 'system'
       );
       return c.json(project, 201);
     })
-    .delete('/api/projects/:id', (c) => {
-      assertRole(c, 'admin');
-      const id = parseIdParam(c.req.param('id'));
-      const removed = projectService.deleteProject(
-        id,
-        c.get('user')?.id ?? 'system'
-      );
-      removeProjectDir(removed.id);
-      return c.json({ ok: true });
-    })
-    .patch('/api/projects/:id', validator('json', parseUpdateProject), (c) => {
-      assertRole(c, 'developer');
-      const id = parseIdParam(c.req.param('id'));
-      const project = projectService.updateProject(
-        id,
-        c.req.valid('json'),
-        c.get('user')?.id ?? 'system'
-      );
-      return c.json(project);
-    })
+    .delete(
+      '/api/projects/:id',
+      requireProjectRole('owner', () => projectService),
+      (c) => {
+        const id = parseIdParam(c.req.param('id'));
+        const removed = projectService.deleteProject(
+          id,
+          c.get('user')?.id ?? 'system'
+        );
+        removeProjectDir(removed.id);
+        return c.json({ ok: true });
+      }
+    )
+    .patch(
+      '/api/projects/:id',
+      requireProjectRole('owner', () => projectService),
+      validator('json', parseUpdateProject),
+      (c) => {
+        const id = parseIdParam(c.req.param('id'));
+        const project = projectService.updateProject(
+          id,
+          c.req.valid('json'),
+          c.get('user')?.id ?? 'system'
+        );
+        return c.json(project);
+      }
+    )
     .patch(
       '/api/projects/:id/settings',
+      requireProjectRole('owner', () => projectService),
       validator('json', (value) => {
         const settings = parseSettings(value);
         if (!settings)
@@ -59,7 +66,6 @@ export function createProjectRoutes(deps: {
         return settings;
       }),
       (c) => {
-        assertRole(c, 'developer');
         const id = parseIdParam(c.req.param('id'));
         const project = projectService.updateProjectSettings(
           id,

@@ -85,18 +85,31 @@ async function createProjectAs(cookie: string, slug = 'demo-app') {
   );
 }
 
-test('a developer cannot create a project (admin-only)', async () => {
+test('any authenticated user can create a project', async () => {
   const res = await createProjectAs(devCookie);
-  expect(res.status).toBe(403);
-  expect(await res.json()).toEqual({
-    error: { code: 'FORBIDDEN', message: 'Insufficient permissions' },
-  });
+  expect(res.status).toBe(201);
+  const project = await res.json();
+  expect(project.id).toBeDefined();
 });
 
-test('an admin creates a project and a developer can upload to it', async () => {
+test('an admin creates a project and a developer can upload after being added as a member', async () => {
   const createRes = await createProjectAs(adminCookie);
   expect(createRes.status).toBe(201);
   const project = await createRes.json();
+
+  // Admin adds the developer as a member of the project.
+  const addRes = await app.request(
+    `/api/projects/${project.id}/members`,
+    withCookie(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'dev@test.local', role: 'member' }),
+      },
+      adminCookie
+    )
+  );
+  expect(addRes.status).toBe(200);
 
   const form = new FormData();
   form.append('folderFiles', new File(['<html></html>'], 'index.html'));

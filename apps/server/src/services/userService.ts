@@ -64,6 +64,16 @@ export function createUserService(repo: ProjectRepository): UserService {
       return toSafeUser(user);
     },
 
+    searchByEmail(query) {
+      if (!query || query.length < 2) return [];
+      const lower = query.toLowerCase();
+      return repo
+        .load()
+        .users.filter((u) => u.email.toLowerCase().includes(lower))
+        .slice(0, 10)
+        .map((u) => toSafeUser(u));
+    },
+
     seedAdminIfMissing(email, password) {
       const data = repo.load();
       if (data.users.length > 0) return null;

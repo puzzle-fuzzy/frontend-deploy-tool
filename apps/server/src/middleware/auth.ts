@@ -1,7 +1,7 @@
 import type { Role, SafeUser } from '@deploykit/shared';
 import type { MiddlewareHandler } from 'hono';
 import { ApiError, ErrorCode } from '../errors';
-import type { AppEnv } from '../services/contracts';
+import type { AppEnv, ProjectService } from '../services/contracts';
 
 /**
  * Pure, Node-free authorization guards. The session-loading middleware (which
@@ -86,4 +86,32 @@ export function assertRole(
   if (ROLE_LEVEL[user.role] < ROLE_LEVEL[minRole]) {
     throw new ApiError(ErrorCode.FORBIDDEN, 'Insufficient permissions', 403);
   }
+}
+
+/**
+ * Project-level role guard. Checks that the authenticated user is a member
+ * of the project identified by `:id` param and has at least the given role.
+ * Global admin bypasses all project-level checks.
+ */
+export function requireProjectRole(
+  minRole: 'member' | 'owner',
+  getProjectService: () => ProjectService,
+): MiddlewareHandler<AppEnv> {
+  return async (c, next) => {
+    const user = c.get('user');
+    if (!user) throw new ApiError(ErrorCode.UNAUTHORIZED, 'Authentication required', 401);
+    if (user.role === 'admin') {
+      await next();
+      return;
+    }
+    const projectId = c.req.param('id');
+    if (!projectId) throw new ApiError(ErrorCode.INVALID_PARAMS, 'Project id required', 400);
+    const project = getProjectService().getProject(projectId);
+    const member = project.members.find((m) => m.userId === user.id);
+    if (!member) throw new ApiError(ErrorCode.FORBIDDEN, 'Not a project member', 403);
+    if (minRole === 'owner' && member.role !== 'owner') {
+      throw new ApiError(ErrorCode.FORBIDDEN, 'Owner access required', 403);
+    }
+    await next();
+  };
 }

@@ -172,6 +172,54 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return removed;
     },
 
+    addMember(projectId: string, email: string, role: 'owner' | 'member', actorId: string): Project {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+      const user = data.users.find((u) => u.email === email);
+      if (!user) throw new ApiError(ErrorCode.USER_NOT_FOUND, 'User not found with that email', 404);
+      if (project.members.some((m) => m.userId === user.id)) {
+        throw new ApiError(ErrorCode.ALREADY_MEMBER, 'User is already a member', 400);
+      }
+      project.members.push({ userId: user.id, role, invitedAt: new Date().toISOString() });
+      project.updatedAt = new Date().toISOString();
+      appendHistoryEvent(data, 'project.update', project, actorId);
+      repo.save(data);
+      return project;
+    },
+
+    removeMember(projectId: string, userId: string, actorId: string): Project {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+      const idx = project.members.findIndex((m) => m.userId === userId);
+      if (idx === -1) throw new ApiError(ErrorCode.NOT_A_MEMBER, 'User is not a member', 404);
+      if (project.members[idx].role === 'owner' && project.members.filter((m) => m.role === 'owner').length <= 1) {
+        throw new ApiError(ErrorCode.CANNOT_REMOVE_LAST_OWNER, 'Cannot remove the last owner', 403);
+      }
+      project.members.splice(idx, 1);
+      project.updatedAt = new Date().toISOString();
+      appendHistoryEvent(data, 'project.update', project, actorId);
+      repo.save(data);
+      return project;
+    },
+
+    transferOwnership(projectId: string, targetUserId: string, actorId: string): Project {
+      const data = repo.load();
+      const project = data.projects.find((p) => p.id === projectId);
+      if (!project) throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+      const target = project.members.find((m) => m.userId === targetUserId);
+      if (!target) throw new ApiError(ErrorCode.NOT_A_MEMBER, 'Target user is not a member', 404);
+      const actor = project.members.find((m) => m.userId === actorId);
+      if (!actor || actor.role !== 'owner') throw new ApiError(ErrorCode.FORBIDDEN, 'Owner access required', 403);
+      target.role = 'owner';
+      actor.role = 'member';
+      project.updatedAt = new Date().toISOString();
+      appendHistoryEvent(data, 'project.update', project, actorId);
+      repo.save(data);
+      return project;
+    },
+
     listHistory(limit?: string): HistoryEvent[] {
       const max = parseHistoryLimit(limit);
       return repo.load().history.slice(0, max);

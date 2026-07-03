@@ -40,6 +40,9 @@ export interface ProjectService {
     actorId: string
   ): Project;
   deleteProject(id: string, actorId: string): Project;
+  addMember(projectId: string, email: string, role: 'owner' | 'member', actorId: string): Project;
+  removeMember(projectId: string, userId: string, actorId: string): Project;
+  transferOwnership(projectId: string, targetUserId: string, actorId: string): Project;
   listHistory(limit?: string): HistoryEvent[];
   listProjectHistory(projectId: string, limit?: string): HistoryEvent[];
 }
@@ -75,4 +78,6 @@ export interface UserService {
   }): SafeUser;
   /** Returns the plaintext password if a new admin was seeded, else null. */
   seedAdminIfMissing(email: string, password: string): string | null;
+  /** Search users by email prefix (case-insensitive, max 10 results). */
+  searchByEmail(query: string): SafeUser[];
 }
