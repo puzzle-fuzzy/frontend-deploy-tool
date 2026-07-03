@@ -51,9 +51,13 @@ export function DeployPage({ user, onLogout }: Props) {
   const [showTransfer, setShowTransfer] = useState(false);
 
   const canCreateProject = true;
-  const canManage = user.role !== 'viewer';
-
   const members = selectedProject?.members ?? [];
+
+  const canManage = useMemo(() => {
+    if (user.role !== 'viewer') return true;
+    if (!selectedProject) return false;
+    return members.some((m) => m.userId === user.id);
+  }, [user.role, selectedProject, members, user.id]);
 
   const currentUserIsOwner = useMemo(() => {
     if (!selectedProject) return false;
