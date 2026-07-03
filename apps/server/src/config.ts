@@ -61,10 +61,10 @@ function parseFlag(value: string | undefined, defaultValue: boolean): boolean {
 }
 
 function parsePort(value: string | undefined): number {
-  if (!value) return 3000;
+  if (!value) return 4010;
 
   const port = Number(value);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) return 3000;
+  if (!Number.isInteger(port) || port <= 0 || port > 65535) return 4010;
 
   return port;
 }
