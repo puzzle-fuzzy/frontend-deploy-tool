@@ -1,4 +1,5 @@
 import { Trash2 } from 'lucide-react';
+import { getLocalizedError } from '../../shared/error-messages';
 import { useTranslation } from 'react-i18next';
 import { useApiClient } from '@deploykit/client';
 import { Button } from '../../shared/ui/button';
@@ -31,7 +32,7 @@ export function MemberList({ members, currentUserId, projectId, onMembersChanged
       toast(t('common.saved'));
       onMembersChanged();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     }
   };
 

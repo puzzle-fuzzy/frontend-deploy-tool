@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 4,
   "projects": [
     {
       "id": "mr08smcryfduwh",
@@ -16,7 +16,11 @@
           "createdAt": "2026-06-30T06:07:12.760Z",
           "size": 0,
           "fileCount": 0,
-          "sourceType": "unknown"
+          "sourceType": "unknown",
+          "status": "preview",
+          "publishedAt": null,
+          "publishedBy": null,
+          "checksum": ""
         },
         {
           "id": "mr08y7d7jugzos",
@@ -25,7 +29,11 @@
           "createdAt": "2026-06-30T06:09:25.968Z",
           "size": 0,
           "fileCount": 0,
-          "sourceType": "unknown"
+          "sourceType": "unknown",
+          "status": "production",
+          "publishedAt": null,
+          "publishedBy": null,
+          "checksum": ""
         }
       ],
       "activeVersionId": "mr08y7d7jugzos",
@@ -49,7 +57,11 @@
           "createdAt": "2026-07-01T06:09:45.189Z",
           "size": 108731,
           "fileCount": 12,
-          "sourceType": "folder"
+          "sourceType": "folder",
+          "status": "production",
+          "publishedAt": null,
+          "publishedBy": null,
+          "checksum": ""
         }
       ],
       "activeVersionId": "6JOws-gaP161xnuIqBByb",
@@ -57,6 +69,26 @@
         "spaMode": false,
         "routingType": "path"
       }
+    }
+  ],
+  "users": [
+    {
+      "id": "dGliRsTWrunfyyzpJxYqW",
+      "name": "Admin",
+      "email": "admin@deploykit.local",
+      "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$/4sPpNAMbG3VOCYrc9Pmhz8dsG1WBr0jD4N+4LbDOOw$PAfQppkHc5YXFD8dfdmQIPwpSwwQDKpC2In6zD/rjH8",
+      "role": "admin",
+      "createdAt": "2026-07-02T06:44:07.421Z",
+      "updatedAt": "2026-07-02T06:44:07.421Z"
+    },
+    {
+      "id": "x7Pgu-9An-f3rwLzOhAbl",
+      "name": "yxswy",
+      "email": "18267094443@163.com",
+      "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$wHK3l9nT3+BUh+OnlpDesQYEaQ8gMdfklmb5rsLd2SE$Zy5BaOOOMD/uNFIu6EZCK502p1ismY72XH4Zr6x1GSE",
+      "role": "viewer",
+      "createdAt": "2026-07-03T02:37:51.645Z",
+      "updatedAt": "2026-07-03T02:37:51.645Z"
     }
   ],
   "history": [
@@ -68,6 +100,7 @@
       "versionId": "6JOws-gaP161xnuIqBByb",
       "versionName": "6JOws-g",
       "timestamp": "2026-07-01T06:09:45.189Z",
+      "actorId": "system",
       "metadata": {
         "sourceType": "folder",
         "size": 108731,
@@ -81,7 +114,8 @@
       "projectName": "123",
       "versionId": "",
       "versionName": "",
-      "timestamp": "2026-07-01T06:09:20.992Z"
+      "timestamp": "2026-07-01T06:09:20.992Z",
+      "actorId": "system"
     },
     {
       "id": "mr08yb5itgmf0u",
@@ -90,7 +124,8 @@
       "projectName": "青岛啤酒",
       "versionId": "mr08y7d7jugzos",
       "versionName": "mr08y7d",
-      "timestamp": "2026-06-30T06:09:30.870Z"
+      "timestamp": "2026-06-30T06:09:30.870Z",
+      "actorId": "system"
     },
     {
       "id": "mr08y7ddzoul4n",
@@ -99,7 +134,8 @@
       "projectName": "青岛啤酒",
       "versionId": "mr08y7d7jugzos",
       "versionName": "mr08y7d",
-      "timestamp": "2026-06-30T06:09:25.969Z"
+      "timestamp": "2026-06-30T06:09:25.969Z",
+      "actorId": "system"
     },
     {
       "id": "mr08vcl4g1244n",
@@ -108,7 +144,8 @@
       "projectName": "青岛啤酒",
       "versionId": "mr08vckuy9493i",
       "versionName": "mr08vck",
-      "timestamp": "2026-06-30T06:07:12.760Z"
+      "timestamp": "2026-06-30T06:07:12.760Z",
+      "actorId": "system"
     },
     {
       "id": "mr08smcr7epztu",
@@ -117,7 +154,8 @@
       "projectName": "青岛啤酒",
       "versionId": "",
       "versionName": "",
-      "timestamp": "2026-06-30T06:05:05.451Z"
+      "timestamp": "2026-06-30T06:05:05.451Z",
+      "actorId": "system"
     }
   ]
 }

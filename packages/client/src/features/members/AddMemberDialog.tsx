@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from '../../shared/ui/dialog';
 import { Input } from '../../shared/ui/input';
+import { getLocalizedError } from '../../shared/error-messages';
 import { useToast } from '../../shared/ui/toast-context';
 
 interface Props {
@@ -36,7 +37,7 @@ export function AddMemberDialog({ open, projectId, onAdded, onClose }: Props) {
       onAdded();
       onClose();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     } finally {
       setLoading(false);
     }

@@ -1,4 +1,5 @@
 import { useApiClient, useNative } from '@deploykit/client';
+import { getLocalizedError } from '../../shared/error-messages';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { Project } from '../../shared/types';
@@ -100,7 +101,7 @@ export function useProjects() {
         native?.showNotification('DeployKit', t('common.published'));
         await refresh();
       } catch (err) {
-        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+        toast(getLocalizedError(err, t, t('common.failed')), 'error');
       } finally {
         setPendingVersionId(null);
       }
@@ -118,7 +119,7 @@ export function useProjects() {
         native?.showNotification('DeployKit', t('common.rolledBack'));
         await refresh();
       } catch (err) {
-        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+        toast(getLocalizedError(err, t, t('common.failed')), 'error');
       } finally {
         setPendingVersionId(null);
       }
@@ -135,7 +136,7 @@ export function useProjects() {
         toast(t('common.deleted'));
         await refresh();
       } catch (err) {
-        toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+        toast(getLocalizedError(err, t, t('common.failed')), 'error');
       } finally {
         setPendingVersionId(null);
       }

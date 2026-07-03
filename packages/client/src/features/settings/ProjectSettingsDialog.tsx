@@ -1,4 +1,5 @@
 import { useApiClient } from '@deploykit/client';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -89,7 +90,7 @@ export function ProjectSettingsDialog({
       onSaved();
       onOpenChange(false);
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     } finally {
       setSaving(false);
     }
@@ -103,7 +104,7 @@ export function ProjectSettingsDialog({
       onOpenChange(false);
       onDeleted();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     }
   };
 

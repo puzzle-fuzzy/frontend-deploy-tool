@@ -1,4 +1,5 @@
 import { useApiClient, useNative } from '@deploykit/client';
+import { getLocalizedError } from '../../shared/error-messages';
 import { FileArchive, FolderOpen, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -128,7 +129,7 @@ export function UploadVersionDialog({
       onUploaded();
       onOpenChange(false);
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     } finally {
       setUploading(false);
     }

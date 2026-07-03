@@ -145,6 +145,25 @@
     "copyFailed": "Copy failed",
     "close": "Close"
   },
+  "error": {
+    "unauthorized": "Authentication required",
+    "invalidCredentials": "Invalid email or password",
+    "emailAlreadyExists": "Email is already registered",
+    "registrationDisabled": "Registration is disabled",
+    "forbidden": "You don't have permission to do that",
+    "notAMember": "You are not a member of this project",
+    "alreadyMember": "User is already a member",
+    "cannotRemoveLastOwner": "Cannot remove the last owner",
+    "userNotFound": "No user found with that email",
+    "projectNotFound": "Project not found",
+    "slugTaken": "This slug is already taken",
+    "versionNotFound": "Version not found",
+    "tooManyFiles": "Too many files",
+    "pathTooLong": "File path is too long",
+    "extractedTooLarge": "Total file size is too large",
+    "zipTooLarge": "Zip file is too large",
+    "internalError": "Internal server error"
+  },
   "members": {
     "addTitle": "Add Member",
     "transferTitle": "Transfer Ownership",

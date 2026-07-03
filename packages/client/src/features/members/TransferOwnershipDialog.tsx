@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getLocalizedError } from '../../shared/error-messages';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../shared/ui/button';
 import {
@@ -48,7 +49,7 @@ export function TransferOwnershipDialog({
       toast(t('common.saved'));
       onClose();
     } catch (err) {
-      toast(err instanceof Error ? err.message : t('common.failed'), 'error');
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     } finally {
       setBusy(false);
     }
