@@ -14,10 +14,10 @@
   },
   "dependencies": {
     "@deploykit/shared": "workspace:*",
-    "class-variance-authority": "catalog:",
-    "clsx": "catalog:",
     "@dicebear/collection": "^9.2.2",
     "@dicebear/core": "^9.2.2",
+    "class-variance-authority": "catalog:",
+    "clsx": "catalog:",
     "hono": "catalog:",
     "i18next": "catalog:",
     "i18next-browser-languagedetector": "catalog:",
@@ -27,6 +27,7 @@
     "react-dom": "catalog:",
     "react-i18next": "catalog:",
     "shadcn": "catalog:",
+    "sonner": "^2.0.7",
     "tailwind-merge": "catalog:",
     "tw-animate-css": "catalog:",
     "zod": "catalog:"

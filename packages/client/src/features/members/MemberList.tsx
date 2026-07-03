@@ -1,7 +1,7 @@
-import { Crown, Trash2, User } from 'lucide-react';
-import { getLocalizedError } from '../../shared/error-messages';
-import { useTranslation } from 'react-i18next';
 import { useApiClient } from '@deploykit/client';
+import { Crown, Trash2, User } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Badge } from '../../shared/ui/badge';
 import { Button } from '../../shared/ui/button';
 import { useToast } from '../../shared/ui/toast-context';

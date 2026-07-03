@@ -40,7 +40,7 @@ const MESSAGE_TO_I18N_KEY: Record<string, string> = {
 export function getLocalizedError(
   err: unknown,
   t: (key: string) => string,
-  fallback?: string,
+  fallback?: string
 ): string {
   const message = err instanceof Error ? err.message : null;
   if (message) {

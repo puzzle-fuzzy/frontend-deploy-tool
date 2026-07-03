@@ -1,8 +1,22 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../../shared/ui/button';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '../../shared/ui/card';
+import {
+  Field,
+  FieldDescription,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from '../../shared/ui/field';
 import { Input } from '../../shared/ui/input';
-import { Label } from '../../shared/ui/label';
+import { Tabs, TabsList, TabsTrigger } from '../../shared/ui/tabs';
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<unknown>;
@@ -52,10 +66,11 @@ export function LoginPage({ onLogin, onRegister }: Props) {
     }
   };
 
-  const switchMode = (next: Mode) => {
-    if (next === mode) return;
+  const switchMode = (next: string) => {
+    const value = next as Mode;
+    if (value === mode) return;
     setError(null);
-    setMode(next);
+    setMode(value);
   };
 
   const canSubmit =
@@ -64,71 +79,89 @@ export function LoginPage({ onLogin, onRegister }: Props) {
     (mode === 'login' || name.trim().length > 0);
 
   return (
-    <div className="flex items-center justify-center min-h-dvh p-6">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm bg-card rounded-2xl border border-border shadow-sm p-6 space-y-4"
-      >
-        <div className="text-center">
-          <h1 className="text-lg font-semibold">{t('app.title')}</h1>
-          <p className="text-xs text-muted-foreground mt-1">
+    <div className="flex min-h-dvh items-center justify-center p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>{t('app.title')}</CardTitle>
+          <CardDescription>
             {mode === 'login' ? t('auth.subtitle') : t('auth.registerSubtitle')}
-          </p>
-        </div>
-        {mode === 'register' && (
-          <div className="space-y-1.5">
-            <Label htmlFor="auth-name">{t('auth.name')}</Label>
-            <Input
-              id="auth-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              required
-              autoComplete="name"
-            />
-          </div>
-        )}
-        <div className="space-y-1.5">
-          <Label htmlFor="auth-email">{t('auth.email')}</Label>
-          <Input
-            id="auth-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            autoComplete="email"
-          />
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="auth-password">{t('auth.password')}</Label>
-          <Input
-            id="auth-password"
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            autoComplete={
-              mode === 'login' ? 'current-password' : 'new-password'
-            }
-          />
-        </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <Button type="submit" className="w-full" disabled={!canSubmit}>
-          {submitting
-            ? t('common.loading')
-            : mode === 'login'
-              ? t('auth.signIn')
-              : t('auth.register')}
-        </Button>
-        {onRegister && (
-          <button
-            type="button"
-            onClick={() => switchMode(mode === 'login' ? 'register' : 'login')}
-            className="block w-full text-center text-xs text-muted-foreground underline"
-          >
-            {mode === 'login' ? t('auth.goToRegister') : t('auth.goToLogin')}
-          </button>
-        )}
-      </form>
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit}>
+            <FieldGroup>
+              {onRegister && (
+                <Field>
+                  <Tabs value={mode} onValueChange={switchMode}>
+                    <TabsList className="w-full">
+                      <TabsTrigger value="login">
+                        {t('auth.signIn')}
+                      </TabsTrigger>
+                      <TabsTrigger value="register">
+                        {t('auth.register')}
+                      </TabsTrigger>
+                    </TabsList>
+                  </Tabs>
+                </Field>
+              )}
+
+              {mode === 'register' && (
+                <Field>
+                  <FieldLabel htmlFor="auth-name">{t('auth.name')}</FieldLabel>
+                  <Input
+                    id="auth-name"
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    required
+                    autoComplete="name"
+                  />
+                </Field>
+              )}
+
+              <Field>
+                <FieldLabel htmlFor="auth-email">{t('auth.email')}</FieldLabel>
+                <Input
+                  id="auth-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  autoComplete="email"
+                />
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="auth-password">
+                  {t('auth.password')}
+                </FieldLabel>
+                <Input
+                  id="auth-password"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  autoComplete={
+                    mode === 'login' ? 'current-password' : 'new-password'
+                  }
+                />
+                <FieldDescription>
+                  {mode === 'login' ? t('auth.signIn') : t('auth.register')}
+                </FieldDescription>
+              </Field>
+
+              {error && <FieldError>{error}</FieldError>}
+
+              <Button type="submit" disabled={!canSubmit}>
+                {submitting
+                  ? t('common.loading')
+                  : mode === 'login'
+                    ? t('auth.signIn')
+                    : t('auth.register')}
+              </Button>
+            </FieldGroup>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }

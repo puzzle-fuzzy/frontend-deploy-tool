@@ -11,7 +11,7 @@ import {
 
 interface Props {
   slug: string;
-  /** null while no version has been published (upload ≠ go-live). */
+  /** null while no version has been published. */
   activeVersionId: string | null;
 }
 
@@ -22,33 +22,33 @@ export function DeployUrl({ slug, activeVersionId }: Props) {
   const isLive = activeVersionId !== null;
 
   return (
-    <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
+    <div className="flex min-w-0 items-center justify-end gap-2 rounded-lg">
       {isLive ? (
         <a
           href={deployUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-sm text-primary hover:underline bg-muted px-2 py-1.5 rounded-md truncate shrink"
+          className="min-w-0 flex-1 truncate text-sm text-primary hover:underline"
         >
           {deployUrl}
         </a>
       ) : (
         <span
           title={t('versions.deployHint')}
-          className="text-sm text-muted-foreground bg-muted/50 px-2 py-1.5 rounded-md truncate shrink"
+          className="min-w-0 flex-1 truncate text-sm text-muted-foreground"
         >
           {deployUrl}
         </span>
       )}
       <span
-        className={`inline-flex items-center gap-1 text-[11px] font-medium shrink-0 ${
-          isLive
-            ? 'text-emerald-600 dark:text-emerald-400'
-            : 'text-amber-600 dark:text-amber-400'
+        className={`inline-flex shrink-0 items-center gap-1 text-xs font-semibold ${
+          isLive ? 'text-primary' : 'text-muted-foreground'
         }`}
       >
         <span
-          className={`size-1.5 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`}
+          className={`size-1.5 rounded-full ${
+            isLive ? 'bg-primary' : 'bg-muted-foreground'
+          }`}
         />
         {isLive ? t('versions.live') : t('versions.notLive')}
       </span>

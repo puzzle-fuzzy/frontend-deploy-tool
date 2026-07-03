@@ -1,12 +1,13 @@
-import { Button } from '../../shared/ui/button';
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '../../shared/ui/dialog';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from './alert-dialog';
 
 interface Props {
   open: boolean;
@@ -20,11 +21,6 @@ interface Props {
   destructive?: boolean;
 }
 
-/**
- * A reusable confirmation modal built on the Dialog primitive. Used for
- * destructive actions (e.g. deleting a version) so they require an explicit
- * second step. Buttons disable while `loading`.
- */
 export function ConfirmDialog({
   open,
   onOpenChange,
@@ -37,31 +33,25 @@ export function ConfirmDialog({
   destructive = false,
 }: Props) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
-        </DialogHeader>
-        <DialogFooter>
-          <Button
-            variant="outline"
-            type="button"
-            onClick={() => onOpenChange(false)}
-            disabled={loading}
-          >
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{title}</AlertDialogTitle>
+          <AlertDialogDescription>{description}</AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={loading}>
             {cancelLabel}
-          </Button>
-          <Button
-            variant={destructive ? 'destructive' : 'default'}
-            type="button"
-            onClick={onConfirm}
+          </AlertDialogCancel>
+          <AlertDialogAction
             disabled={loading}
+            variant={destructive ? 'destructive' : 'default'}
+            onClick={onConfirm}
           >
             {confirmLabel}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

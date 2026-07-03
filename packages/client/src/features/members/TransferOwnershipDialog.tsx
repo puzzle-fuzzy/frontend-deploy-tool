@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { getLocalizedError } from '../../shared/error-messages';
 import { useTranslation } from 'react-i18next';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Button } from '../../shared/ui/button';
 import {
   Dialog,
@@ -56,7 +56,12 @@ export function TransferOwnershipDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('members.transferTitle')}</DialogTitle>

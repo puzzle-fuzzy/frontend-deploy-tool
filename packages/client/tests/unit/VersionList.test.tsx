@@ -52,7 +52,9 @@ describe('VersionList', () => {
       />
     );
 
-    expect(screen.getAllByText('versions.production').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('versions.production').length).toBeGreaterThan(
+      0
+    );
     expect(screen.getByText('versions.publish')).toBeInTheDocument();
   });
 
@@ -67,7 +69,9 @@ describe('VersionList', () => {
       />
     );
 
-    expect(screen.getAllByText('versions.production').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('versions.production').length).toBeGreaterThan(
+      0
+    );
     expect(
       screen.queryByRole('button', { name: 'versions.publish' })
     ).not.toBeInTheDocument();

@@ -4,9 +4,11 @@ const STORAGE_KEY = 'theme';
 
 /** Tracks the dark/light theme, persisting to localStorage and toggling the `dark` class on `<html>`. */
 export function useTheme() {
-  const [dark, setDark] = useState(
-    () => localStorage.getItem(STORAGE_KEY) === 'dark'
-  );
+  const [dark, setDark] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) return stored === 'dark';
+    return false;
+  });
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);

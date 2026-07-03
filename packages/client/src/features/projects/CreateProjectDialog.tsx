@@ -1,7 +1,7 @@
 import { useApiClient } from '@deploykit/client';
-import { getLocalizedError } from '../../shared/error-messages';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Button } from '../../shared/ui/button';
 import {
   Dialog,
@@ -10,6 +10,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../shared/ui/dialog';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from '../../shared/ui/field';
 import { Input } from '../../shared/ui/input';
 import { Textarea } from '../../shared/ui/textarea';
 import { useToast } from '../../shared/ui/toast-context';
@@ -69,73 +75,60 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
         <DialogHeader>
           <DialogTitle>{t('create.title')}</DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-2">
-            <label
-              htmlFor={nameInputId}
-              className="text-sm font-medium text-muted-foreground"
-            >
-              {t('create.name')}
-            </label>
-            <Input
-              id={nameInputId}
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t('create.namePlaceholder')}
-            />
-          </div>
-          <div className="space-y-2">
-            <label
-              htmlFor={slugInputId}
-              className="text-sm font-medium text-muted-foreground"
-            >
-              {t('create.slug')}
-            </label>
-            <Input
-              id={slugInputId}
-              value={slug}
-              onChange={(e) =>
-                setSlug(normalizeProjectSlugInput(e.target.value))
-              }
-              placeholder={t('create.slugPlaceholder')}
-              className="font-mono"
-            />
-            <p className="text-sm text-muted-foreground">
-              {t('create.slugHint')}
-            </p>
-          </div>
-          <div className="space-y-2">
-            <label
-              htmlFor={descInputId}
-              className="text-sm font-medium text-muted-foreground"
-            >
-              {t('create.description')}
-            </label>
-            <Textarea
-              id={descInputId}
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder={t('create.descPlaceholder')}
-              rows={2}
-            />
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              size="default"
-              type="button"
-              onClick={() => onOpenChange(false)}
-            >
-              {t('create.cancel')}
-            </Button>
-            <Button
-              type="submit"
-              disabled={submitting || !name.trim() || !slug.trim()}
-              size="default"
-            >
-              {t('create.create')}
-            </Button>
-          </DialogFooter>
+        <form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <Field>
+              <FieldLabel htmlFor={nameInputId}>{t('create.name')}</FieldLabel>
+              <Input
+                id={nameInputId}
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder={t('create.namePlaceholder')}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={slugInputId}>{t('create.slug')}</FieldLabel>
+              <Input
+                id={slugInputId}
+                value={slug}
+                onChange={(e) =>
+                  setSlug(normalizeProjectSlugInput(e.target.value))
+                }
+                placeholder={t('create.slugPlaceholder')}
+                className="font-mono"
+              />
+              <FieldDescription>{t('create.slugHint')}</FieldDescription>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={descInputId}>
+                {t('create.description')}
+              </FieldLabel>
+              <Textarea
+                id={descInputId}
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder={t('create.descPlaceholder')}
+                rows={2}
+              />
+            </Field>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                size="default"
+                type="button"
+                onClick={() => onOpenChange(false)}
+              >
+                {t('create.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                disabled={submitting || !name.trim() || !slug.trim()}
+                size="default"
+              >
+                {t('create.create')}
+              </Button>
+            </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>

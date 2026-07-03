@@ -1,6 +1,7 @@
 import { useApiClient } from '@deploykit/client';
-import { useState, useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Button } from '../../shared/ui/button';
 import {
   Dialog,
@@ -10,7 +11,6 @@ import {
   DialogTitle,
 } from '../../shared/ui/dialog';
 import { Input } from '../../shared/ui/input';
-import { getLocalizedError } from '../../shared/error-messages';
 import { useToast } from '../../shared/ui/toast-context';
 
 interface Props {
@@ -44,7 +44,12 @@ export function AddMemberDialog({ open, projectId, onAdded, onClose }: Props) {
   }, [email, projectId, api, toast, t, onAdded, onClose]);
 
   return (
-    <Dialog open={open} onOpenChange={(open) => { if (!open) onClose(); }}>
+    <Dialog
+      open={open}
+      onOpenChange={(open) => {
+        if (!open) onClose();
+      }}
+    >
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('members.addTitle')}</DialogTitle>
@@ -54,11 +59,15 @@ export function AddMemberDialog({ open, projectId, onAdded, onClose }: Props) {
             placeholder={t('members.searchPlaceholder')}
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleAdd(); }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void handleAdd();
+            }}
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>{t('common.cancel')}</Button>
+          <Button variant="outline" onClick={onClose}>
+            {t('common.cancel')}
+          </Button>
           <Button onClick={handleAdd} disabled={loading || !email.trim()}>
             {loading ? t('common.loading') : t('members.add')}
           </Button>

@@ -1,4 +1,11 @@
-import { Eye, FolderOpen, Loader2, Trash2 } from 'lucide-react';
+import {
+  Eye,
+  FileArchive,
+  FolderOpen,
+  Loader2,
+  Rocket,
+  Trash2,
+} from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { publicBaseURL } from '../../shared/config';
@@ -6,7 +13,23 @@ import { formatBytes, formatDate } from '../../shared/format';
 import type { Project, Version } from '../../shared/types';
 import { Badge } from '../../shared/ui/badge';
 import { Button } from '../../shared/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '../../shared/ui/card';
 import { ConfirmDialog } from '../../shared/ui/confirm-dialog';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '../../shared/ui/empty';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../../shared/ui/table';
 
 interface Props {
   project: Project;
@@ -32,12 +55,14 @@ export function VersionList({
 }: Props) {
   const { t } = useTranslation();
   const productionVersion = project.versions.find(
-    (v) => v.id === project.activeVersionId,
+    (v) => v.id === project.activeVersionId
   );
   const previewVersions = project.versions.filter(
-    (v) => v.id !== project.activeVersionId,
+    (v) => v.id !== project.activeVersionId
   );
-  const isPending = (v: Version) => pendingVersionId === v.id;
+  const orderedVersions = productionVersion
+    ? [productionVersion, ...previewVersions]
+    : previewVersions;
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
 
   const metaText = (v: Version): string => {
@@ -51,116 +76,152 @@ export function VersionList({
           : t('versions.sourceUnknown');
     return t('versions.meta', {
       source: sourceLabel,
-      size: size || '—',
+      size: size || '-',
       count: v.fileCount,
     });
   };
 
   const confirmVersion = project.versions.find(
-    (v) => v.id === confirmAction?.versionId,
+    (v) => v.id === confirmAction?.versionId
   );
 
-  const versionRow = (v: Version, isProd: boolean) => {
-    if (isPending(v)) {
-      return (
-        <div key={v.id} className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3.5">
-          <span className="font-mono text-sm font-semibold">{v.name}</span>
-          <Loader2 className="size-5 animate-spin text-muted-foreground" />
-        </div>
-      );
-    }
-    return (
-    <div
-      key={v.id}
-      className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3.5"
-    >
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="font-mono text-sm font-semibold">{v.name}</span>
-          {isProd && (
-            <Badge variant="secondary" className="text-[10px]">
-              {t('versions.production')}
-            </Badge>
-          )}
-        </div>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          {formatDate(v.createdAt)}{' '}
-          {v.publishedBy && <>by {v.publishedBy}</>}
-          {v.description && <> &middot; {v.description}</>}
-        </p>
-        {metaText(v) && (
-          <p className="text-xs text-muted-foreground/60 mt-0.5">{metaText(v)}</p>
-        )}
-      </div>
-      <div className="flex items-center gap-1 shrink-0">
-        <Button variant="outline" size="sm" asChild>
-          <a
-            href={`${publicBaseURL}/deploy/${project.slug}/${v.id}/`}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Eye className="size-3.5" />
-            {t('versions.preview')}
-          </a>
-        </Button>
-        {!readOnly && !isProd && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() =>
-              setConfirmAction({ type: 'publish', versionId: v.id })
-            }
-          >
-            {t('versions.publish')}
-          </Button>
-        )}
-        {!readOnly && (
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            className="text-muted-foreground hover:text-destructive"
-            aria-label={t('common.delete')}
-            onClick={() => setConfirmAction({ type: 'delete', versionId: v.id })}
-          >
-            <Trash2 className="size-3.5" />
-          </Button>
-        )}
-      </div>
-    </div>
-  );
-  };
+  const sourceIcon = (v: Version) =>
+    v.sourceType === 'zip' ? <FileArchive /> : <FolderOpen />;
 
   if (project.versions.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="size-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
-          <FolderOpen className="size-8 text-muted-foreground/50" />
-        </div>
-        <p className="text-base font-medium text-foreground">{t('versions.empty')}</p>
-        <p className="text-sm text-muted-foreground mt-1 max-w-sm">{t('versions.emptyDesc')}</p>
-      </div>
+      <Card>
+        <CardContent>
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FolderOpen />
+              </EmptyMedia>
+              <EmptyTitle>{t('versions.empty')}</EmptyTitle>
+              <EmptyDescription>{t('versions.emptyDesc')}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        </CardContent>
+      </Card>
     );
   }
 
   return (
-    <div className="max-w-3xl space-y-6">
-      {productionVersion && (
-        <section>
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">{t('versions.production')}</h3>
-          {versionRow(productionVersion, true)}
-        </section>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle>{t('versions.title')}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Version</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Source</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="text-right">Action</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {orderedVersions.map((version) => {
+              const isProd = version.id === project.activeVersionId;
+              const pending = pendingVersionId === version.id;
 
-      {previewVersions.length > 0 && (
-        <section>
-          <h3 className="text-sm font-medium text-muted-foreground mb-2">{t('versions.staging')}</h3>
-          <div className="space-y-1.5">{previewVersions.map((v) => versionRow(v, false))}</div>
-        </section>
-      )}
+              return (
+                <TableRow key={version.id}>
+                  <TableCell>
+                    <div className="flex min-w-0 items-center gap-2">
+                      {pending ? (
+                        <Loader2 className="animate-spin" />
+                      ) : isProd ? (
+                        <Rocket />
+                      ) : (
+                        sourceIcon(version)
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate font-medium">{version.name}</p>
+                        {version.description && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {version.description}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={isProd ? 'default' : 'outline'}>
+                      {isProd
+                        ? t('versions.production')
+                        : t('versions.staging')}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {metaText(version) || t('versions.sourceUnknown')}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {formatDate(version.createdAt)}
+                    {version.publishedBy ? ` by ${version.publishedBy}` : ''}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex justify-end gap-2">
+                      {!pending && (
+                        <>
+                          <Button variant="outline" size="sm" asChild>
+                            <a
+                              href={`${publicBaseURL}/deploy/${project.slug}/${version.id}/`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <Eye data-icon="inline-start" />
+                              {t('versions.preview')}
+                            </a>
+                          </Button>
+                          {!readOnly && !isProd && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'publish',
+                                  versionId: version.id,
+                                })
+                              }
+                            >
+                              <Rocket data-icon="inline-start" />
+                              {t('versions.publish')}
+                            </Button>
+                          )}
+                          {!readOnly && (
+                            <Button
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={t('common.delete')}
+                              onClick={() =>
+                                setConfirmAction({
+                                  type: 'delete',
+                                  versionId: version.id,
+                                })
+                              }
+                            >
+                              <Trash2 />
+                            </Button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </CardContent>
 
       <ConfirmDialog
         open={confirmAction !== null}
-        onOpenChange={(open) => { if (!open) setConfirmAction(null); }}
+        onOpenChange={(open) => {
+          if (!open) setConfirmAction(null);
+        }}
         title={
           confirmAction?.type === 'delete'
             ? t('common.delete')
@@ -170,10 +231,16 @@ export function VersionList({
         }
         description={
           confirmAction?.type === 'delete'
-            ? t('common.deleteVersionConfirm', { name: confirmVersion?.name ?? '' })
+            ? t('common.deleteVersionConfirm', {
+                name: confirmVersion?.name ?? '',
+              })
             : confirmAction?.type === 'rollback'
-              ? t('common.rollbackVersionConfirm', { name: confirmVersion?.name ?? '' })
-              : t('common.publishVersionConfirm', { name: confirmVersion?.name ?? '' })
+              ? t('common.rollbackVersionConfirm', {
+                  name: confirmVersion?.name ?? '',
+                })
+              : t('common.publishVersionConfirm', {
+                  name: confirmVersion?.name ?? '',
+                })
         }
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
@@ -187,6 +254,6 @@ export function VersionList({
           if (action.type === 'delete') onDelete(action.versionId);
         }}
       />
-    </div>
+    </Card>
   );
 }

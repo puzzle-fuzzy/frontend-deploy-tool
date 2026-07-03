@@ -40,7 +40,7 @@ export function useUserCache() {
       }
       return null;
     },
-    [api],
+    [api]
   );
 
   const setUser = useCallback((user: CachedUser) => {

@@ -61,7 +61,14 @@ export interface ApiClient {
   ): Promise<{ ok: boolean }>;
   deleteVersion(projectId: string, versionId: string): Promise<{ ok: boolean }>;
   searchUsers(query: string): Promise<SafeUser[]>;
-  addMember(projectId: string, email: string, role: string): Promise<{ project: Project }>;
+  addMember(
+    projectId: string,
+    email: string,
+    role: string
+  ): Promise<{ project: Project }>;
   removeMember(projectId: string, userId: string): Promise<{ ok: boolean }>;
-  transferOwnership(projectId: string, targetUserId: string): Promise<{ project: Project }>;
+  transferOwnership(
+    projectId: string,
+    targetUserId: string
+  ): Promise<{ project: Project }>;
 }

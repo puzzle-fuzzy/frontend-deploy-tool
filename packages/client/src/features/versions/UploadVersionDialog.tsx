@@ -1,8 +1,8 @@
 import { useApiClient, useNative } from '@deploykit/client';
-import { getLocalizedError } from '../../shared/error-messages';
-import { FileArchive, FolderOpen, Upload } from 'lucide-react';
+import { FileArchive, FolderOpen, HardDriveUpload, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { getLocalizedError } from '../../shared/error-messages';
 import { Button } from '../../shared/ui/button';
 import {
   Dialog,
@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../../shared/ui/dialog';
+import { Field, FieldGroup, FieldLabel } from '../../shared/ui/field';
 import { Progress } from '../../shared/ui/progress';
 import { Textarea } from '../../shared/ui/textarea';
 import { useToast } from '../../shared/ui/toast-context';
@@ -110,7 +111,7 @@ export function UploadVersionDialog({
         // progress over IPC. nativeDir holds the absolute directory path.
         await native.uploadFolder(projectId, nativeDir.path, desc, setProgress);
       } else {
-        // Web path (unchanged): XHR upload of the picked File objects.
+        // Web path: XHR upload of the picked File objects.
         await api.uploadVersion(
           projectId,
           file,
@@ -137,115 +138,118 @@ export function UploadVersionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t('upload.title')}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <span className="grid size-8 place-items-center rounded-md border border-primary/35 bg-primary/12 text-primary">
+              <HardDriveUpload className="size-4" />
+            </span>
+            {t('upload.title')}
+          </DialogTitle>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <button
-            type="button"
-            onDrop={handleDrop}
-            onDragOver={(e) => e.preventDefault()}
-            onClick={handleSelectZip}
-            className="w-full border-2 border-dashed border-border rounded-lg p-8 flex flex-col items-center justify-center text-center hover:border-primary/50 hover:bg-muted/30 transition-colors cursor-pointer"
-          >
-            <div className="h-12 w-12 bg-primary/10 rounded-full flex items-center justify-center mb-3">
-              <Upload className="size-6 text-primary" />
-            </div>
-            <p className="text-base font-medium">
-              {label ?? t('upload.dropzone')}
-            </p>
-            <p className="text-sm text-muted-foreground mt-1">
-              {t('upload.dropzoneDesc')}
-            </p>
-          </button>
-
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="default"
+        <form onSubmit={handleSubmit}>
+          <FieldGroup>
+            <button
               type="button"
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
               onClick={handleSelectZip}
+              className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/45 bg-primary/6 p-8 text-center transition-colors hover:bg-primary/10"
             >
-              <FileArchive className="size-4" />
-              {t('upload.selectZip')}
-            </Button>
-            <Button
-              variant="outline"
-              size="default"
-              type="button"
-              onClick={handleSelectFolder}
-            >
-              <FolderOpen className="size-4" />
-              {t('upload.selectFolder')}
-            </Button>
-            {native && (
+              <div className="mb-3 flex size-12 items-center justify-center rounded-lg border border-primary/35 bg-card text-primary">
+                <Upload className="size-6" />
+              </div>
+              <p className="text-base font-medium">
+                {label ?? t('upload.dropzone')}
+              </p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t('upload.dropzoneDesc')}
+              </p>
+            </button>
+
+            <div className="grid gap-2 sm:grid-cols-3">
               <Button
-                variant="default"
+                variant="outline"
                 size="default"
                 type="button"
-                onClick={async () => {
-                  const picked = await native.pickDirectory();
-                  if (picked) {
-                    // NativeFile is structurally compatible with File (the
-                    // native upload branch never touches File-only APIs).
-                    setNativeDir({
-                      path: picked.directoryPath,
-                      files: picked.files as unknown as File[],
-                    });
-                    setFile(null);
-                    setFolderFiles(null);
-                  }
-                }}
+                onClick={handleSelectZip}
+              >
+                <FileArchive className="size-4" />
+                {t('upload.selectZip')}
+              </Button>
+              <Button
+                variant="outline"
+                size="default"
+                type="button"
+                onClick={handleSelectFolder}
               >
                 <FolderOpen className="size-4" />
-                Pick directory…
+                {t('upload.selectFolder')}
               </Button>
-            )}
-          </div>
-
-          {uploading && (
-            <div className="space-y-1">
-              <Progress value={progress} className="h-1.5" />
-              <p className="text-xs text-muted-foreground text-right">
-                {progress}%
-              </p>
+              {native && (
+                <Button
+                  variant="outline"
+                  size="default"
+                  type="button"
+                  onClick={async () => {
+                    const picked = await native.pickDirectory();
+                    if (picked) {
+                      // NativeFile is structurally compatible with File.
+                      setNativeDir({
+                        path: picked.directoryPath,
+                        files: picked.files as unknown as File[],
+                      });
+                      setFile(null);
+                      setFolderFiles(null);
+                    }
+                  }}
+                >
+                  <FolderOpen className="size-4" />
+                  Pick directory
+                </Button>
+              )}
             </div>
-          )}
 
-          <div className="space-y-2">
-            <label
-              htmlFor={releaseNotesId}
-              className="text-sm font-medium text-muted-foreground"
-            >
-              {t('upload.releaseNotes')}
-            </label>
-            <Textarea
-              id={releaseNotesId}
-              value={desc}
-              onChange={(e) => setDesc(e.target.value)}
-              placeholder={t('upload.releaseNotesPlaceholder')}
-              rows={2}
-            />
-          </div>
+            {uploading && (
+              <div className="space-y-1 rounded-lg border border-border bg-muted/35 p-3">
+                <Progress value={progress} className="h-1.5" />
+                <p className="text-right text-xs text-muted-foreground">
+                  {progress}%
+                </p>
+              </div>
+            )}
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              type="button"
-              size="default"
-              onClick={() => onOpenChange(false)}
-            >
-              {t('upload.cancel')}
-            </Button>
-            <Button
-              type="submit"
-              disabled={(!file && !folderFiles && !nativeDir) || uploading}
-              size="default"
-            >
-              {uploading ? `${progress}%` : t('upload.submit')}
-            </Button>
-          </DialogFooter>
+            <Field>
+              <FieldLabel htmlFor={releaseNotesId}>
+                {t('upload.releaseNotes')}
+              </FieldLabel>
+              <Textarea
+                id={releaseNotesId}
+                value={desc}
+                onChange={(e) => setDesc(e.target.value)}
+                placeholder={t('upload.releaseNotesPlaceholder')}
+                rows={3}
+              />
+            </Field>
+
+            <DialogFooter>
+              <Button
+                variant="outline"
+                type="button"
+                size="default"
+                onClick={() => onOpenChange(false)}
+              >
+                {t('upload.cancel')}
+              </Button>
+              <Button
+                type="submit"
+                disabled={(!file && !folderFiles && !nativeDir) || uploading}
+                size="default"
+              >
+                {uploading ? `${progress}%` : t('upload.submit')}
+              </Button>
+            </DialogFooter>
+          </FieldGroup>
         </form>
       </DialogContent>
     </Dialog>
