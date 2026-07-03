@@ -23,7 +23,7 @@ import { syncProductionStatus } from './version';
  * - v4: versions carry release metadata (`status`, `publishedAt`,
  *   `publishedBy`, `checksum`); status is derived from `activeVersionId`.
  */
-export const CURRENT_SCHEMA_VERSION = 4;
+export const CURRENT_SCHEMA_VERSION = 5;
 
 export interface MigrationResult {
   data: Data;
@@ -68,6 +68,16 @@ const legacyDataSchema = z.object({
         .default([]),
       activeVersionId: z.string().nullable().optional(),
       settings: settingsSchema.optional(),
+      createdBy: z.string().optional(),
+      members: z
+        .array(
+          z.object({
+            userId: z.string(),
+            role: z.enum(['owner', 'member']),
+            invitedAt: z.string(),
+          })
+        )
+        .optional(),
     })
   ),
   users: z.array(userSchema).default([]),
@@ -96,6 +106,8 @@ export function migrate(raw: unknown): MigrationResult {
 
   const input = parsed.data;
   const inputVersion = input.schemaVersion ?? 0;
+
+  const firstAdminId = input.users.find((u) => u.role === 'admin')?.id ?? 'system';
 
   const projects: Project[] = input.projects.map((p) => {
     const activeVersionId =
@@ -128,6 +140,10 @@ export function migrate(raw: unknown): MigrationResult {
       versions,
       activeVersionId,
       settings: p.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
+      createdBy: (p as { createdBy?: string }).createdBy ?? firstAdminId,
+      members: (p as { members?: Array<{ userId: string; role: 'owner' | 'member'; invitedAt: string }> }).members ?? [
+        { userId: firstAdminId, role: 'owner', invitedAt: p.createdAt || new Date().toISOString() },
+      ],
     };
   });
 

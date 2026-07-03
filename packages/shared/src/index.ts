@@ -4,6 +4,7 @@ export type {
   HistoryAction,
   HistoryEvent,
   Project,
+  ProjectMember,
   Role,
   SafeUser,
   Settings,
@@ -15,6 +16,7 @@ export type {
 export {
   dataSchema,
   historyEventSchema,
+  projectMemberSchema,
   projectSchema,
   roleSchema,
   safeUserSchema,

@@ -35,6 +35,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     versions: [version(versionA, 'a'), version(versionB, 'b')],
     activeVersionId: versionA,
     settings: { spaMode: false, routingType: 'path' },
+    createdBy: 'user-1',
+    members: [],
     ...overrides,
   };
 }

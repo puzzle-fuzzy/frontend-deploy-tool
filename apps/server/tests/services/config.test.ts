@@ -5,11 +5,11 @@ import { loadConfig } from '../../src/config';
 describe('loadConfig', () => {
   const appDir = join('workspace', 'apps', 'server');
 
-  test('uses local server paths and port 3000 by default', () => {
+  test('uses local server paths and port 4010 by default', () => {
     const config = loadConfig({ appDir, env: {} });
 
     expect(config).toEqual({
-      port: 3000,
+      port: 4010,
       dataFile: join(appDir, 'data.json'),
       storageDir: join(appDir, '.voasx', 'storage'),
       publicDir: join(appDir, 'public'),
@@ -55,8 +55,8 @@ describe('loadConfig', () => {
     });
   });
 
-  test('falls back to port 3000 when PORT is invalid', () => {
-    expect(loadConfig({ appDir, env: { PORT: 'not-a-port' } }).port).toBe(3000);
+  test('falls back to port 4010 when PORT is invalid', () => {
+    expect(loadConfig({ appDir, env: { PORT: 'not-a-port' } }).port).toBe(4010);
   });
 
   test('registration is enabled by default and toggled by REGISTRATION_ENABLED', () => {

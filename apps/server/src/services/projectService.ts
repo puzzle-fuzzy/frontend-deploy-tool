@@ -38,6 +38,8 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
         versions: [],
         activeVersionId: null,
         settings: { ...DEFAULT_PROJECT_SETTINGS },
+        createdBy: actorId,
+        members: [{ userId: actorId, role: 'owner', invitedAt: new Date().toISOString() }],
       };
       data.projects.push(project);
       appendHistoryEvent(data, 'project.create', project, actorId);

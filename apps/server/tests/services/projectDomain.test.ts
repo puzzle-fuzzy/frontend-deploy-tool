@@ -18,6 +18,8 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     versions: [],
     activeVersionId: null,
     settings: { ...DEFAULT_PROJECT_SETTINGS },
+    createdBy: 'user-1',
+    members: [],
     ...overrides,
   };
 }

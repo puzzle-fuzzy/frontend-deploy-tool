@@ -16,6 +16,8 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   activeVersionId: null,
   settings: { spaMode: false, routingType: 'path' },
   ...overrides,
+  createdBy: overrides.createdBy ?? '',
+  members: overrides.members ?? [],
 });
 
 const noop = () => {};

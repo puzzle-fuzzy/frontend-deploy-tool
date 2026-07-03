@@ -29,6 +29,8 @@ const project: Project = {
   versions: [version],
   activeVersionId: version.id,
   settings,
+  createdBy: 'user-1',
+  members: [{ userId: 'user-1', role: 'owner', invitedAt: '2026-06-30T00:00:00.000Z' }],
 };
 
 const event: HistoryEvent = {

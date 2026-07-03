@@ -18,6 +18,8 @@ const project = (settings: Project['settings']): Project => ({
   versions: [],
   activeVersionId: null,
   settings,
+  createdBy: '',
+  members: [],
 });
 
 describe('ProjectSettingsDialog', () => {

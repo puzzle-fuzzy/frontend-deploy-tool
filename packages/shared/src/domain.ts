@@ -64,6 +64,12 @@ export const versionSchema = z.object({
   checksum: z.string(),
 });
 
+export const projectMemberSchema = z.object({
+  userId: z.string(),
+  role: z.enum(['owner', 'member']),
+  invitedAt: z.string(),
+});
+
 export const projectSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -75,6 +81,8 @@ export const projectSchema = z.object({
   /** The single source of truth for which version is live (null = none). */
   activeVersionId: z.string().nullable(),
   settings: settingsSchema,
+  createdBy: z.string(),
+  members: z.array(projectMemberSchema).default([]),
 });
 
 export const historyEventSchema = z.object({
@@ -122,6 +130,7 @@ export interface CreateProjectInput {
   description: string;
 }
 
+export type ProjectMember = z.infer<typeof projectMemberSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
 export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;

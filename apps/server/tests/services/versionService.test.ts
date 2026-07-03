@@ -40,6 +40,8 @@ function project(): Project {
     versions: [version('v1'), version('v2')],
     activeVersionId: 'v1',
     settings: { spaMode: false, routingType: 'hash' },
+    createdBy: 'user-1',
+    members: [{ userId: 'user-1', role: 'owner', invitedAt: '' }],
   };
 }
 

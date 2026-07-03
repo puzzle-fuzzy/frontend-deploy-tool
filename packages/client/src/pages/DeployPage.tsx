@@ -1,6 +1,7 @@
 import { FolderOpen, LogOut, Plus, Settings } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { UserDisplay } from '../shared/ui/user-display';
 import { DeployUrl } from '../features/deploy/DeployUrl';
 import { LanguageToggle } from '../features/i18n/LanguageToggle';
 import { CreateProjectDialog } from '../features/projects/CreateProjectDialog';
@@ -41,7 +42,7 @@ export function DeployPage({ user, onLogout }: Props) {
   const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
 
-  const canCreateProject = user.role === 'admin';
+  const canCreateProject = true;
   const canManage = user.role !== 'viewer';
 
   const handleLogout = async () => {
@@ -61,10 +62,8 @@ export function DeployPage({ user, onLogout }: Props) {
             <FolderOpen className="size-6 text-primary" />
             <h1 className="text-lg font-semibold">{t('app.title')}</h1>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-muted-foreground hidden sm:inline">
-              {user.name}
-            </span>
+          <div className="flex items-center gap-3">
+            <UserDisplay user={user} avatarSize="md" />
             <Badge variant="secondary" className="text-[10px] uppercase">
               {t(`auth.roles.${user.role}`)}
             </Badge>
@@ -112,6 +111,7 @@ export function DeployPage({ user, onLogout }: Props) {
                         {selectedProject.slug}
                       </p>
                     </div>
+                    {/* AvatarGroup will be wired in Task 6 once members carry user names */}
                     <DeployUrl
                       slug={selectedProject.slug}
                       activeVersionId={selectedProject.activeVersionId}
