@@ -42,6 +42,7 @@
     "versions": "{{count}} version(s)",
     "updated": "Updated {{date}}"
   },
+  "title": "Versions",
   "versions": {
     "title": "Versions",
     "empty": "No versions yet",

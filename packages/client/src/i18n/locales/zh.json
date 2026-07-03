@@ -42,6 +42,7 @@
     "versions": "{{count}} 个版本",
     "updated": "更新于 {{date}}"
   },
+  "title": "版本列表",
   "versions": {
     "title": "版本列表",
     "empty": "暂无版本",
