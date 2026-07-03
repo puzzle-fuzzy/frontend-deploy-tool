@@ -332,73 +332,71 @@ export function ProjectSettingsForm(props: {
     }
   };
 
-  const sectionClass = 'rounded-xl border border-border bg-card p-5 space-y-4';
-
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-2xl space-y-8">
       <div>
         <h3 className="text-lg font-semibold">{t('settings.title')}</h3>
         <p className="text-sm text-muted-foreground mt-1">{t('settings.desc')}</p>
       </div>
 
-      {/* Project Information */}
-      <div className={sectionClass}>
-        <h4 className="text-sm font-semibold text-foreground">{t('settings.projectInfo')}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="pf-name" className="text-sm font-medium text-foreground">{t('create.name')}</Label>
-            <Input id="pf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('create.namePlaceholder')} />
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold">{t('settings.projectInfo')}</h4>
+        <div className="space-y-3">
+          <div>
+            <Label htmlFor="sf-name" className="text-sm font-medium">{t('create.name')}</Label>
+            <Input id="sf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('create.namePlaceholder')} />
           </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="pf-slug" className="text-sm font-medium text-foreground">{t('create.slug')}</Label>
-            <Input id="pf-slug" value={slug} onChange={(e) => setSlug(normalizeProjectSlugInput(e.target.value))} placeholder={t('create.slugPlaceholder')} className="font-mono" />
+          <div>
+            <Label htmlFor="sf-slug" className="text-sm font-medium">{t('create.slug')}</Label>
+            <Input id="sf-slug" value={slug} onChange={(e) => setSlug(normalizeProjectSlugInput(e.target.value))} placeholder={t('create.slugPlaceholder')} className="font-mono" />
           </div>
-        </div>
-        <div className="space-y-1.5">
-          <Label htmlFor="pf-desc" className="text-sm font-medium text-foreground">{t('create.description')}</Label>
-          <Textarea id="pf-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('create.descPlaceholder')} rows={2} />
+          <div>
+            <Label htmlFor="sf-desc" className="text-sm font-medium">{t('create.description')}</Label>
+            <Textarea id="sf-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('create.descPlaceholder')} rows={2} />
+          </div>
         </div>
       </div>
 
-      {/* SPA Mode */}
-      <div className={sectionClass}>
+      <hr className="border-border" />
+
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold">{t('settings.spaMode')}</h4>
         <div className="flex items-center justify-between">
-          <div className="space-y-0.5">
-            <Label htmlFor="pf-spa" className="text-sm font-medium text-foreground">{t('settings.spaMode')}</Label>
-            <p className="text-sm text-muted-foreground">{t('settings.spaModeDesc')}</p>
-          </div>
-          <Switch id="pf-spa" checked={settings.spaMode} onCheckedChange={(checked) => setSettings((s) => ({ ...s, spaMode: checked }))} />
+          <p className="text-sm text-muted-foreground">{t('settings.spaModeDesc')}</p>
+          <Switch checked={settings.spaMode} onCheckedChange={(checked) => setSettings((s) => ({ ...s, spaMode: checked }))} />
         </div>
       </div>
 
-      {/* Routing */}
-      <div className={sectionClass}>
-        <h4 className="text-sm font-semibold text-foreground">{t('settings.routingType')}</h4>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <Button type="button" variant={settings.routingType === 'hash' ? 'default' : 'outline'} className="h-auto py-3 justify-start" onClick={() => setSettings((s) => ({ ...s, routingType: 'hash' }))}>
-            <Hash className="size-5 mr-2 shrink-0" />
-            <div className="text-left min-w-0">
+      <hr className="border-border" />
+
+      <div className="space-y-4">
+        <h4 className="text-sm font-semibold">{t('settings.routingType')}</h4>
+        <div className="space-y-2">
+          <Button type="button" variant={settings.routingType === 'hash' ? 'default' : 'outline'} className="w-full h-auto py-3 justify-start gap-3" onClick={() => setSettings((s) => ({ ...s, routingType: 'hash' }))}>
+            <Hash className="size-5 shrink-0" />
+            <div className="text-left">
               <p className="text-sm font-medium">{t('settings.routingHash')}</p>
-              <p className="text-xs mt-0.5 text-muted-foreground">{t('settings.routingHashDesc')}</p>
+              <p className="text-xs text-muted-foreground">{t('settings.routingHashDesc')}</p>
             </div>
           </Button>
-          <Button type="button" variant={settings.routingType === 'path' ? 'default' : 'outline'} className="h-auto py-3 justify-start" onClick={() => setSettings((s) => ({ ...s, routingType: 'path' }))}>
-            <Route className="size-5 mr-2 shrink-0" />
-            <div className="text-left min-w-0">
+          <Button type="button" variant={settings.routingType === 'path' ? 'default' : 'outline'} className="w-full h-auto py-3 justify-start gap-3" onClick={() => setSettings((s) => ({ ...s, routingType: 'path' }))}>
+            <Route className="size-5 shrink-0" />
+            <div className="text-left">
               <p className="text-sm font-medium">{t('settings.routingPath')}</p>
-              <p className="text-xs mt-0.5 text-muted-foreground">{t('settings.routingPathDesc')}</p>
+              <p className="text-xs text-muted-foreground">{t('settings.routingPathDesc')}</p>
             </div>
           </Button>
         </div>
       </div>
 
-      {/* Danger zone */}
+      <hr className="border-border" />
+
       {props.canDeleteProject && (
-        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5 space-y-4">
+        <div className="space-y-4">
           <div className="flex items-center justify-between gap-4">
-            <div className="space-y-0.5">
+            <div>
               <h4 className="text-sm font-semibold text-destructive">{t('settings.dangerZone')}</h4>
-              <p className="text-sm text-muted-foreground">{t('settings.deleteProjectDesc')}</p>
+              <p className="text-sm text-muted-foreground mt-0.5">{t('settings.deleteProjectDesc')}</p>
             </div>
             {!confirmDelete ? (
               <Button variant="destructive" size="sm" className="shrink-0" onClick={() => setConfirmDelete(true)}>
@@ -415,7 +413,6 @@ export function ProjectSettingsForm(props: {
         </div>
       )}
 
-      {/* Save */}
       <div className="flex items-center justify-end gap-3 pt-2">
         <Button onClick={handleSave} disabled={saving} size="lg" className="px-8">
           {saving ? t('common.loading') : t('settings.save')}

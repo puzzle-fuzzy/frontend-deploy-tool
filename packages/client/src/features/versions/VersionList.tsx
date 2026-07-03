@@ -1,4 +1,4 @@
-import { Crown, Eye, FolderOpen, Loader2, Trash2 } from 'lucide-react';
+import { Eye, FolderOpen, Loader2, Trash2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { publicBaseURL } from '../../shared/config';
@@ -60,96 +60,75 @@ export function VersionList({
     (v) => v.id === confirmAction?.versionId,
   );
 
-  const renderVersion = (v: Version, isProduction: boolean) => (
+  const versionRow = (v: Version, isProd: boolean) => {
+    if (isPending(v)) {
+      return (
+        <div key={v.id} className="flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3.5">
+          <span className="font-mono text-sm font-semibold">{v.name}</span>
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+    return (
     <div
       key={v.id}
-      className={`rounded-xl border transition-all ${
-        isProduction
-          ? 'border-emerald-200 dark:border-emerald-900 bg-gradient-to-b from-emerald-50/50 to-white dark:from-emerald-950/20 dark:to-card'
-          : 'border-border bg-card hover:border-muted-foreground/20'
-      }`}
+      className="flex items-center justify-between gap-4 rounded-xl border border-border bg-card px-4 py-3.5"
     >
-      <div className="p-4 sm:p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-3 flex-wrap">
-              <span className="font-mono text-base font-semibold">
-                {v.name}
-              </span>
-              {isProduction && (
-                <Badge className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800 gap-1">
-                  <Crown className="size-3" />
-                  {t('versions.production')}
-                </Badge>
-              )}
-            </div>
-
-            <div className="mt-1.5 flex items-center gap-3 text-sm text-muted-foreground flex-wrap">
-              <span>{formatDate(v.createdAt)}</span>
-              {v.publishedBy && <span>by {v.publishedBy}</span>}
-              {v.description && (
-                <>
-                  <span className="hidden sm:inline">·</span>
-                  <span className="text-muted-foreground/80">
-                    {v.description}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {metaText(v) && (
-              <p className="mt-1.5 text-xs text-muted-foreground/60">
-                {metaText(v)}
-              </p>
-            )}
-          </div>
-
-          {isPending(v) ? (
-            <Loader2 className="size-5 animate-spin text-muted-foreground shrink-0 mt-1" />
-          ) : (
-            <div className="flex items-center gap-1.5 shrink-0 mt-1">
-              <Button variant="outline" size="sm" asChild>
-                <a
-                  href={`${publicBaseURL}/deploy/${project.slug}/${v.id}/`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Eye className="size-3.5" />
-                  {t('versions.preview')}
-                </a>
-              </Button>
-              {!readOnly && !isProduction && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setConfirmAction({
-                      type: isProduction ? 'rollback' : 'publish',
-                      versionId: v.id,
-                    })
-                  }
-                >
-                  {t('versions.publish')}
-                </Button>
-              )}
-              {!readOnly && (
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground hover:text-destructive"
-                  onClick={() =>
-                    setConfirmAction({ type: 'delete', versionId: v.id })
-                  }
-                >
-                  <Trash2 className="size-3.5" />
-                </Button>
-              )}
-            </div>
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-sm font-semibold">{v.name}</span>
+          {isProd && (
+            <Badge variant="secondary" className="text-[10px]">
+              {t('versions.production')}
+            </Badge>
           )}
         </div>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          {formatDate(v.createdAt)}{' '}
+          {v.publishedBy && <>by {v.publishedBy}</>}
+          {v.description && <> &middot; {v.description}</>}
+        </p>
+        {metaText(v) && (
+          <p className="text-xs text-muted-foreground/60 mt-0.5">{metaText(v)}</p>
+        )}
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <Button variant="outline" size="sm" asChild>
+          <a
+            href={`${publicBaseURL}/deploy/${project.slug}/${v.id}/`}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <Eye className="size-3.5" />
+            {t('versions.preview')}
+          </a>
+        </Button>
+        {!readOnly && !isProd && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              setConfirmAction({ type: 'publish', versionId: v.id })
+            }
+          >
+            {t('versions.publish')}
+          </Button>
+        )}
+        {!readOnly && (
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            className="text-muted-foreground hover:text-destructive"
+            aria-label={t('common.delete')}
+            onClick={() => setConfirmAction({ type: 'delete', versionId: v.id })}
+          >
+            <Trash2 className="size-3.5" />
+          </Button>
+        )}
       </div>
     </div>
   );
+  };
 
   if (project.versions.length === 0) {
     return (
@@ -157,48 +136,31 @@ export function VersionList({
         <div className="size-16 rounded-2xl bg-muted flex items-center justify-center mb-4">
           <FolderOpen className="size-8 text-muted-foreground/50" />
         </div>
-        <p className="text-base font-medium text-foreground">
-          {t('versions.empty')}
-        </p>
-        <p className="text-sm text-muted-foreground mt-1 max-w-sm">
-          {t('versions.emptyDesc')}
-        </p>
+        <p className="text-base font-medium text-foreground">{t('versions.empty')}</p>
+        <p className="text-sm text-muted-foreground mt-1 max-w-sm">{t('versions.emptyDesc')}</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-3xl space-y-8">
-      {/* Production version */}
+    <div className="max-w-3xl space-y-6">
       {productionVersion && (
         <section>
-          <div className="flex items-center gap-2 mb-3">
-            <Crown className="size-4 text-emerald-500" />
-            <h3 className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">
-              {t('versions.production')}
-            </h3>
-          </div>
-          {renderVersion(productionVersion, true)}
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">{t('versions.production')}</h3>
+          {versionRow(productionVersion, true)}
         </section>
       )}
 
-      {/* Preview versions */}
       {previewVersions.length > 0 && (
         <section>
-          <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-            {t('versions.staging')}
-          </h3>
-          <div className="space-y-2">
-            {previewVersions.map((v) => renderVersion(v, false))}
-          </div>
+          <h3 className="text-sm font-medium text-muted-foreground mb-2">{t('versions.staging')}</h3>
+          <div className="space-y-1.5">{previewVersions.map((v) => versionRow(v, false))}</div>
         </section>
       )}
 
       <ConfirmDialog
         open={confirmAction !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmAction(null);
-        }}
+        onOpenChange={(open) => { if (!open) setConfirmAction(null); }}
         title={
           confirmAction?.type === 'delete'
             ? t('common.delete')
@@ -208,16 +170,10 @@ export function VersionList({
         }
         description={
           confirmAction?.type === 'delete'
-            ? t('common.deleteVersionConfirm', {
-                name: confirmVersion?.name ?? '',
-              })
+            ? t('common.deleteVersionConfirm', { name: confirmVersion?.name ?? '' })
             : confirmAction?.type === 'rollback'
-              ? t('common.rollbackVersionConfirm', {
-                  name: confirmVersion?.name ?? '',
-                })
-              : t('common.publishVersionConfirm', {
-                  name: confirmVersion?.name ?? '',
-                })
+              ? t('common.rollbackVersionConfirm', { name: confirmVersion?.name ?? '' })
+              : t('common.publishVersionConfirm', { name: confirmVersion?.name ?? '' })
         }
         confirmLabel={t('common.confirm')}
         cancelLabel={t('common.cancel')}
