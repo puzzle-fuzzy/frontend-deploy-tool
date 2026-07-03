@@ -16,6 +16,8 @@
     "@deploykit/shared": "workspace:*",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
+    "@dicebear/collection": "^9.2.2",
+    "@dicebear/core": "^9.2.2",
     "hono": "catalog:",
     "i18next": "catalog:",
     "i18next-browser-languagedetector": "catalog:",
