@@ -94,16 +94,18 @@ export function DeployPage({ user, onLogout }: Props) {
 
   // ── Fixed Header ──────────────────────────────────────────────
   const header = (
-    <header className="border-b border-border bg-card px-5 py-3 flex items-center justify-between shrink-0">
-      <div className="flex items-center gap-3">
-        <FolderOpen className="size-6 text-primary" />
-        <h1 className="text-lg font-semibold">{t('app.title')}</h1>
+    <header className="border-b border-border bg-card px-4 sm:px-5 py-3 flex items-center justify-between shrink-0">
+      <div className="flex items-center gap-2 sm:gap-3">
+        <FolderOpen className="size-5 sm:size-6 text-primary shrink-0" />
+        <h1 className="text-base sm:text-lg font-semibold">{t('app.title')}</h1>
       </div>
-      <div className="flex items-center gap-3">
-        <UserDisplay user={user} avatarSize="md" />
-        <Badge variant="secondary" className="text-[10px] uppercase">
-          {t(`auth.roles.${user.role}`)}
-        </Badge>
+      <div className="flex items-center gap-2 sm:gap-3">
+        <div className="hidden sm:flex items-center gap-3">
+          <UserDisplay user={user} avatarSize="md" />
+          <Badge variant="secondary" className="text-[10px] uppercase">
+            {t(`auth.roles.${user.role}`)}
+          </Badge>
+        </div>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-sm" onClick={handleLogout} aria-label={t('auth.logout')}>
@@ -112,7 +114,7 @@ export function DeployPage({ user, onLogout }: Props) {
           </TooltipTrigger>
           <TooltipContent>{t('auth.logout')}</TooltipContent>
         </Tooltip>
-        <Separator orientation="vertical" className="h-5 mx-1" />
+        <Separator orientation="vertical" className="h-5 mx-0.5" />
         <ThemeToggle />
         <LanguageToggle />
       </div>
@@ -121,12 +123,12 @@ export function DeployPage({ user, onLogout }: Props) {
 
   // ── Project List Page ─────────────────────────────────────────
   const projectListPage = (
-    <div className="flex-1 flex flex-col p-6 max-w-4xl mx-auto w-full">
+    <div className="flex-1 flex flex-col p-4 sm:p-6 w-full">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">{t('app.projects')}</h2>
+        <h2 className="text-xl sm:text-2xl font-bold">{t('app.projects')}</h2>
         <Button onClick={() => setShowCreate(true)}>
           <Plus className="size-4" />
-          {t('app.newProject')}
+          <span className="hidden sm:inline">{t('app.newProject')}</span>
         </Button>
       </div>
       <ProjectList
@@ -150,7 +152,7 @@ export function DeployPage({ user, onLogout }: Props) {
   const detailPage = selectedProject && (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Back link + project header */}
-      <div className="px-6 pt-4 pb-0 space-y-3">
+      <div className="px-4 sm:px-6 pt-4 pb-0 space-y-3">
         <button
           type="button"
           onClick={handleBack}
@@ -160,14 +162,14 @@ export function DeployPage({ user, onLogout }: Props) {
           Back to projects
         </button>
 
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 sm:gap-4">
           <div className="min-w-0">
             <h2 className="text-xl font-bold truncate">{selectedProject.name}</h2>
-            <p className="text-sm text-muted-foreground font-mono">{selectedProject.slug}</p>
+            <p className="text-sm text-muted-foreground font-mono truncate">{selectedProject.slug}</p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap shrink-0">
             {memberInfos.length > 0 && (
-              <AvatarGroup users={memberInfos.map((m) => m.user)} max={4} />
+              <AvatarGroup users={memberInfos.map((m) => m.user)} max={3} />
             )}
             <DeployUrl
               slug={selectedProject.slug}
@@ -176,7 +178,7 @@ export function DeployPage({ user, onLogout }: Props) {
             {canManage && (
               <Button size="default" onClick={() => setShowUpload(true)}>
                 <Plus className="size-4" />
-                {t('versions.upload')}
+                <span className="hidden sm:inline">{t('versions.upload')}</span>
               </Button>
             )}
           </div>
@@ -184,14 +186,14 @@ export function DeployPage({ user, onLogout }: Props) {
       </div>
 
       {/* Tab navigation */}
-      <div className="border-b border-border mt-4 px-6">
-        <nav className="flex gap-6 -mb-px">
+      <div className="border-b border-border mt-4 px-4 sm:px-6 overflow-x-auto">
+        <nav className="flex gap-4 sm:gap-6 -mb-px min-w-max">
           {tabs.map((tab) => (
             <button
               type="button"
               key={tab.key}
               onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-2 px-1 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex items-center gap-2 px-1 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                 activeTab === tab.key
                   ? 'border-primary text-foreground'
                   : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -205,7 +207,7 @@ export function DeployPage({ user, onLogout }: Props) {
       </div>
 
       {/* Tab content */}
-      <div className="flex-1 min-h-0 overflow-auto p-6">
+      <div className="flex-1 min-h-0 overflow-auto p-4 sm:p-6">
         {activeTab === 'versions' && (
           <VersionList
             project={selectedProject}
@@ -265,10 +267,10 @@ export function DeployPage({ user, onLogout }: Props) {
   );
 
   return (
-    <div className="h-dvh flex flex-col bg-background">
+    <div className="min-h-dvh flex flex-col bg-background">
       {header}
 
-      <main className="flex-1 flex flex-col min-h-0">
+      <main className="flex-1 flex flex-col w-full max-w-[1440px] mx-auto">
         {selectedProject ? detailPage : projectListPage}
       </main>
 
