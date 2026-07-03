@@ -397,7 +397,7 @@ export function DeployPage({ user, onLogout }: Props) {
         value={activeTab}
         onValueChange={(value) => setActiveTab(value as DetailTab)}
       >
-        <TabsList>
+        <TabsList variant="line">
           <TabsTrigger value="versions">
             <Code2 data-icon="inline-start" />
             {t('versions.title')}
@@ -412,7 +412,7 @@ export function DeployPage({ user, onLogout }: Props) {
           </TabsTrigger>
         </TabsList>
 
-        <div className="grid gap-6 lg:grid-cols-[1fr_20rem]">
+        <div className="grid gap-6 lg:grid-cols-[1fr_20rem] mt-4">
           <div>
             <TabsContent value="versions">
               <VersionList
