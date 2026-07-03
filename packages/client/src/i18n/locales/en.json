@@ -135,6 +135,7 @@
     "publishVersionConfirm": "Publish version \"{{name}}\" to production?",
     "rollbackVersionConfirm": "Roll production back to version \"{{name}}\"?",
     "created": "Created",
+    "saved": "Saved",
     "deleted": "Deleted",
     "uploaded": "Upload successful",
     "activated": "Set as production",
@@ -143,5 +144,15 @@
     "failed": "Failed",
     "copyFailed": "Copy failed",
     "close": "Close"
+  },
+  "members": {
+    "addTitle": "Add Member",
+    "transferTitle": "Transfer Ownership",
+    "selectTarget": "Select a member…",
+    "transfer": "Transfer",
+    "remove": "Remove",
+    "searchPlaceholder": "Search by email…",
+    "add": "Add",
+    "noResults": "No users found"
   }
 }

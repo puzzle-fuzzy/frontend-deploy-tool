@@ -40,6 +40,14 @@ contextBridge.exposeInMainWorld('deploykit', {
       ipcRenderer.invoke('api:rollbackVersion', projectId, versionId),
     deleteVersion: (projectId: string, versionId: string) =>
       ipcRenderer.invoke('api:deleteVersion', projectId, versionId),
+    searchUsers: (query: string) =>
+      ipcRenderer.invoke('api:searchUsers', query),
+    addMember: (projectId: string, email: string, role: string) =>
+      ipcRenderer.invoke('api:addMember', projectId, email, role),
+    removeMember: (projectId: string, userId: string) =>
+      ipcRenderer.invoke('api:removeMember', projectId, userId),
+    transferOwnership: (projectId: string, targetUserId: string) =>
+      ipcRenderer.invoke('api:transferOwnership', projectId, targetUserId),
   },
   native: {
     pickDirectory: () => ipcRenderer.invoke('native:pickDirectory'),

@@ -160,5 +160,47 @@ export function createFetchApiClient(): ApiClient {
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
+
+    async searchUsers(query: string): Promise<SafeUser[]> {
+      const res = await client.api.users.search.$get({ query: { q: query } });
+      await checkOk(res);
+      return (await res.json()) as SafeUser[];
+    },
+
+    async addMember(
+      projectId: string,
+      email: string,
+      role: string
+    ): Promise<{ project: Project }> {
+      const res = await client.api.projects[':id'].members.$post({
+        param: { id: projectId },
+        json: { email, role: role as 'member' | 'owner' },
+      });
+      await checkOk(res);
+      return (await res.json()) as { project: Project };
+    },
+
+    async removeMember(
+      projectId: string,
+      userId: string
+    ): Promise<{ ok: boolean }> {
+      const res = await client.api.projects[':id'].members[':userId'].$delete({
+        param: { id: projectId, userId },
+      });
+      await checkOk(res);
+      return (await res.json()) as { ok: boolean };
+    },
+
+    async transferOwnership(
+      projectId: string,
+      targetUserId: string
+    ): Promise<{ project: Project }> {
+      const res = await client.api.projects[':id'].transfer.$post({
+        param: { id: projectId },
+        json: { targetUserId },
+      });
+      await checkOk(res);
+      return (await res.json()) as { project: Project };
+    },
   };
 }

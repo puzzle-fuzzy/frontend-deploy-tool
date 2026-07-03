@@ -135,6 +135,7 @@
     "publishVersionConfirm": "确定将版本「{{name}}」发布到正式环境？",
     "rollbackVersionConfirm": "确定将正式环境回滚到版本「{{name}}」？",
     "created": "已创建",
+    "saved": "已保存",
     "deleted": "已删除",
     "uploaded": "上传成功",
     "activated": "已设为正式",
@@ -143,5 +144,15 @@
     "failed": "操作失败",
     "copyFailed": "复制失败",
     "close": "关闭"
+  },
+  "members": {
+    "addTitle": "添加成员",
+    "transferTitle": "转让所有权",
+    "selectTarget": "选择成员…",
+    "transfer": "转让",
+    "remove": "移除",
+    "searchPlaceholder": "按邮箱搜索…",
+    "add": "添加",
+    "noResults": "未找到用户"
   }
 }

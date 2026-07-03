@@ -107,6 +107,36 @@ export function registerIpc(deps: {
       return r.data;
     }
   );
+  ipcMain.handle('api:searchUsers', async (_e, query: string) => {
+    const r = await serverRequest(session, getOrigin(), {
+      method: 'GET',
+      path: `/api/users/search?q=${encodeURIComponent(query)}`,
+    });
+    return r.data;
+  });
+  ipcMain.handle('api:addMember', async (_e, projectId: string, email: string, role: string) => {
+    const r = await serverRequest(session, getOrigin(), {
+      method: 'POST',
+      path: `/api/projects/${projectId}/members`,
+      body: { email, role },
+    });
+    return r.data;
+  });
+  ipcMain.handle('api:removeMember', async (_e, projectId: string, userId: string) => {
+    const r = await serverRequest(session, getOrigin(), {
+      method: 'DELETE',
+      path: `/api/projects/${projectId}/members/${userId}`,
+    });
+    return r.data;
+  });
+  ipcMain.handle('api:transferOwnership', async (_e, projectId: string, targetUserId: string) => {
+    const r = await serverRequest(session, getOrigin(), {
+      method: 'POST',
+      path: `/api/projects/${projectId}/transfer`,
+      body: { targetUserId },
+    });
+    return r.data;
+  });
   // api:uploadVersion is NOT registered here — uploads go through nativeUpload
   // (nativeUpload.uploadFolder / uploadZipPath) since they read bytes from disk.
 

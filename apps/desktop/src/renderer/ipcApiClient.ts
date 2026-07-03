@@ -35,5 +35,12 @@ export function createIpcApiClient(): ApiClient {
       bridge.api.rollbackVersion(projectId, versionId),
     deleteVersion: (projectId, versionId) =>
       bridge.api.deleteVersion(projectId, versionId),
+    searchUsers: (query) => bridge.api.searchUsers(query),
+    addMember: (projectId, email, role) =>
+      bridge.api.addMember(projectId, email, role),
+    removeMember: (projectId, userId) =>
+      bridge.api.removeMember(projectId, userId),
+    transferOwnership: (projectId, targetUserId) =>
+      bridge.api.transferOwnership(projectId, targetUserId),
   };
 }

@@ -1,11 +1,16 @@
-import { FolderOpen, LogOut, Plus, Settings } from 'lucide-react';
-import { useState } from 'react';
+import { FolderOpen, LogOut, Plus, Settings, UserPlus } from 'lucide-react';
+import { useState, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AvatarGroup } from '../shared/ui/avatar-group';
 import { UserDisplay } from '../shared/ui/user-display';
 import { DeployUrl } from '../features/deploy/DeployUrl';
 import { LanguageToggle } from '../features/i18n/LanguageToggle';
+import { AddMemberDialog } from '../features/members/AddMemberDialog';
+import { MemberList } from '../features/members/MemberList';
+import { TransferOwnershipDialog } from '../features/members/TransferOwnershipDialog';
 import { CreateProjectDialog } from '../features/projects/CreateProjectDialog';
 import { ProjectList } from '../features/projects/ProjectList';
+import { useApiClient } from '@deploykit/client';
 import { useProjects } from '../features/projects/useProjects';
 import { ProjectSettingsDialog } from '../features/settings/ProjectSettingsDialog';
 import { ThemeToggle } from '../features/theme/ThemeToggle';
@@ -38,12 +43,36 @@ export function DeployPage({ user, onLogout }: Props) {
     deleteVersion,
     onProjectDeleted,
   } = useProjects();
+  const api = useApiClient();
   const [showCreate, setShowCreate] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [showTransfer, setShowTransfer] = useState(false);
 
   const canCreateProject = true;
   const canManage = user.role !== 'viewer';
+
+  const currentUserIsOwner = useMemo(() => {
+    if (!selectedProject) return false;
+    return selectedProject.members.some(
+      (m) => m.userId === user.id && m.role === 'owner',
+    );
+  }, [selectedProject, user.id]);
+
+  // Build member info list with resolved user data.
+  const memberInfos = useMemo(() => {
+    if (!selectedProject) return [];
+    return selectedProject.members.map((m) => {
+      const name =
+        m.userId === user.id ? user.name : m.userId;
+      return {
+        userId: m.userId,
+        role: m.role,
+        user: { id: m.userId, name, email: '' },
+      };
+    });
+  }, [selectedProject, user]);
 
   const handleLogout = async () => {
     try {
@@ -101,7 +130,7 @@ export function DeployPage({ user, onLogout }: Props) {
           <div className="flex-1 flex flex-col min-w-0">
             {selectedProject ? (
               <>
-                <div className="px-5 py-3 border-b border-border">
+                <div className="px-5 py-3 border-b border-border space-y-2">
                   <div className="flex items-center gap-3">
                     <div className="shrink-0">
                       <h2 className="text-lg font-semibold">
@@ -111,7 +140,9 @@ export function DeployPage({ user, onLogout }: Props) {
                         {selectedProject.slug}
                       </p>
                     </div>
-                    {/* AvatarGroup will be wired in Task 6 once members carry user names */}
+                    {selectedProject.members.length > 0 && (
+                      <AvatarGroup users={memberInfos.map((m) => m.user)} max={4} />
+                    )}
                     <DeployUrl
                       slug={selectedProject.slug}
                       activeVersionId={selectedProject.activeVersionId}
@@ -140,6 +171,41 @@ export function DeployPage({ user, onLogout }: Props) {
                       </Button>
                     )}
                   </div>
+                  {/* Member section */}
+                  {memberInfos.length > 0 && (
+                    <div className="flex items-center justify-between border-t border-border pt-2">
+                      <MemberList
+                        members={memberInfos}
+                        currentUserId={user.id}
+                        projectId={selectedProject.id}
+                        onMembersChanged={refresh}
+                      />
+                      {currentUserIsOwner && (
+                        <div className="flex items-center gap-2 shrink-0 ml-4">
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Button
+                                variant="outline"
+                                size="icon-sm"
+                                onClick={() => setShowAddMember(true)}
+                              >
+                                <UserPlus className="size-4" />
+                              </Button>
+                            </TooltipTrigger>
+                            <TooltipContent>{t('members.addTitle')}</TooltipContent>
+                          </Tooltip>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setShowTransfer(true)}
+                            className="text-xs"
+                          >
+                            {t('members.transfer')}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <VersionList
@@ -187,6 +253,27 @@ export function DeployPage({ user, onLogout }: Props) {
           onDeleted={onProjectDeleted}
           onSaved={refresh}
           canDeleteProject={canCreateProject}
+        />
+      )}
+      {currentUserIsOwner && selectedProject && (
+        <AddMemberDialog
+          open={showAddMember}
+          projectId={selectedProject.id}
+          onAdded={refresh}
+          onClose={() => setShowAddMember(false)}
+        />
+      )}
+      {currentUserIsOwner && selectedProject && (
+        <TransferOwnershipDialog
+          open={showTransfer}
+          members={memberInfos
+            .filter((m) => m.userId !== user.id)
+            .map((m) => ({ userId: m.userId, name: m.user.name }))}
+          onTransfer={async (targetUserId) => {
+            await api.transferOwnership(selectedProject.id, targetUserId);
+            void refresh();
+          }}
+          onClose={() => setShowTransfer(false)}
         />
       )}
     </div>
