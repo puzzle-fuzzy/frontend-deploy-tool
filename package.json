@@ -65,7 +65,7 @@
     }
   },
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "turbo run dev --filter=@deploykit/server --filter=@deploykit/web",
     "dev:web": "bun --filter @deploykit/web dev",
     "dev:server": "bun --filter @deploykit/server dev",
     "dev:desktop": "bun --filter @deploykit/desktop dev",
