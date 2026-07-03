@@ -298,14 +298,12 @@ export function ProjectSettingsForm(props: {
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [name, setName] = useState(props.project.name);
   const [slug, setSlug] = useState(props.project.slug);
-  const [description, setDescription] = useState(
-    props.project.description || "",
-  );
+  const [description, setDescription] = useState(props.project.description || '');
 
   useEffect(() => {
     setName(props.project.name);
     setSlug(props.project.slug);
-    setDescription(props.project.description || "");
+    setDescription(props.project.description || '');
     setSettings(props.project.settings);
     setConfirmDelete(false);
   }, [props.project]);
@@ -313,16 +311,12 @@ export function ProjectSettingsForm(props: {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await api.updateProject(props.project.id, {
-        name: name.trim(),
-        slug: slug.trim(),
-        description: description.trim(),
-      });
+      await api.updateProject(props.project.id, { name: name.trim(), slug: slug.trim(), description: description.trim() });
       await api.updateSettings(props.project.id, settings);
-      toast(t("settings.saved"));
+      toast(t('settings.saved'));
       props.onSaved();
     } catch (err) {
-      toast(getLocalizedError(err, t, t("common.failed")), "error");
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     } finally {
       setSaving(false);
     }
@@ -331,175 +325,100 @@ export function ProjectSettingsForm(props: {
   const handleDelete = async () => {
     try {
       await api.deleteProject(props.project.id);
-      toast(t("common.deleted"));
+      toast(t('common.deleted'));
       props.onDeleted();
     } catch (err) {
-      toast(getLocalizedError(err, t, t("common.failed")), "error");
+      toast(getLocalizedError(err, t, t('common.failed')), 'error');
     }
   };
 
+  const sectionClass = 'rounded-xl border border-border bg-card p-5 space-y-4';
+
   return (
-    <div className="space-y-5">
+    <div className="max-w-2xl space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">{t("settings.title")}</h3>
-        <p className="text-sm text-muted-foreground">{t("settings.desc")}</p>
+        <h3 className="text-lg font-semibold">{t('settings.title')}</h3>
+        <p className="text-sm text-muted-foreground mt-1">{t('settings.desc')}</p>
       </div>
 
-      <Separator />
-
-      <div className="space-y-3">
-        <Label className="text-base font-medium">
-          {t("settings.projectInfo")}
-        </Label>
-        <div className="space-y-2">
-          <div>
-            <Label htmlFor="pf-name" className="text-sm">
-              {t("create.name")}
-            </Label>
-            <Input
-              id="pf-name"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={t("create.namePlaceholder")}
-            />
+      {/* Project Information */}
+      <div className={sectionClass}>
+        <h4 className="text-sm font-semibold text-foreground">{t('settings.projectInfo')}</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="space-y-1.5">
+            <Label htmlFor="pf-name" className="text-sm font-medium text-foreground">{t('create.name')}</Label>
+            <Input id="pf-name" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('create.namePlaceholder')} />
           </div>
-          <div>
-            <Label htmlFor="pf-slug" className="text-sm">
-              {t("create.slug")}
-            </Label>
-            <Input
-              id="pf-slug"
-              value={slug}
-              onChange={(e) =>
-                setSlug(normalizeProjectSlugInput(e.target.value))
-              }
-              placeholder={t("create.slugPlaceholder")}
-              className="font-mono"
-            />
+          <div className="space-y-1.5">
+            <Label htmlFor="pf-slug" className="text-sm font-medium text-foreground">{t('create.slug')}</Label>
+            <Input id="pf-slug" value={slug} onChange={(e) => setSlug(normalizeProjectSlugInput(e.target.value))} placeholder={t('create.slugPlaceholder')} className="font-mono" />
           </div>
-          <div>
-            <Label htmlFor="pf-desc" className="text-sm">
-              {t("create.description")}
-            </Label>
-            <Textarea
-              id="pf-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder={t("create.descPlaceholder")}
-              rows={2}
-            />
-          </div>
+        </div>
+        <div className="space-y-1.5">
+          <Label htmlFor="pf-desc" className="text-sm font-medium text-foreground">{t('create.description')}</Label>
+          <Textarea id="pf-desc" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('create.descPlaceholder')} rows={2} />
         </div>
       </div>
 
-      <Separator />
-
-      <div className="flex items-center justify-between">
-        <div className="space-y-1">
-          <Label htmlFor="pf-spa" className="text-sm">
-            {t("settings.spaMode")}
-          </Label>
-          <p className="text-sm text-muted-foreground">
-            {t("settings.spaModeDesc")}
-          </p>
+      {/* SPA Mode */}
+      <div className={sectionClass}>
+        <div className="flex items-center justify-between">
+          <div className="space-y-0.5">
+            <Label htmlFor="pf-spa" className="text-sm font-medium text-foreground">{t('settings.spaMode')}</Label>
+            <p className="text-sm text-muted-foreground">{t('settings.spaModeDesc')}</p>
+          </div>
+          <Switch id="pf-spa" checked={settings.spaMode} onCheckedChange={(checked) => setSettings((s) => ({ ...s, spaMode: checked }))} />
         </div>
-        <Switch
-          id="pf-spa"
-          checked={settings.spaMode}
-          onCheckedChange={(checked) =>
-            setSettings((s) => ({ ...s, spaMode: checked }))
-          }
-        />
       </div>
 
-      <Separator />
-
-      <div className="space-y-3">
-        <Label>{t("settings.routingType")}</Label>
-        <div className="space-y-2">
-          <Button
-            type="button"
-            variant={settings.routingType === "hash" ? "default" : "outline"}
-            className="w-full h-auto py-2.5 justify-start"
-            onClick={() => setSettings((s) => ({ ...s, routingType: "hash" }))}
-          >
+      {/* Routing */}
+      <div className={sectionClass}>
+        <h4 className="text-sm font-semibold text-foreground">{t('settings.routingType')}</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Button type="button" variant={settings.routingType === 'hash' ? 'default' : 'outline'} className="h-auto py-3 justify-start" onClick={() => setSettings((s) => ({ ...s, routingType: 'hash' }))}>
             <Hash className="size-5 mr-2 shrink-0" />
             <div className="text-left min-w-0">
-              <p className="text-sm font-medium">{t("settings.routingHash")}</p>
-              <p className="text-xs mt-0.5 text-muted-foreground">
-                {t("settings.routingHashDesc")}
-              </p>
+              <p className="text-sm font-medium">{t('settings.routingHash')}</p>
+              <p className="text-xs mt-0.5 text-muted-foreground">{t('settings.routingHashDesc')}</p>
             </div>
           </Button>
-          <Button
-            type="button"
-            variant={settings.routingType === "path" ? "default" : "outline"}
-            className="w-full h-auto py-2.5 justify-start"
-            onClick={() => setSettings((s) => ({ ...s, routingType: "path" }))}
-          >
+          <Button type="button" variant={settings.routingType === 'path' ? 'default' : 'outline'} className="h-auto py-3 justify-start" onClick={() => setSettings((s) => ({ ...s, routingType: 'path' }))}>
             <Route className="size-5 mr-2 shrink-0" />
             <div className="text-left min-w-0">
-              <p className="text-sm font-medium">{t("settings.routingPath")}</p>
-              <p className="text-xs mt-0.5 text-muted-foreground">
-                {t("settings.routingPathDesc")}
-              </p>
+              <p className="text-sm font-medium">{t('settings.routingPath')}</p>
+              <p className="text-xs mt-0.5 text-muted-foreground">{t('settings.routingPathDesc')}</p>
             </div>
           </Button>
         </div>
       </div>
 
+      {/* Danger zone */}
       {props.canDeleteProject && (
-        <>
-          <Separator />
-          <div className="space-y-2">
-            <Label className="text-destructive">
-              {t("settings.dangerZone")}
-            </Label>
-            <div className="flex items-center justify-between gap-3 p-3 rounded-lg border border-destructive/20">
-              <div className="space-y-1 min-w-0">
-                <p className="text-base font-medium">
-                  {t("settings.deleteProject")}
-                </p>
-                <p className="text-sm text-muted-foreground">
-                  {t("settings.deleteProjectDesc")}
-                </p>
-              </div>
-              {!confirmDelete ? (
-                <Button
-                  variant="destructive"
-                  size="default"
-                  className="shrink-0"
-                  onClick={() => setConfirmDelete(true)}
-                >
-                  <Trash2 className="size-4" />
-                  {t("common.delete")}
-                </Button>
-              ) : (
-                <div className="flex items-center gap-2 shrink-0">
-                  <Button
-                    variant="outline"
-                    size="default"
-                    onClick={() => setConfirmDelete(false)}
-                  >
-                    {t("common.close")}
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="default"
-                    onClick={handleDelete}
-                  >
-                    {t("common.confirm")}
-                  </Button>
-                </div>
-              )}
+        <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-5 space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <div className="space-y-0.5">
+              <h4 className="text-sm font-semibold text-destructive">{t('settings.dangerZone')}</h4>
+              <p className="text-sm text-muted-foreground">{t('settings.deleteProjectDesc')}</p>
             </div>
+            {!confirmDelete ? (
+              <Button variant="destructive" size="sm" className="shrink-0" onClick={() => setConfirmDelete(true)}>
+                <Trash2 className="size-4" />
+                {t('common.delete')}
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2 shrink-0">
+                <Button variant="outline" size="sm" onClick={() => setConfirmDelete(false)}>{t('common.close')}</Button>
+                <Button variant="destructive" size="sm" onClick={handleDelete}>{t('common.confirm')}</Button>
+              </div>
+            )}
           </div>
-        </>
+        </div>
       )}
 
-      <div className="flex items-center justify-end gap-2">
-        <Button onClick={handleSave} disabled={saving}>
-          {t("settings.save")}
+      {/* Save */}
+      <div className="flex items-center justify-end gap-3 pt-2">
+        <Button onClick={handleSave} disabled={saving} size="lg" className="px-8">
+          {saving ? t('common.loading') : t('settings.save')}
         </Button>
       </div>
     </div>

@@ -1,7 +1,8 @@
-import { Trash2 } from 'lucide-react';
+import { Crown, Trash2, User } from 'lucide-react';
 import { getLocalizedError } from '../../shared/error-messages';
 import { useTranslation } from 'react-i18next';
 import { useApiClient } from '@deploykit/client';
+import { Badge } from '../../shared/ui/badge';
 import { Button } from '../../shared/ui/button';
 import { useToast } from '../../shared/ui/toast-context';
 import { UserDisplay } from '../../shared/ui/user-display';
@@ -19,7 +20,12 @@ interface Props {
   onMembersChanged: () => void;
 }
 
-export function MemberList({ members, currentUserId, projectId, onMembersChanged }: Props) {
+export function MemberList({
+  members,
+  currentUserId,
+  projectId,
+  onMembersChanged,
+}: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
   const api = useApiClient();
@@ -41,20 +47,37 @@ export function MemberList({ members, currentUserId, projectId, onMembersChanged
   return (
     <div className="space-y-2">
       {members.map((m) => (
-        <div key={m.userId} className="flex items-center justify-between py-1">
-          <UserDisplay user={m.user} showEmail avatarSize="sm" />
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground uppercase font-medium">
-              {m.role}
-            </span>
+        <div
+          key={m.userId}
+          className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3.5"
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <UserDisplay user={m.user} showEmail avatarSize="md" />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {m.role === 'owner' ? (
+              <Badge
+                variant="outline"
+                className="gap-1 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+              >
+                <Crown className="size-3" />
+                Owner
+              </Badge>
+            ) : (
+              <Badge variant="secondary" className="gap-1">
+                <User className="size-3" />
+                Member
+              </Badge>
+            )}
             {isOwner && m.userId !== currentUserId && (
               <Button
                 variant="ghost"
                 size="icon-sm"
+                className="text-muted-foreground hover:text-destructive"
                 onClick={() => handleRemove(m.userId)}
                 aria-label={t('members.remove')}
               >
-                <Trash2 className="size-3" />
+                <Trash2 className="size-3.5" />
               </Button>
             )}
           </div>
