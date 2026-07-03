@@ -1,27 +1,34 @@
-import { ArrowLeft, FolderOpen, LogOut, Plus, Settings, Users, UserPlus } from 'lucide-react';
-import { useState, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useApiClient } from '@deploykit/client';
-import { AvatarGroup } from '../shared/ui/avatar-group';
-import { UserDisplay } from '../shared/ui/user-display';
+import {
+  ArrowLeft,
+  FolderOpen,
+  LogOut,
+  Plus,
+  Settings,
+  UserPlus,
+  Users,
+} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { DeployUrl } from '../features/deploy/DeployUrl';
 import { LanguageToggle } from '../features/i18n/LanguageToggle';
 import { AddMemberDialog } from '../features/members/AddMemberDialog';
 import { MemberList } from '../features/members/MemberList';
 import { TransferOwnershipDialog } from '../features/members/TransferOwnershipDialog';
 import { CreateProjectDialog } from '../features/projects/CreateProjectDialog';
-import { ProjectList } from '../features/projects/ProjectList';
 import { useProjects } from '../features/projects/useProjects';
-import { ProjectSettingsDialog } from '../features/settings/ProjectSettingsDialog';
+import { ProjectSettingsForm } from '../features/settings/ProjectSettingsDialog';
 import { ThemeToggle } from '../features/theme/ThemeToggle';
 import { UploadVersionDialog } from '../features/versions/UploadVersionDialog';
 import { VersionList } from '../features/versions/VersionList';
 import type { SafeUser } from '../shared/types';
+import { AvatarGroup } from '../shared/ui/avatar-group';
 import { Badge } from '../shared/ui/badge';
 import { Button } from '../shared/ui/button';
 import { Separator } from '../shared/ui/separator';
 import { useToast } from '../shared/ui/toast-context';
 import { Tooltip, TooltipContent, TooltipTrigger } from '../shared/ui/tooltip';
+import { UserDisplay } from '../shared/ui/user-display';
 
 type DetailTab = 'versions' | 'members' | 'settings';
 
@@ -62,9 +69,7 @@ export function DeployPage({ user, onLogout }: Props) {
 
   const currentUserIsOwner = useMemo(() => {
     if (!selectedProject) return false;
-    return members.some(
-      (m) => m.userId === user.id && m.role === 'owner',
-    );
+    return members.some((m) => m.userId === user.id && m.role === 'owner');
   }, [members, selectedProject, user.id]);
 
   const memberInfos = useMemo(() => {
@@ -106,6 +111,12 @@ export function DeployPage({ user, onLogout }: Props) {
             {t(`auth.roles.${user.role}`)}
           </Badge>
         </div>
+        {!selectedProject && (
+          <Button size="sm" onClick={() => setShowCreate(true)} className="mr-1">
+            <Plus className="size-4" />
+            <span className="hidden sm:inline ml-1">{t('app.newProject')}</span>
+          </Button>
+        )}
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon-sm" onClick={handleLogout} aria-label={t('auth.logout')}>
@@ -121,24 +132,37 @@ export function DeployPage({ user, onLogout }: Props) {
     </header>
   );
 
-  // ── Project List Page ─────────────────────────────────────────
+  // ── Project List Page (grid) ──────────────────────────────────
   const projectListPage = (
     <div className="flex-1 flex flex-col p-4 sm:p-6 w-full">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl sm:text-2xl font-bold">{t('app.projects')}</h2>
-        <Button onClick={() => setShowCreate(true)}>
-          <Plus className="size-4" />
-          <span className="hidden sm:inline">{t('app.newProject')}</span>
-        </Button>
+      <h2 className="text-xl sm:text-2xl font-bold mb-6">{t('app.projects')}</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {loading ? (
+          <p className="text-muted-foreground col-span-2">{t('common.loading')}</p>
+        ) : projects.length === 0 ? (
+          <div className="col-span-2 text-center py-16">
+            <FolderOpen className="size-12 text-muted-foreground/30 mx-auto mb-3" />
+            <p className="text-muted-foreground">{t('projects.empty')}</p>
+            <p className="text-sm text-muted-foreground mt-1">{t('projects.emptyDesc')}</p>
+          </div>
+        ) : (
+          projects.map((project) => (
+            <button
+              key={project.id}
+              type="button"
+              onClick={() => selectProject(project)}
+              className="text-left bg-card border border-border rounded-xl p-5 hover:border-primary/50 hover:shadow-sm transition-all"
+            >
+              <p className="text-base font-semibold truncate">{project.name}</p>
+              <p className="text-sm text-muted-foreground font-mono mt-0.5">{project.slug}</p>
+              <p className="text-xs text-muted-foreground mt-3">
+                {t('projects.versions', { count: project.versions.length })} ·{' '}
+                {t('projects.updated', { date: new Date(project.updatedAt).toLocaleDateString() })}
+              </p>
+            </button>
+          ))
+        )}
       </div>
-      <ProjectList
-        projects={projects}
-        loading={loading}
-        selectedProjectId={selectedProject?.id}
-        onSelect={selectProject}
-        canCreate={false}
-        onCreate={() => {}}
-      />
     </div>
   );
 
@@ -171,14 +195,11 @@ export function DeployPage({ user, onLogout }: Props) {
             {memberInfos.length > 0 && (
               <AvatarGroup users={memberInfos.map((m) => m.user)} max={3} />
             )}
-            <DeployUrl
-              slug={selectedProject.slug}
-              activeVersionId={selectedProject.activeVersionId}
-            />
+            <DeployUrl slug={selectedProject.slug} activeVersionId={selectedProject.activeVersionId} />
             {canManage && (
               <Button size="default" onClick={() => setShowUpload(true)}>
                 <Plus className="size-4" />
-                <span className="hidden sm:inline">{t('versions.upload')}</span>
+                <span className="hidden sm:inline ml-1">{t('versions.upload')}</span>
               </Button>
             )}
           </div>
@@ -186,8 +207,8 @@ export function DeployPage({ user, onLogout }: Props) {
       </div>
 
       {/* Tab navigation */}
-      <div className="border-b border-border mt-4 px-4 sm:px-6 overflow-x-auto">
-        <nav className="flex gap-4 sm:gap-6 -mb-px min-w-max">
+      <div className="border-b border-border mt-4 px-4 sm:px-6">
+        <nav className="flex gap-4 sm:gap-6 -mb-px">
           {tabs.map((tab) => (
             <button
               type="button"
@@ -249,12 +270,9 @@ export function DeployPage({ user, onLogout }: Props) {
           </div>
         )}
 
-        {activeTab === 'settings' && (
+        {activeTab === 'settings' && selectedProject && (
           <div className="max-w-lg">
-            <ProjectSettingsDialog
-              key={selectedProject.id}
-              open={true}
-              onOpenChange={(open) => { if (!open) setActiveTab('versions'); }}
+            <ProjectSettingsForm
               project={selectedProject}
               onDeleted={onProjectDeleted}
               onSaved={refresh}
@@ -275,37 +293,18 @@ export function DeployPage({ user, onLogout }: Props) {
       </main>
 
       {/* Dialogs */}
-      <CreateProjectDialog
-        open={showCreate}
-        onOpenChange={setShowCreate}
-        onCreated={refresh}
-      />
+      <CreateProjectDialog open={showCreate} onOpenChange={setShowCreate} onCreated={refresh} />
       {canManage && selectedProject && (
-        <UploadVersionDialog
-          open={showUpload}
-          onOpenChange={setShowUpload}
-          projectId={selectedProject.id}
-          onUploaded={refresh}
-        />
+        <UploadVersionDialog open={showUpload} onOpenChange={setShowUpload} projectId={selectedProject.id} onUploaded={refresh} />
       )}
       {currentUserIsOwner && selectedProject && (
-        <AddMemberDialog
-          open={showAddMember}
-          projectId={selectedProject.id}
-          onAdded={refresh}
-          onClose={() => setShowAddMember(false)}
-        />
+        <AddMemberDialog open={showAddMember} projectId={selectedProject.id} onAdded={refresh} onClose={() => setShowAddMember(false)} />
       )}
       {currentUserIsOwner && selectedProject && (
         <TransferOwnershipDialog
           open={showTransfer}
-          members={memberInfos
-            .filter((m) => m.userId !== user.id)
-            .map((m) => ({ userId: m.userId, name: m.user.name }))}
-          onTransfer={async (targetUserId) => {
-            await api.transferOwnership(selectedProject.id, targetUserId);
-            void refresh();
-          }}
+          members={memberInfos.filter((m) => m.userId !== user.id).map((m) => ({ userId: m.userId, name: m.user.name }))}
+          onTransfer={async (targetUserId) => { await api.transferOwnership(selectedProject.id, targetUserId); void refresh(); }}
           onClose={() => setShowTransfer(false)}
         />
       )}
