@@ -53,26 +53,27 @@ export function DeployPage({ user, onLogout }: Props) {
   const canCreateProject = true;
   const canManage = user.role !== 'viewer';
 
+  const members = selectedProject?.members ?? [];
+
   const currentUserIsOwner = useMemo(() => {
     if (!selectedProject) return false;
-    return selectedProject.members.some(
+    return members.some(
       (m) => m.userId === user.id && m.role === 'owner',
     );
-  }, [selectedProject, user.id]);
+  }, [members, selectedProject, user.id]);
 
   // Build member info list with resolved user data.
   const memberInfos = useMemo(() => {
     if (!selectedProject) return [];
-    return selectedProject.members.map((m) => {
-      const name =
-        m.userId === user.id ? user.name : m.userId;
+    return members.map((m) => {
+      const n = m.userId === user.id ? user.name : m.userId;
       return {
         userId: m.userId,
         role: m.role,
-        user: { id: m.userId, name, email: '' },
+        user: { id: m.userId, name: n, email: '' },
       };
     });
-  }, [selectedProject, user]);
+  }, [members, selectedProject, user]);
 
   const handleLogout = async () => {
     try {
@@ -140,7 +141,7 @@ export function DeployPage({ user, onLogout }: Props) {
                         {selectedProject.slug}
                       </p>
                     </div>
-                    {selectedProject.members.length > 0 && (
+                    {memberInfos.length > 0 && (
                       <AvatarGroup users={memberInfos.map((m) => m.user)} max={4} />
                     )}
                     <DeployUrl
@@ -172,7 +173,7 @@ export function DeployPage({ user, onLogout }: Props) {
                     )}
                   </div>
                   {/* Member section */}
-                  {memberInfos.length > 0 && (
+                  {(memberInfos.length > 0 || currentUserIsOwner) && (
                     <div className="flex items-center justify-between border-t border-border pt-2">
                       <MemberList
                         members={memberInfos}
@@ -194,14 +195,16 @@ export function DeployPage({ user, onLogout }: Props) {
                             </TooltipTrigger>
                             <TooltipContent>{t('members.addTitle')}</TooltipContent>
                           </Tooltip>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            onClick={() => setShowTransfer(true)}
-                            className="text-xs"
-                          >
-                            {t('members.transfer')}
-                          </Button>
+                          {memberInfos.length > 1 && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => setShowTransfer(true)}
+                              className="text-xs"
+                            >
+                              {t('members.transfer')}
+                            </Button>
+                          )}
                         </div>
                       )}
                     </div>
