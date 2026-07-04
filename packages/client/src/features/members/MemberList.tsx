@@ -1,11 +1,11 @@
 import { useApiClient } from '@deploykit/client';
 import { Crown, Trash2, User } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast-context';
+import { UserDisplay } from '@/components/ui/user-display';
 import { getLocalizedError } from '../../shared/error-messages';
-import { Badge } from '../../shared/ui/badge';
-import { Button } from '../../shared/ui/button';
-import { useToast } from '../../shared/ui/toast-context';
-import { UserDisplay } from '../../shared/ui/user-display';
 
 interface MemberInfo {
   userId: string;

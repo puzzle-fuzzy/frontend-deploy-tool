@@ -1,9 +1,9 @@
 import { useApiClient, useNative } from '@deploykit/client';
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useToast } from '@/components/ui/toast-context';
 import { getLocalizedError } from '../../shared/error-messages';
 import type { Project } from '../../shared/types';
-import { useToast } from '../../shared/ui/toast-context';
 
 function getHashProjectId(): string {
   const hash = window.location.hash;

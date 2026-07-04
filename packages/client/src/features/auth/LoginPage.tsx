@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '../../shared/ui/card';
+} from '@/components/ui/card';
 import {
   Field,
   FieldDescription,
   FieldError,
   FieldGroup,
   FieldLabel,
-} from '../../shared/ui/field';
-import { Input } from '../../shared/ui/input';
-import { Tabs, TabsList, TabsTrigger } from '../../shared/ui/tabs';
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 interface Props {
   onLogin: (email: string, password: string) => Promise<unknown>;

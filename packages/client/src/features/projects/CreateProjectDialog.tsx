@@ -1,24 +1,24 @@
 import { useApiClient } from '@deploykit/client';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getLocalizedError } from '../../shared/error-messages';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../shared/ui/dialog';
+} from '@/components/ui/dialog';
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
-} from '../../shared/ui/field';
-import { Input } from '../../shared/ui/input';
-import { Textarea } from '../../shared/ui/textarea';
-import { useToast } from '../../shared/ui/toast-context';
+} from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/components/ui/toast-context';
+import { getLocalizedError } from '../../shared/error-messages';
 import { normalizeProjectSlugInput } from './slug';
 
 interface Props {

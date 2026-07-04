@@ -1,13 +1,14 @@
 import { Copy, ExternalLink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { publicBaseURL } from '../../shared/config';
-import { Button } from '../../shared/ui/button';
-import { useToast } from '../../shared/ui/toast-context';
+import { Button, buttonVariants } from '@/components/ui/button';
+import { useToast } from '@/components/ui/toast-context';
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
-} from '../../shared/ui/tooltip';
+} from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
+import { publicBaseURL } from '../../shared/config';
 
 interface Props {
   slug: string;
@@ -53,28 +54,37 @@ export function DeployUrl({ slug, activeVersionId }: Props) {
         {isLive ? t('versions.live') : t('versions.notLive')}
       </span>
       <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="outline"
-            size="icon-sm"
-            onClick={() => {
-              navigator.clipboard.writeText(deployUrl);
-              toast(t('common.copied'));
-            }}
-          >
-            <Copy className="size-4" />
-          </Button>
+        <TooltipTrigger
+          render={
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => {
+                navigator.clipboard.writeText(deployUrl);
+                toast(t('common.copied'));
+              }}
+            />
+          }
+        >
+          <Copy className="size-4" />
         </TooltipTrigger>
         <TooltipContent>{t('common.copy')}</TooltipContent>
       </Tooltip>
       {isLive && (
         <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon-sm" asChild>
-              <a href={deployUrl} target="_blank" rel="noopener noreferrer">
-                <ExternalLink className="size-4" />
-              </a>
-            </Button>
+          <TooltipTrigger
+            render={
+              <a
+                href={deployUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={cn(
+                  buttonVariants({ variant: 'outline', size: 'icon-sm' })
+                )}
+              />
+            }
+          >
+            <ExternalLink className="size-4" />
           </TooltipTrigger>
           <TooltipContent>{t('versions.preview')}</TooltipContent>
         </Tooltip>

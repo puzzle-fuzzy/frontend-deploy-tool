@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { AvatarGroup } from '../../src/shared/ui/avatar-group';
+import { AvatarGroup } from '@/components/ui/avatar-group';
 
 const users = [
   { id: '1', name: 'Alice' },

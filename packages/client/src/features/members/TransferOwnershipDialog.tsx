@@ -1,22 +1,22 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getLocalizedError } from '../../shared/error-messages';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../shared/ui/dialog';
+} from '@/components/ui/dialog';
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '../../shared/ui/select';
-import { useToast } from '../../shared/ui/toast-context';
+} from '@/components/ui/select';
+import { useToast } from '@/components/ui/toast-context';
+import { getLocalizedError } from '../../shared/error-messages';
 
 interface MemberOption {
   userId: string;

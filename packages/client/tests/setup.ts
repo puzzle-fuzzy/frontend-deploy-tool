@@ -39,6 +39,6 @@ vi.mock('react-i18next', async (importOriginal) => {
 });
 
 // Toast is a side-effect channel; no-op it in tests.
-vi.mock('@/shared/ui/toast-context', () => ({
+vi.mock('@/components/ui/toast-context', () => ({
   useToast: () => ({ toast: () => {} }),
 }));

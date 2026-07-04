@@ -2,19 +2,19 @@ import { useApiClient, useNative } from '@deploykit/client';
 import { FileArchive, FolderOpen, HardDriveUpload, Upload } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getLocalizedError } from '../../shared/error-messages';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../shared/ui/dialog';
-import { Field, FieldGroup, FieldLabel } from '../../shared/ui/field';
-import { Progress } from '../../shared/ui/progress';
-import { Textarea } from '../../shared/ui/textarea';
-import { useToast } from '../../shared/ui/toast-context';
+} from '@/components/ui/dialog';
+import { Field, FieldGroup, FieldLabel } from '@/components/ui/field';
+import { Progress } from '@/components/ui/progress';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/components/ui/toast-context';
+import { getLocalizedError } from '../../shared/error-messages';
 
 interface Props {
   open: boolean;

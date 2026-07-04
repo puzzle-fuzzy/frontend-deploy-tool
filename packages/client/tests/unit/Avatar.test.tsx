@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { Avatar, AvatarFallback } from '../../src/shared/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 
 describe('Avatar', () => {
   it('renders children inside the avatar container', () => {

@@ -1,10 +1,10 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi } from 'vitest';
-import { ToastProvider } from '../../src/shared/ui/toast';
-import { useToast } from '../../src/shared/ui/toast-context';
+import { ToastProvider } from '@/components/ui/toast';
+import { useToast } from '@/components/ui/toast-context';
 
-vi.unmock('@/shared/ui/toast-context');
+vi.unmock('@/components/ui/toast-context');
 
 const Trigger = ({ message, type }: { message: string; type?: 'error' }) => {
   const { toast } = useToast();

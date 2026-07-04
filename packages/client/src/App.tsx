@@ -1,12 +1,12 @@
 import './i18n';
 import './index.css';
 import { Loader2 } from 'lucide-react';
+import { ToastProvider } from '@/components/ui/toast';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { DesktopAuthorizePage } from './features/auth/DesktopAuthorizePage';
 import { LoginPage } from './features/auth/LoginPage';
 import { useAuth } from './features/auth/useAuth';
 import { DeployPage } from './pages/DeployPage';
-import { ToastProvider } from './shared/ui/toast';
-import { TooltipProvider } from './shared/ui/tooltip';
 
 export default function App() {
   const { user, loading, login, logout, register } = useAuth();
