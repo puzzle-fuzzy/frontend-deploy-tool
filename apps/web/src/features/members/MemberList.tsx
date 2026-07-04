@@ -1,4 +1,5 @@
 import { Crown, ShieldCheck, Trash2, UserIcon } from 'lucide-react';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -100,9 +101,9 @@ function MemberRow({
   return (
     <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
       <div className="flex min-w-0 items-center gap-3">
-        <div className="flex size-8 items-center justify-center rounded-full bg-muted">
-          <UserIcon className="size-4 text-muted-foreground" />
-        </div>
+        <Avatar size="sm">
+          <AvatarFallback>{member.userId.slice(0, 2).toUpperCase()}</AvatarFallback>
+        </Avatar>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">
             {isCurrentUser ? t('members.you') : member.userId}

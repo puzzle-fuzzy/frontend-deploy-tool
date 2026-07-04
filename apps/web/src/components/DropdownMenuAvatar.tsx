@@ -5,7 +5,6 @@ import {
   LogOutIcon,
   MoonIcon,
   SunIcon,
-  UserIcon,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
@@ -60,7 +59,9 @@ export function DropdownMenuAvatar({
       <DropdownMenuContent align="end" className="min-w-48">
         <DropdownMenuGroup>
           <DropdownMenuItem className="items-start">
-            <UserIcon />
+            <Avatar size="sm">
+              <AvatarFallback>{initials(user.name) || 'DK'}</AvatarFallback>
+            </Avatar>
             <div className="min-w-0">
               <div className="truncate font-medium">{user.name}</div>
               <div className="truncate text-xs text-muted-foreground">
