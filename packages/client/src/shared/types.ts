@@ -1,6 +1,7 @@
 export type {
   HistoryEvent,
   Project,
+  ProjectMember,
   Role,
   SafeUser,
   Settings,
