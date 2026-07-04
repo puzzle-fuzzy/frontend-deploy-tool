@@ -1,263 +1,205 @@
 import {
-  Eye,
-  FileArchive,
-  FolderOpen,
-  Loader2,
-  Rocket,
-  Trash2,
+  CalendarIcon,
+  ExternalLinkIcon,
+  FileTextIcon,
+  MoreHorizontalIcon,
+  RocketIcon,
+  RotateCcwIcon,
+  Trash2Icon,
 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { publicBaseURL } from '../../shared/config';
-import { formatBytes, formatDate } from '../../shared/format';
-import type { Project, Version } from '../../shared/types';
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemTitle,
+} from '@/components/ui/item';
+import { Separator } from '@/components/ui/separator';
+import { formatBytes, formatDate } from '@/shared/format';
+import type { Project, Version } from '@/shared/types';
+import { VersionStatusBadge } from './VersionStatusBadge';
 
-interface Props {
+interface VersionListProps {
   project: Project;
   pendingVersionId: string | null;
-  readOnly?: boolean;
-  onPublish: (versionId: string) => void;
-  onRollback: (versionId: string) => void;
-  onDelete: (versionId: string) => void;
+  readOnly: boolean;
+  onPublish: (versionId: string) => Promise<void>;
+  onRollback: (versionId: string) => Promise<void>;
+  onDelete: (versionId: string) => Promise<void>;
 }
-
-type ConfirmAction = {
-  type: 'publish' | 'rollback' | 'delete';
-  versionId: string;
-} | null;
 
 export function VersionList({
   project,
   pendingVersionId,
-  readOnly = false,
+  readOnly,
   onPublish,
   onRollback,
   onDelete,
-}: Props) {
+}: VersionListProps) {
   const { t } = useTranslation();
-  const productionVersion = project.versions.find(
-    (v) => v.id === project.activeVersionId
-  );
-  const previewVersions = project.versions.filter(
-    (v) => v.id !== project.activeVersionId
-  );
-  const orderedVersions = productionVersion
-    ? [productionVersion, ...previewVersions]
-    : previewVersions;
-  const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
-
-  const metaText = (v: Version): string => {
-    const size = formatBytes(v.size);
-    if (!v.fileCount && !size && v.sourceType === 'unknown') return '';
-    const sourceLabel =
-      v.sourceType === 'zip'
-        ? t('versions.sourceZip')
-        : v.sourceType === 'folder'
-          ? t('versions.sourceFolder')
-          : t('versions.sourceUnknown');
-    return t('versions.meta', {
-      source: sourceLabel,
-      size: size || '-',
-      count: v.fileCount,
-    });
-  };
-
-  const confirmVersion = project.versions.find(
-    (v) => v.id === confirmAction?.versionId
-  );
-
-  const sourceIcon = (v: Version) =>
-    v.sourceType === 'zip' ? <FileArchive /> : <FolderOpen />;
 
   if (project.versions.length === 0) {
     return (
-      <Card>
-        <CardContent>
-          <Empty>
-            <EmptyHeader>
-              <EmptyMedia variant="icon">
-                <FolderOpen />
-              </EmptyMedia>
-              <EmptyTitle>{t('versions.empty')}</EmptyTitle>
-              <EmptyDescription>{t('versions.emptyDesc')}</EmptyDescription>
-            </EmptyHeader>
-          </Empty>
-        </CardContent>
-      </Card>
+      <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+        {t('versions.empty')}
+      </div>
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{t('versions.title')}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Version</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Date</TableHead>
-              <TableHead className="text-right">Action</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orderedVersions.map((version) => {
-              const isProd = version.id === project.activeVersionId;
-              const pending = pendingVersionId === version.id;
+    <div className="rounded-xl border bg-card">
+      {project.versions.map((version, index) => (
+        <VersionItem
+          key={version.id}
+          project={project}
+          version={version}
+          pending={pendingVersionId === version.id}
+          readOnly={readOnly}
+          showSeparator={index < project.versions.length - 1}
+          onPublish={onPublish}
+          onRollback={onRollback}
+          onDelete={onDelete}
+        />
+      ))}
+    </div>
+  );
+}
 
-              return (
-                <TableRow key={version.id}>
-                  <TableCell>
-                    <div className="flex min-w-0 items-center gap-2">
-                      {pending ? (
-                        <Loader2 className="animate-spin" />
-                      ) : isProd ? (
-                        <Rocket />
-                      ) : (
-                        sourceIcon(version)
-                      )}
-                      <div className="min-w-0">
-                        <p className="truncate font-medium">{version.name}</p>
-                        {version.description && (
-                          <p className="truncate text-xs text-muted-foreground">
-                            {version.description}
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={isProd ? 'default' : 'outline'}>
-                      {isProd
-                        ? t('versions.production')
-                        : t('versions.staging')}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {metaText(version) || t('versions.sourceUnknown')}
-                  </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {formatDate(version.createdAt)}
-                    {version.publishedBy ? ` by ${version.publishedBy}` : ''}
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex justify-end gap-2">
-                      {!pending && (
-                        <>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            render={
-                              <a
-                                href={`${publicBaseURL}/deploy/${project.slug}/${version.id}/`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                              />
-                            }
-                          >
-                            <Eye data-icon="inline-start" />
-                            {t('versions.preview')}
-                          </Button>
-                          {!readOnly && !isProd && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setConfirmAction({
-                                  type: 'publish',
-                                  versionId: version.id,
-                                })
-                              }
-                            >
-                              <Rocket data-icon="inline-start" />
-                              {t('versions.publish')}
-                            </Button>
-                          )}
-                          {!readOnly && (
-                            <Button
-                              variant="ghost"
-                              size="icon-sm"
-                              aria-label={t('common.delete')}
-                              onClick={() =>
-                                setConfirmAction({
-                                  type: 'delete',
-                                  versionId: version.id,
-                                })
-                              }
-                            >
-                              <Trash2 />
-                            </Button>
-                          )}
-                        </>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </CardContent>
+function VersionItem({
+  project,
+  version,
+  pending,
+  readOnly,
+  showSeparator,
+  onPublish,
+  onRollback,
+  onDelete,
+}: {
+  project: Project;
+  version: Version;
+  pending: boolean;
+  readOnly: boolean;
+  showSeparator: boolean;
+  onPublish: (versionId: string) => Promise<void>;
+  onRollback: (versionId: string) => Promise<void>;
+  onDelete: (versionId: string) => Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  const isLive = project.activeVersionId === version.id;
+  const previewUrl = `/deploy/${project.slug}/${version.id}/`;
 
-      <ConfirmDialog
-        open={confirmAction !== null}
-        onOpenChange={(open) => {
-          if (!open) setConfirmAction(null);
-        }}
-        title={
-          confirmAction?.type === 'delete'
-            ? t('common.delete')
-            : confirmAction?.type === 'rollback'
-              ? t('versions.rollback')
-              : t('versions.publish')
-        }
-        description={
-          confirmAction?.type === 'delete'
-            ? t('common.deleteVersionConfirm', {
-                name: confirmVersion?.name ?? '',
-              })
-            : confirmAction?.type === 'rollback'
-              ? t('common.rollbackVersionConfirm', {
-                  name: confirmVersion?.name ?? '',
-                })
-              : t('common.publishVersionConfirm', {
-                  name: confirmVersion?.name ?? '',
-                })
-        }
-        confirmLabel={t('common.confirm')}
-        cancelLabel={t('common.cancel')}
-        destructive={confirmAction?.type === 'delete'}
-        onConfirm={() => {
-          const action = confirmAction;
-          setConfirmAction(null);
-          if (!action) return;
-          if (action.type === 'publish') onPublish(action.versionId);
-          if (action.type === 'rollback') onRollback(action.versionId);
-          if (action.type === 'delete') onDelete(action.versionId);
-        }}
-      />
-    </Card>
+  const runAction = async (action: () => Promise<void>) => {
+    setError(null);
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t('common.failed'));
+    }
+  };
+
+  return (
+    <div>
+      <Item variant="default" size="default" className="flex-col py-3.5">
+        <div className="flex w-full items-center justify-between gap-4">
+          <ItemContent className="min-w-0">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 text-xs font-medium text-muted-foreground">
+                Ver.
+              </span>
+              <ItemTitle className="truncate font-mono text-xs tracking-tight">
+                {version.name || version.id}
+              </ItemTitle>
+              <VersionStatusBadge
+                status={isLive ? 'production' : version.status}
+              />
+            </div>
+          </ItemContent>
+
+          <ItemActions>
+            <DropdownMenu>
+              <DropdownMenuTrigger
+                render={<Button variant="ghost" size="icon-sm" />}
+              >
+                <MoreHorizontalIcon className="size-4" />
+              </DropdownMenuTrigger>
+              <DropdownMenuContent
+                align="end"
+                sideOffset={6}
+                className="min-w-40"
+              >
+                <DropdownMenuItem
+                  onClick={() =>
+                    window.open(previewUrl, '_blank', 'noopener,noreferrer')
+                  }
+                >
+                  <ExternalLinkIcon className="size-4" />
+                  {t('versions.preview')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={readOnly || pending || isLive}
+                  onClick={() => runAction(() => onPublish(version.id))}
+                >
+                  <RocketIcon className="size-4" />
+                  {t('versions.setProduction')}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={readOnly || pending || isLive}
+                  onClick={() => runAction(() => onRollback(version.id))}
+                >
+                  <RotateCcwIcon className="size-4" />
+                  {t('versions.rollback')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  variant="destructive"
+                  disabled={readOnly || pending}
+                  onClick={() => runAction(() => onDelete(version.id))}
+                >
+                  <Trash2Icon className="size-4" />
+                  {t('versions.delete')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </ItemActions>
+        </div>
+
+        <ItemDescription className="flex w-full flex-wrap items-center gap-3 pt-1">
+          <span className="inline-flex items-center gap-1 text-xs">
+            <FileTextIcon className="size-3" />
+            {t('versions.files', { count: version.fileCount })}
+          </span>
+          {formatBytes(version.size) && (
+            <span className="text-xs">{formatBytes(version.size)}</span>
+          )}
+          <span className="text-border select-none">.</span>
+          <span className="inline-flex items-center gap-1 text-xs">
+            <CalendarIcon className="size-3" />
+            {formatDate(version.createdAt)}
+          </span>
+          <span className="text-border select-none">.</span>
+          <a
+            href={previewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="truncate text-xs underline underline-offset-4 hover:text-primary"
+          >
+            {previewUrl}
+          </a>
+        </ItemDescription>
+        {error && <p className="w-full text-xs text-destructive">{error}</p>}
+      </Item>
+      {showSeparator && <Separator />}
+    </div>
   );
 }

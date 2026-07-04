@@ -1,7 +1,7 @@
 import { Crown, ShieldCheck, Trash2, UserIcon } from 'lucide-react';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { useApiClient } from '@/shared/api/context';
 import type { Project, ProjectMember } from '@/shared/types';
@@ -102,7 +102,9 @@ function MemberRow({
     <div className="flex items-center justify-between gap-3 rounded-xl border bg-card p-3">
       <div className="flex min-w-0 items-center gap-3">
         <Avatar size="sm">
-          <AvatarFallback>{member.userId.slice(0, 2).toUpperCase()}</AvatarFallback>
+          <AvatarFallback>
+            {member.userId.slice(0, 2).toUpperCase()}
+          </AvatarFallback>
         </Avatar>
         <div className="min-w-0">
           <div className="truncate text-sm font-medium">

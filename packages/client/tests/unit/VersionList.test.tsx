@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { VersionList } from '../../src/features/versions/VersionList';
 import type { Project, Version } from '../../src/shared/types';
 
-const noop = () => {};
+const noop = async () => {};
 
 const version = (
   id: string,
@@ -46,6 +46,7 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject()}
         pendingVersionId={null}
+        readOnly={false}
         onPublish={noop}
         onRollback={noop}
         onDelete={noop}
@@ -63,6 +64,7 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([version('v1', 'preview')])}
         pendingVersionId={null}
+        readOnly={false}
         onPublish={noop}
         onRollback={noop}
         onDelete={noop}
@@ -82,6 +84,7 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([])}
         pendingVersionId={null}
+        readOnly={false}
         onPublish={noop}
         onRollback={noop}
         onDelete={noop}
@@ -97,6 +100,7 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([v1])}
         pendingVersionId={null}
+        readOnly={false}
         onPublish={noop}
         onRollback={noop}
         onDelete={onDelete}
@@ -117,6 +121,7 @@ describe('VersionList', () => {
       <VersionList
         project={makeProject([v1])}
         pendingVersionId="v1"
+        readOnly={false}
         onPublish={noop}
         onRollback={noop}
         onDelete={noop}

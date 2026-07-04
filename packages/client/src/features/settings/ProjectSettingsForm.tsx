@@ -1,5 +1,6 @@
 import { type FormEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useApiClient } from '@/api/ApiClientProvider';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -12,7 +13,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
-import { useApiClient } from '@/shared/api/context';
 import type { Project } from '@/shared/types';
 import { normalizeProjectSlugInput } from '../projects/slug';
 

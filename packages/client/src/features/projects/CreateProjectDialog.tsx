@@ -1,69 +1,64 @@
-import { useApiClient } from '@deploykit/client';
-import { useEffect, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useApiClient } from '@/api/ApiClientProvider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { useToast } from '@/components/ui/toast-context';
-import { getLocalizedError } from '../../shared/error-messages';
+import type { Project } from '@/shared/types';
 import { normalizeProjectSlugInput } from './slug';
 
-interface Props {
+interface CreateProjectDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreated: () => void;
+  onCreated: (project: Project) => void;
 }
 
-export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
+export function CreateProjectDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: CreateProjectDialogProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const api = useApiClient();
-  const nameInputId = 'create-project-name';
-  const slugInputId = 'create-project-slug';
-  const descInputId = 'create-project-description';
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
-  const [desc, setDesc] = useState('');
+  const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    if (open) return;
+  const canSubmit =
+    name.trim().length > 0 && slug.trim().length > 0 && !submitting;
+
+  const reset = () => {
     setName('');
     setSlug('');
-    setDesc('');
-  }, [open]);
+    setDescription('');
+    setError(null);
+  };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim() || !slug.trim()) return;
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
     setSubmitting(true);
+    setError(null);
+
     try {
-      await api.createProject({
+      const project = await api.createProject({
         name: name.trim(),
         slug: slug.trim(),
-        description: desc.trim(),
+        description: description.trim(),
       });
-      toast(t('common.created'));
-      setName('');
-      setSlug('');
-      setDesc('');
-      onCreated();
+      onCreated(project);
+      reset();
       onOpenChange(false);
     } catch (err) {
-      toast(getLocalizedError(err, t, t('common.failed')), 'error');
+      setError(err instanceof Error ? err.message : t('common.failed'));
     } finally {
       setSubmitting(false);
     }
@@ -71,64 +66,66 @@ export function CreateProjectDialog({ open, onOpenChange, onCreated }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('create.title')}</DialogTitle>
+          <DialogDescription>{t('create.desc')}</DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor={nameInputId}>{t('create.name')}</FieldLabel>
-              <Input
-                id={nameInputId}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder={t('create.namePlaceholder')}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={slugInputId}>{t('create.slug')}</FieldLabel>
-              <Input
-                id={slugInputId}
-                value={slug}
-                onChange={(e) =>
-                  setSlug(normalizeProjectSlugInput(e.target.value))
-                }
-                placeholder={t('create.slugPlaceholder')}
-                className="font-mono"
-              />
-              <FieldDescription>{t('create.slugHint')}</FieldDescription>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor={descInputId}>
-                {t('create.description')}
-              </FieldLabel>
-              <Textarea
-                id={descInputId}
-                value={desc}
-                onChange={(e) => setDesc(e.target.value)}
-                placeholder={t('create.descPlaceholder')}
-                rows={2}
-              />
-            </Field>
-            <DialogFooter>
-              <Button
-                variant="outline"
-                size="default"
-                type="button"
-                onClick={() => onOpenChange(false)}
-              >
-                {t('create.cancel')}
-              </Button>
-              <Button
-                type="submit"
-                disabled={submitting || !name.trim() || !slug.trim()}
-                size="default"
-              >
-                {t('create.create')}
-              </Button>
-            </DialogFooter>
-          </FieldGroup>
+
+        <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            {t('create.name')}
+            <Input
+              value={name}
+              placeholder={t('create.namePlaceholder')}
+              onChange={(event) => {
+                const next = event.target.value;
+                setName(next);
+                if (!slug) setSlug(normalizeProjectSlugInput(next));
+              }}
+              required
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            {t('create.slug')}
+            <Input
+              value={slug}
+              placeholder={t('create.slugPlaceholder')}
+              onChange={(event) =>
+                setSlug(normalizeProjectSlugInput(event.target.value))
+              }
+              required
+            />
+          </label>
+
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            {t('create.description')}
+            <Input
+              value={description}
+              placeholder={t('create.descPlaceholder')}
+              onChange={(event) => setDescription(event.target.value)}
+            />
+          </label>
+
+          {error && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={!canSubmit}>
+              {submitting ? t('common.creating') : t('common.create')}
+            </Button>
+          </DialogFooter>
         </form>
       </DialogContent>
     </Dialog>

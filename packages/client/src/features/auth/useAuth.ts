@@ -1,6 +1,6 @@
-import { useApiClient } from '@deploykit/client';
-import { useCallback, useEffect, useState } from 'react';
-import type { SafeUser } from '../../shared/types';
+import { useEffect, useState } from 'react';
+import { useApiClient } from '@/api/ApiClientProvider';
+import type { SafeUser } from '@/shared/types';
 
 export function useAuth() {
   const api = useApiClient();
@@ -15,28 +15,26 @@ export function useAuth() {
       .finally(() => setLoading(false));
   }, [api]);
 
-  const login = useCallback(
-    async (email: string, password: string) => {
-      const next = await api.login(email, password);
-      setUser(next);
-      return next;
-    },
-    [api]
-  );
+  const login = async (email: string, password: string) => {
+    const next = await api.login(email, password);
+    setUser(next);
+    return next;
+  };
 
-  const logout = useCallback(async () => {
+  const register = async (input: {
+    name: string;
+    email: string;
+    password: string;
+  }) => {
+    const next = await api.register(input);
+    setUser(next);
+    return next;
+  };
+
+  const logout = async () => {
     await api.logout();
     setUser(null);
-  }, [api]);
+  };
 
-  const register = useCallback(
-    async (input: { name: string; email: string; password: string }) => {
-      const next = await api.register(input);
-      setUser(next);
-      return next;
-    },
-    [api]
-  );
-
-  return { user, loading, login, logout, register };
+  return { user, loading, login, register, logout };
 }

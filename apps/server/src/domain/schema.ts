@@ -107,7 +107,8 @@ export function migrate(raw: unknown): MigrationResult {
   const input = parsed.data;
   const inputVersion = input.schemaVersion ?? 0;
 
-  const firstAdminId = input.users.find((u) => u.role === 'admin')?.id ?? 'system';
+  const firstAdminId =
+    input.users.find((u) => u.role === 'admin')?.id ?? 'system';
 
   const projects: Project[] = input.projects.map((p) => {
     const activeVersionId =
@@ -141,8 +142,20 @@ export function migrate(raw: unknown): MigrationResult {
       activeVersionId,
       settings: p.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
       createdBy: (p as { createdBy?: string }).createdBy ?? firstAdminId,
-      members: (p as { members?: Array<{ userId: string; role: 'owner' | 'member'; invitedAt: string }> }).members ?? [
-        { userId: firstAdminId, role: 'owner', invitedAt: p.createdAt || new Date().toISOString() },
+      members: (
+        p as {
+          members?: Array<{
+            userId: string;
+            role: 'owner' | 'member';
+            invitedAt: string;
+          }>;
+        }
+      ).members ?? [
+        {
+          userId: firstAdminId,
+          role: 'owner',
+          invitedAt: p.createdAt || new Date().toISOString(),
+        },
       ],
     };
   });

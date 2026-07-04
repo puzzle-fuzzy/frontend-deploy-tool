@@ -64,7 +64,7 @@ import { MemberList } from '../features/members/MemberList';
 import { TransferOwnershipDialog } from '../features/members/TransferOwnershipDialog';
 import { CreateProjectDialog } from '../features/projects/CreateProjectDialog';
 import { useProjects } from '../features/projects/useProjects';
-import { ProjectSettingsForm } from '../features/settings/ProjectSettingsDialog';
+import { ProjectSettingsForm } from '../features/settings/ProjectSettingsForm';
 import { ThemeToggle } from '../features/theme/ThemeToggle';
 import { UploadVersionDialog } from '../features/versions/UploadVersionDialog';
 import { VersionList } from '../features/versions/VersionList';
@@ -418,10 +418,9 @@ export function DeployPage({ user, onLogout }: Props) {
                 </CardHeader>
                 <CardContent>
                   <MemberList
-                    members={memberInfos}
+                    project={selectedProject}
                     currentUserId={user.id}
-                    projectId={selectedProject.id}
-                    onMembersChanged={refresh}
+                    onChanged={refresh}
                   />
                 </CardContent>
               </Card>
@@ -434,7 +433,7 @@ export function DeployPage({ user, onLogout }: Props) {
                     project={selectedProject}
                     onDeleted={onProjectDeleted}
                     onSaved={refresh}
-                    canDeleteProject={canManage}
+                    canManage={canManage}
                   />
                 </CardContent>
               </Card>
@@ -501,8 +500,8 @@ export function DeployPage({ user, onLogout }: Props) {
         <AddMemberDialog
           open={showAddMember}
           projectId={selectedProject.id}
-          onAdded={refresh}
-          onClose={() => setShowAddMember(false)}
+          onOpenChange={setShowAddMember}
+          onChanged={refresh}
         />
       )}
       {currentUserIsOwner && selectedProject && (

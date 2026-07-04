@@ -40,9 +40,18 @@ export interface ProjectService {
     actorId: string
   ): Project;
   deleteProject(id: string, actorId: string): Project;
-  addMember(projectId: string, email: string, role: 'owner' | 'member', actorId: string): Project;
+  addMember(
+    projectId: string,
+    email: string,
+    role: 'owner' | 'member',
+    actorId: string
+  ): Project;
   removeMember(projectId: string, userId: string, actorId: string): Project;
-  transferOwnership(projectId: string, targetUserId: string, actorId: string): Project;
+  transferOwnership(
+    projectId: string,
+    targetUserId: string,
+    actorId: string
+  ): Project;
   listHistory(limit?: string): HistoryEvent[];
   listProjectHistory(projectId: string, limit?: string): HistoryEvent[];
 }

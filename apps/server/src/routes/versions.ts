@@ -1,7 +1,11 @@
 import { Hono } from 'hono';
 import { parseIdParam } from '../domain/schemas';
 import { requireProjectRole } from '../middleware/auth';
-import type { AppEnv, ProjectService, VersionService } from '../services/contracts';
+import type {
+  AppEnv,
+  ProjectService,
+  VersionService,
+} from '../services/contracts';
 
 export function createVersionRoutes(deps: {
   versionService: VersionService;

@@ -1,77 +1,119 @@
-import { useApiClient } from '@deploykit/client';
-import { useCallback, useState } from 'react';
+import { type FormEvent, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useApiClient } from '@/api/ApiClientProvider';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { useToast } from '@/components/ui/toast-context';
-import { getLocalizedError } from '../../shared/error-messages';
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
-interface Props {
-  open: boolean;
+interface AddMemberDialogProps {
   projectId: string;
-  onAdded: () => void;
-  onClose: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onChanged: () => void;
 }
 
-export function AddMemberDialog({ open, projectId, onAdded, onClose }: Props) {
+export function AddMemberDialog({
+  projectId,
+  open,
+  onOpenChange,
+  onChanged,
+}: AddMemberDialogProps) {
   const { t } = useTranslation();
-  const { toast } = useToast();
   const api = useApiClient();
   const [email, setEmail] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [role, setRole] = useState<'member' | 'owner'>('member');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleAdd = useCallback(async () => {
-    if (!email.trim()) return;
-    setLoading(true);
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSubmitting(true);
+    setError(null);
+
     try {
-      await api.addMember(projectId, email.trim(), 'member');
-      toast(t('common.saved'));
+      await api.addMember(projectId, email.trim(), role);
       setEmail('');
-      onAdded();
-      onClose();
+      setRole('member');
+      onChanged();
+      onOpenChange(false);
     } catch (err) {
-      toast(getLocalizedError(err, t, t('common.failed')), 'error');
+      setError(err instanceof Error ? err.message : t('common.failed'));
     } finally {
-      setLoading(false);
+      setSubmitting(false);
     }
-  }, [email, projectId, api, toast, t, onAdded, onClose]);
+  };
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
-    >
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{t('members.addTitle')}</DialogTitle>
+          <DialogDescription>{t('members.addDesc')}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <Input
-            placeholder={t('members.searchPlaceholder')}
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void handleAdd();
-            }}
-          />
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
-            {t('common.cancel')}
-          </Button>
-          <Button onClick={handleAdd} disabled={loading || !email.trim()}>
-            {loading ? t('common.loading') : t('members.add')}
-          </Button>
-        </DialogFooter>
+        <form className="flex flex-col gap-3" onSubmit={handleSubmit}>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            {t('auth.email')}
+            <Input
+              type="email"
+              value={email}
+              placeholder={t('members.searchPlaceholder')}
+              onChange={(event) => setEmail(event.target.value)}
+              required
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-sm font-medium">
+            {t('members.role')}
+            <Select
+              value={role}
+              onValueChange={(value) =>
+                setRole(value === 'owner' ? 'owner' : 'member')
+              }
+              disabled={submitting}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectGroup>
+                  <SelectItem value="member">{t('members.member')}</SelectItem>
+                  <SelectItem value="owner">{t('members.owner')}</SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+          </label>
+          {error && (
+            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+            >
+              {t('common.cancel')}
+            </Button>
+            <Button type="submit" disabled={submitting || !email.trim()}>
+              {submitting ? t('common.loading') : t('members.add')}
+            </Button>
+          </DialogFooter>
+        </form>
       </DialogContent>
     </Dialog>
   );

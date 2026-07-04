@@ -1,11 +1,6 @@
 'use client';
 
-import {
-  LanguagesIcon,
-  LogOutIcon,
-  MoonIcon,
-  SunIcon,
-} from 'lucide-react';
+import { LanguagesIcon, LogOutIcon, MoonIcon, SunIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';

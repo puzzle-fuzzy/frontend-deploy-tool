@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
+import { AppHeader } from '@/components/AppHeader';
+import { AppSidebar } from '@/components/AppSidebar';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { SidebarProvider } from '@/components/ui/sidebar';
-import { AppSidebar } from '@/components/AppSidebar';
-import { AppHeader } from '@/components/AppHeader';
 import type { Project, SafeUser } from '@/shared/types';
 
 interface AppLayoutProps {
