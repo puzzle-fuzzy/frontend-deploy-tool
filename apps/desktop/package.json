@@ -41,6 +41,7 @@
     "@electron-forge/plugin-auto-unpack-natives": "catalog:",
     "@electron-forge/plugin-fuses": "catalog:",
     "@electron-forge/plugin-vite": "catalog:",
+    "@electron-forge/shared-types": "^7.11.2",
     "@electron/fuses": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@types/electron-squirrel-startup": "catalog:",
