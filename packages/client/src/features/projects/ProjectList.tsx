@@ -1,9 +1,9 @@
 import { FolderOpen, Plus } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 import type { Project } from '../../shared/types';
-import { Button } from '../../shared/ui/button';
-import { ScrollArea } from '../../shared/ui/scroll-area';
-import { Skeleton } from '../../shared/ui/skeleton';
 
 interface Props {
   projects: Project[];

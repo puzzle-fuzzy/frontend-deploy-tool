@@ -1,8 +1,8 @@
 import { Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import { desktopAuthorize } from '../../api/desktopAuth';
-import { Button } from '../../shared/ui/button';
 import { LoginPage } from './LoginPage';
 import { useAuth } from './useAuth';
 

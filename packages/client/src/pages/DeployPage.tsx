@@ -15,6 +15,48 @@ import {
 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { AvatarDropdown } from '@/components/ui/avatar-dropdown';
+import { AvatarGroup } from '@/components/ui/avatar-group';
+import { Badge } from '@/components/ui/badge';
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbLink,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from '@/components/ui/breadcrumb';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+} from '@/components/ui/input-group';
+// import {
+//   NavigationMenu,
+//   NavigationMenuItem,
+//   NavigationMenuLink,
+//   NavigationMenuList,
+// } from '@/components/ui/navigation-menu';
+import { Separator } from '@/components/ui/separator';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useToast } from '@/components/ui/toast-context';
 import { DeployUrl } from '../features/deploy/DeployUrl';
 import { LanguageToggle } from '../features/i18n/LanguageToggle';
 import { AddMemberDialog } from '../features/members/AddMemberDialog';
@@ -28,49 +70,6 @@ import { UploadVersionDialog } from '../features/versions/UploadVersionDialog';
 import { VersionList } from '../features/versions/VersionList';
 import { formatDate } from '../shared/format';
 import type { Project, SafeUser } from '../shared/types';
-import { AvatarGroup } from '../shared/ui/avatar-group';
-import { Badge } from '../shared/ui/badge';
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from '../shared/ui/breadcrumb';
-import { Button } from '../shared/ui/button';
-import {
-  Card,
-  CardAction,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '../shared/ui/card';
-import {
-  Empty,
-  EmptyDescription,
-  EmptyHeader,
-  EmptyMedia,
-  EmptyTitle,
-} from '../shared/ui/empty';
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from '../shared/ui/input-group';
-// import {
-//   NavigationMenu,
-//   NavigationMenuItem,
-//   NavigationMenuLink,
-//   NavigationMenuList,
-// } from '../shared/ui/navigation-menu';
-import { Separator } from '../shared/ui/separator';
-import { Skeleton } from '../shared/ui/skeleton';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '../shared/ui/tabs';
-import { useToast } from '../shared/ui/toast-context';
-
-import { AvatarDropdown } from '../shared/ui/avatar-dropdown';
 
 type DetailTab = 'versions' | 'members' | 'settings';
 
@@ -226,7 +225,6 @@ export function DeployPage({ user, onLogout }: Props) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
-
         {loading ? (
           <div className="flex flex-col gap-3">
             {[...Array(5)].map((_, i) => (
@@ -311,10 +309,10 @@ export function DeployPage({ user, onLogout }: Props) {
       <Breadcrumb>
         <BreadcrumbList>
           <BreadcrumbItem>
-            <BreadcrumbLink asChild>
-              <button type="button" onClick={handleBack}>
-                {t('app.projects')}
-              </button>
+            <BreadcrumbLink
+              render={<button type="button" onClick={handleBack} />}
+            >
+              {t('app.projects')}
             </BreadcrumbLink>
           </BreadcrumbItem>
           <BreadcrumbSeparator />

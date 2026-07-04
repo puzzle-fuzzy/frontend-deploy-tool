@@ -1,17 +1,17 @@
 import { useApiClient } from '@deploykit/client';
 import { useCallback, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { getLocalizedError } from '../../shared/error-messages';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogFooter,
   DialogHeader,
   DialogTitle,
-} from '../../shared/ui/dialog';
-import { Input } from '../../shared/ui/input';
-import { useToast } from '../../shared/ui/toast-context';
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { useToast } from '@/components/ui/toast-context';
+import { getLocalizedError } from '../../shared/error-messages';
 
 interface Props {
   open: boolean;

@@ -2,23 +2,23 @@ import { useApiClient } from '@deploykit/client';
 import { Hash, Route, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { normalizeProjectSlugInput } from '../../features/projects/slug';
-import { getLocalizedError } from '../../shared/error-messages';
-import type { Project, Settings } from '../../shared/types';
-import { Button } from '../../shared/ui/button';
+import { Button } from '@/components/ui/button';
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-} from '../../shared/ui/dialog';
-import { Input } from '../../shared/ui/input';
-import { Label } from '../../shared/ui/label';
-import { Separator } from '../../shared/ui/separator';
-import { Switch } from '../../shared/ui/switch';
-import { Textarea } from '../../shared/ui/textarea';
-import { useToast } from '../../shared/ui/toast-context';
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Separator } from '@/components/ui/separator';
+import { Switch } from '@/components/ui/switch';
+import { Textarea } from '@/components/ui/textarea';
+import { useToast } from '@/components/ui/toast-context';
+import { normalizeProjectSlugInput } from '../../features/projects/slug';
+import { getLocalizedError } from '../../shared/error-messages';
+import type { Project, Settings } from '../../shared/types';
 
 interface Props {
   open: boolean;

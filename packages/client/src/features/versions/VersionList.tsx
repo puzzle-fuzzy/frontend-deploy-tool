@@ -8,20 +8,17 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { publicBaseURL } from '../../shared/config';
-import { formatBytes, formatDate } from '../../shared/format';
-import type { Project, Version } from '../../shared/types';
-import { Badge } from '../../shared/ui/badge';
-import { Button } from '../../shared/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../../shared/ui/card';
-import { ConfirmDialog } from '../../shared/ui/confirm-dialog';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import {
   Empty,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
   EmptyTitle,
-} from '../../shared/ui/empty';
+} from '@/components/ui/empty';
 import {
   Table,
   TableBody,
@@ -29,7 +26,10 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '../../shared/ui/table';
+} from '@/components/ui/table';
+import { publicBaseURL } from '../../shared/config';
+import { formatBytes, formatDate } from '../../shared/format';
+import type { Project, Version } from '../../shared/types';
 
 interface Props {
   project: Project;
@@ -166,15 +166,19 @@ export function VersionList({
                     <div className="flex justify-end gap-2">
                       {!pending && (
                         <>
-                          <Button variant="outline" size="sm" asChild>
-                            <a
-                              href={`${publicBaseURL}/deploy/${project.slug}/${version.id}/`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <Eye data-icon="inline-start" />
-                              {t('versions.preview')}
-                            </a>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            render={
+                              <a
+                                href={`${publicBaseURL}/deploy/${project.slug}/${version.id}/`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              />
+                            }
+                          >
+                            <Eye data-icon="inline-start" />
+                            {t('versions.preview')}
                           </Button>
                           {!readOnly && !isProd && (
                             <Button

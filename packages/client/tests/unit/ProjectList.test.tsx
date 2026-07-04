@@ -1,9 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { TooltipProvider } from '@/components/ui/tooltip';
 import { ProjectList } from '../../src/features/projects/ProjectList';
 import type { Project } from '../../src/shared/types';
-import { TooltipProvider } from '../../src/shared/ui/tooltip';
 
 const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   id,
