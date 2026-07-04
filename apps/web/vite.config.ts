@@ -18,12 +18,8 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      // Client package is consumed from source; the UI lives there now, so
-      // both `@deploykit/client` and `@` resolve into the client src tree.
-      // Web's own `src/` is now just `main.tsx`, which has no `@/` imports.
-      '@deploykit/client': path.resolve(__dirname, '../../packages/client/src'),
       '@deploykit/shared': path.resolve(__dirname, '../../packages/shared/src'),
-      '@': path.resolve(__dirname, '../../packages/client/src'),
+      '@': path.resolve(__dirname, './src'),
     },
   },
   server: {

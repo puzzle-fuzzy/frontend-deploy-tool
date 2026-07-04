@@ -5,7 +5,6 @@ import {
   Box,
   Code2,
   FolderOpen,
-  LogOut,
   Plus,
   Search,
   Settings,
@@ -60,18 +59,18 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from '../shared/ui/input-group';
-import {
-  NavigationMenu,
-  NavigationMenuItem,
-  NavigationMenuLink,
-  NavigationMenuList,
-} from '../shared/ui/navigation-menu';
+// import {
+//   NavigationMenu,
+//   NavigationMenuItem,
+//   NavigationMenuLink,
+//   NavigationMenuList,
+// } from '../shared/ui/navigation-menu';
 import { Separator } from '../shared/ui/separator';
 import { Skeleton } from '../shared/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../shared/ui/tabs';
 import { useToast } from '../shared/ui/toast-context';
-import { Tooltip, TooltipContent, TooltipTrigger } from '../shared/ui/tooltip';
-import { UserDisplay } from '../shared/ui/user-display';
+
+import { AvatarDropdown } from '../shared/ui/avatar-dropdown';
 
 type DetailTab = 'versions' | 'members' | 'settings';
 
@@ -164,7 +163,7 @@ export function DeployPage({ user, onLogout }: Props) {
           <Button variant="ghost" onClick={handleBack}>
             DeployKit
           </Button>
-          <NavigationMenu viewport={false} className="hidden md:flex">
+          {/* <NavigationMenu viewport={false} className="hidden md:flex">
             <NavigationMenuList>
               <NavigationMenuItem>
                 <NavigationMenuLink asChild>
@@ -184,7 +183,7 @@ export function DeployPage({ user, onLogout }: Props) {
                 </NavigationMenuLink>
               </NavigationMenuItem>
             </NavigationMenuList>
-          </NavigationMenu>
+          </NavigationMenu> */}
         </div>
 
         <div className="flex items-center gap-2">
@@ -199,22 +198,7 @@ export function DeployPage({ user, onLogout }: Props) {
           </Button>
           <ThemeToggle />
           <LanguageToggle />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={handleLogout}
-                aria-label={t('auth.logout')}
-              >
-                <LogOut />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t('auth.logout')}</TooltipContent>
-          </Tooltip>
-          <div className="hidden md:block">
-            <UserDisplay user={user} avatarSize="md" />
-          </div>
+          <AvatarDropdown user={user} onLogout={handleLogout} />
         </div>
       </div>
     </header>
@@ -242,75 +226,55 @@ export function DeployPage({ user, onLogout }: Props) {
       </div>
 
       <div className="grid gap-6 lg:grid-cols-[1fr_18rem]">
-        <Card>
-          <CardHeader>
-            <CardTitle>{t('projects.title')}</CardTitle>
-            <CardDescription>/deploy routes</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="flex flex-col gap-3">
-                {[...Array(5)].map((_, i) => (
-                  <div key={i} className="flex flex-col gap-2">
-                    <Skeleton className="h-5 w-1/3" />
-                    <Skeleton className="h-4 w-2/3" />
-                  </div>
-                ))}
+
+        {loading ? (
+          <div className="flex flex-col gap-3">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="flex flex-col gap-2">
+                <Skeleton className="h-5 w-1/3" />
+                <Skeleton className="h-4 w-2/3" />
               </div>
-            ) : projects.length === 0 ? (
-              <Empty>
-                <EmptyHeader>
-                  <EmptyMedia variant="icon">
-                    <FolderOpen />
-                  </EmptyMedia>
-                  <EmptyTitle>{t('projects.empty')}</EmptyTitle>
-                  <EmptyDescription>{t('projects.emptyDesc')}</EmptyDescription>
-                </EmptyHeader>
-              </Empty>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {projects.map((project) => {
-                  const isLive = Boolean(project.activeVersionId);
-                  return (
-                    <Button
-                      key={project.id}
-                      type="button"
-                      variant="ghost"
-                      className="h-auto justify-start px-3 py-3"
-                      onClick={() => selectProject(project)}
-                    >
-                      <div className="flex w-full items-center gap-3 text-left">
-                        <Box className="shrink-0" />
-                        <div className="min-w-0 flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate font-medium">
-                              {project.name}
-                            </span>
-                            <Badge variant={isLive ? 'default' : 'outline'}>
-                              {projectStatus(project)}
-                            </Badge>
-                          </div>
-                          <p className="truncate text-xs text-muted-foreground">
-                            /deploy/{project.slug}
-                            {project.description
-                              ? ` / ${project.description}`
-                              : ''}
-                          </p>
-                        </div>
-                        <div className="hidden shrink-0 text-xs text-muted-foreground md:block">
-                          {t('projects.versions', {
-                            count: project.versions.length,
-                          })}{' '}
-                          / {formatDate(project.updatedAt)}
-                        </div>
+            ))}
+          </div>
+        ) : projects.length === 0 ? (
+          <Empty>
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <FolderOpen />
+              </EmptyMedia>
+              <EmptyTitle>{t('projects.empty')}</EmptyTitle>
+              <EmptyDescription>{t('projects.emptyDesc')}</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            {projects.map((project) => {
+              const isLive = Boolean(project.activeVersionId);
+              return (
+                <Button
+                  key={project.id}
+                  type="button"
+                  variant="ghost"
+                  onClick={() => selectProject(project)}
+                >
+                  <div className="flex w-full items-center gap-3 text-left">
+                    <Box className="shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="truncate font-medium">
+                          {project.name}
+                        </span>
+                        <Badge variant={isLive ? 'default' : 'outline'}>
+                          {projectStatus(project)}
+                        </Badge>
                       </div>
-                    </Button>
-                  );
-                })}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                    </div>
+                  </div>
+                </Button>
+              );
+            })}
+          </div>
+        )}
 
         <Card>
           <CardHeader>

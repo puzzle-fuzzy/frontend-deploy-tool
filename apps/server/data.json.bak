@@ -1,161 +1,16 @@
 {
   "schemaVersion": 4,
-  "projects": [
-    {
-      "id": "mr08smcryfduwh",
-      "name": "青岛啤酒",
-      "slug": "tsing-tao",
-      "description": "青岛啤酒 1903",
-      "createdAt": "2026-06-30T06:05:05.451Z",
-      "updatedAt": "2026-06-30T06:09:30.870Z",
-      "versions": [
-        {
-          "id": "mr08vckuy9493i",
-          "name": "mr08vck",
-          "description": "",
-          "createdAt": "2026-06-30T06:07:12.760Z",
-          "size": 0,
-          "fileCount": 0,
-          "sourceType": "unknown",
-          "status": "preview",
-          "publishedAt": null,
-          "publishedBy": null,
-          "checksum": ""
-        },
-        {
-          "id": "mr08y7d7jugzos",
-          "name": "mr08y7d",
-          "description": "",
-          "createdAt": "2026-06-30T06:09:25.968Z",
-          "size": 0,
-          "fileCount": 0,
-          "sourceType": "unknown",
-          "status": "production",
-          "publishedAt": null,
-          "publishedBy": null,
-          "checksum": ""
-        }
-      ],
-      "activeVersionId": "mr08y7d7jugzos",
-      "settings": {
-        "spaMode": false,
-        "routingType": "path"
-      }
-    },
-    {
-      "id": "ESld7RYk5vrdqbbvd-dkF",
-      "name": "123",
-      "slug": "123",
-      "description": "",
-      "createdAt": "2026-07-01T06:09:20.992Z",
-      "updatedAt": "2026-07-01T06:09:45.189Z",
-      "versions": [
-        {
-          "id": "6JOws-gaP161xnuIqBByb",
-          "name": "6JOws-g",
-          "description": "",
-          "createdAt": "2026-07-01T06:09:45.189Z",
-          "size": 108731,
-          "fileCount": 12,
-          "sourceType": "folder",
-          "status": "production",
-          "publishedAt": null,
-          "publishedBy": null,
-          "checksum": ""
-        }
-      ],
-      "activeVersionId": "6JOws-gaP161xnuIqBByb",
-      "settings": {
-        "spaMode": false,
-        "routingType": "path"
-      }
-    }
-  ],
+  "projects": [],
   "users": [
     {
-      "id": "dGliRsTWrunfyyzpJxYqW",
+      "id": "FhQ27BzJilYEkhx_1UUlS",
       "name": "Admin",
       "email": "admin@deploykit.local",
-      "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$/4sPpNAMbG3VOCYrc9Pmhz8dsG1WBr0jD4N+4LbDOOw$PAfQppkHc5YXFD8dfdmQIPwpSwwQDKpC2In6zD/rjH8",
+      "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$gBN/m1HWakcR9+HSQ6skw9KqTBt8R8Ijn1oTX9iOPEg$g2M4Qc/I6VbZ1gFZTPYzjsaFalxHZpoG0xrZ6agcl88",
       "role": "admin",
-      "createdAt": "2026-07-02T06:44:07.421Z",
-      "updatedAt": "2026-07-02T06:44:07.421Z"
-    },
-    {
-      "id": "x7Pgu-9An-f3rwLzOhAbl",
-      "name": "yxswy",
-      "email": "18267094443@163.com",
-      "passwordHash": "$argon2id$v=19$m=65536,t=2,p=1$wHK3l9nT3+BUh+OnlpDesQYEaQ8gMdfklmb5rsLd2SE$Zy5BaOOOMD/uNFIu6EZCK502p1ismY72XH4Zr6x1GSE",
-      "role": "viewer",
-      "createdAt": "2026-07-03T02:37:51.645Z",
-      "updatedAt": "2026-07-03T02:37:51.645Z"
+      "createdAt": "2026-07-02T11:30:42.591Z",
+      "updatedAt": "2026-07-02T11:30:42.591Z"
     }
   ],
-  "history": [
-    {
-      "id": "srjJKmT0TD3msA6JD_31k",
-      "action": "version.upload",
-      "projectId": "ESld7RYk5vrdqbbvd-dkF",
-      "projectName": "123",
-      "versionId": "6JOws-gaP161xnuIqBByb",
-      "versionName": "6JOws-g",
-      "timestamp": "2026-07-01T06:09:45.189Z",
-      "actorId": "system",
-      "metadata": {
-        "sourceType": "folder",
-        "size": 108731,
-        "fileCount": 12
-      }
-    },
-    {
-      "id": "8Vt0gqJRR3_uyQoPqqZfY",
-      "action": "project.create",
-      "projectId": "ESld7RYk5vrdqbbvd-dkF",
-      "projectName": "123",
-      "versionId": "",
-      "versionName": "",
-      "timestamp": "2026-07-01T06:09:20.992Z",
-      "actorId": "system"
-    },
-    {
-      "id": "mr08yb5itgmf0u",
-      "action": "version.activate",
-      "projectId": "mr08smcryfduwh",
-      "projectName": "青岛啤酒",
-      "versionId": "mr08y7d7jugzos",
-      "versionName": "mr08y7d",
-      "timestamp": "2026-06-30T06:09:30.870Z",
-      "actorId": "system"
-    },
-    {
-      "id": "mr08y7ddzoul4n",
-      "action": "version.upload",
-      "projectId": "mr08smcryfduwh",
-      "projectName": "青岛啤酒",
-      "versionId": "mr08y7d7jugzos",
-      "versionName": "mr08y7d",
-      "timestamp": "2026-06-30T06:09:25.969Z",
-      "actorId": "system"
-    },
-    {
-      "id": "mr08vcl4g1244n",
-      "action": "version.upload",
-      "projectId": "mr08smcryfduwh",
-      "projectName": "青岛啤酒",
-      "versionId": "mr08vckuy9493i",
-      "versionName": "mr08vck",
-      "timestamp": "2026-06-30T06:07:12.760Z",
-      "actorId": "system"
-    },
-    {
-      "id": "mr08smcr7epztu",
-      "action": "project.create",
-      "projectId": "mr08smcryfduwh",
-      "projectName": "青岛啤酒",
-      "versionId": "",
-      "versionName": "",
-      "timestamp": "2026-06-30T06:05:05.451Z",
-      "actorId": "system"
-    }
-  ]
+  "history": []
 }

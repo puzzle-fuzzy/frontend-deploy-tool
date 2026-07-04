@@ -22,7 +22,7 @@
     "noFallthroughCasesInSwitch": true,
 
     "paths": {
-      "@/*": ["../../packages/client/src/*"]
+      "@/*": ["./src/*"]
     }
   },
   "include": ["src"]

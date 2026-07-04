@@ -1,10 +1,6 @@
-import {
-  ApiClientProvider,
-  App,
-  createFetchApiClient,
-} from '@deploykit/client';
-import { StrictMode, Suspense } from 'react';
+import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { App } from './App';
 
 const rootElement = document.getElementById('root');
 
@@ -14,10 +10,6 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <Suspense>
-      <ApiClientProvider client={createFetchApiClient()}>
-        <App />
-      </ApiClientProvider>
-    </Suspense>
+    <App />
   </StrictMode>
 );
