@@ -16,6 +16,7 @@
     "@deploykit/shared": "workspace:*",
     "@dicebear/collection": "^9.2.2",
     "@dicebear/core": "^9.2.2",
+    "@fontsource-variable/geist": "^5.2.9",
     "class-variance-authority": "catalog:",
     "clsx": "catalog:",
     "hono": "catalog:",
