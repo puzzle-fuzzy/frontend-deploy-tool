@@ -14,6 +14,7 @@ export default defineConfig({
     preserveSymlinks: false,
     alias: [
       { find: '@deploykit/client', replacement: clientSrc },
+      { find: '@', replacement: clientSrc },
       {
         find: '@deploykit/shared',
         replacement: path.resolve(__dirname, '../../packages/shared/src'),
