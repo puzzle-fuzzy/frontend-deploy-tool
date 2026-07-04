@@ -41,7 +41,7 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="none" className="hidden md:flex p-2">
       <SidebarMenu>
-        <SidebarMenuItem className="flex items-center gap-2">
+        <SidebarMenuItem className="flex items-center gap-2 pt-14">
           <SidebarMenuButton
             tooltip={t('app.projects')}
             onClick={onShowProjects}
