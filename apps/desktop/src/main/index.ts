@@ -47,6 +47,14 @@ function createMainWindow(): BrowserWindow {
 
   win.once('ready-to-show', () => win.show());
 
+  win.webContents.on('did-fail-load', (_event, code, desc, url) => {
+    console.error(`Failed to load ${url}: ${code} ${desc}`);
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Renderer process gone:', details.reason, details.exitCode);
+  });
+
   // Open external links (deploy URLs clicked in-app) in the system browser.
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -94,6 +102,9 @@ app.whenReady().then(() => {
       mainWindow = createMainWindow();
     }
   });
+}).catch((err) => {
+  console.error('Failed to start app:', err);
+  app.quit();
 });
 
 app.on('window-all-closed', () => {
