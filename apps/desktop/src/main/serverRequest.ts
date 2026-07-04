@@ -96,6 +96,40 @@ export function serverRequest<T>(
     }
 
     req.on('response', (response) => {
+      // Store any Set-Cookie headers from the response into the Electron
+      // session's cookie store. Chromium's net.request() does not always
+      // persist cookies automatically — explicit storage ensures subsequent
+      // API calls carry the session cookie.
+      const raw = response.headers['set-cookie'];
+      if (raw) {
+        const cookies = Array.isArray(raw) ? raw : [raw];
+        for (const header of cookies) {
+          const semi = header.indexOf(';');
+          const eq = header.indexOf('=');
+          if (eq === -1) continue;
+          const name = header.slice(0, eq);
+          const value = semi > 0 ? header.slice(eq + 1, semi) : header.slice(eq + 1);
+          const cookieOpts: Electron.CookiesSetDetails = {
+            url: origin,
+            name,
+            value,
+            path: '/',
+            httpOnly: true,
+            secure: false,
+            sameSite: 'lax',
+          };
+          // Parse optional Max-Age.
+          const maxAge = header.match(/Max-Age=(\d+)/i);
+          if (maxAge) {
+            cookieOpts.expirationDate =
+              Math.floor(Date.now() / 1000) + Number(maxAge[1]);
+          }
+          ses.cookies.set(cookieOpts).catch((err) =>
+            console.error('[deploykit] Failed to persist cookie:', err)
+          );
+        }
+      }
+
       const chunks: Buffer[] = [];
       response.on('data', (c) => chunks.push(c));
       response.on('end', () => {

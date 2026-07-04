@@ -27,6 +27,8 @@ export default defineConfig({
   },
   // Allow files in packages/ to be served by the renderer Vite dev server.
   server: {
+    port: 5173,
+    strictPort: true,
     fs: {
       allow: [path.resolve(__dirname, '../..')],
     },

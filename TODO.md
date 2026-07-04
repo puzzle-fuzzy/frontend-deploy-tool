@@ -114,3 +114,11 @@ Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs
 - Project `type` field (React / Vue / Astro / …) — the audit profile already captures intent; a cosmetic label isn't worth the schema churn.
 - Renaming the preview URL to `/deploy/{slug}/preview/{id}/` — the current `/deploy/{slug}/{id}/` works; renaming is pure churn.
 - Renaming the API resource `versions` → `deployments` — churn with no behavior gain.
+
+
+### 后续思考部分（合理的思考）
+
+1. cookie 和 bearer 方面的思考
+2. 有关 bun workspace 的设计，catalog 方面，是不是需要将所有的包都写在 root 的 package.json 里面
+3. 项目中有关文档 markdown 的整理
+4. 项目中有关架构的设计

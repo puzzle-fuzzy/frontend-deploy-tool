@@ -24,15 +24,16 @@ export async function login(
   email: string,
   password: string
 ): Promise<SafeUser> {
-  await serverRequest(ses, origin, {
+  // POST /api/auth/login returns { user } and sets a session cookie.
+  // We use the response user directly because Electron's net.request()
+  // processes Set-Cookie asynchronously — a subsequent GET /api/me would
+  // race the cookie store and may come back empty.
+  const r = await serverRequest<{ user: SafeUser }>(ses, origin, {
     method: 'POST',
     path: '/api/auth/login',
     body: { email, password },
   });
-  // Server Set-Cookie is captured by the partition session automatically.
-  const me = await getMe(ses, origin);
-  if (!me) throw new Error('Login succeeded but /api/me returned no user');
-  return me;
+  return r.data.user;
 }
 
 export async function register(
@@ -40,16 +41,12 @@ export async function register(
   origin: string,
   input: { name: string; email: string; password: string }
 ): Promise<SafeUser> {
-  await serverRequest(ses, origin, {
+  const r = await serverRequest<{ user: SafeUser }>(ses, origin, {
     method: 'POST',
     path: '/api/auth/register',
     body: input,
   });
-  const me = await getMe(ses, origin);
-  if (!me) {
-    throw new Error('Registration succeeded but /api/me returned no user');
-  }
-  return me;
+  return r.data.user;
 }
 
 export async function logout(ses: Session, origin: string): Promise<void> {

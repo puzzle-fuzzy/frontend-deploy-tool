@@ -1,7 +1,12 @@
 /// <reference types="vite/client" />
+
+import {
+  ApiClientProvider,
+  App,
+  createFetchApiClient,
+} from '@deploykit/client';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App, ApiClientProvider, createFetchApiClient } from '@deploykit/client';
 import './index.css';
 
 const client = createFetchApiClient();

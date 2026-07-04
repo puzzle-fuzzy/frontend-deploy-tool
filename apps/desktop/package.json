@@ -23,6 +23,7 @@
   "dependencies": {
     "@deploykit/client": "workspace:*",
     "@deploykit/shared": "workspace:*",
+    "@fontsource-variable/geist": "^5.2.9",
     "electron-squirrel-startup": "catalog:",
     "electron-store": "catalog:",
     "lucide-react": "catalog:",

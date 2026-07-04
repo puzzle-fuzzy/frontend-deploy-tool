@@ -1,8 +1,6 @@
 export { default as App } from './App';
 export * from './api';
-export { cn } from './lib/utils';
 export { Button } from './components/ui/button';
-export { Input } from './components/ui/input';
 export {
   Card,
   CardContent,
@@ -10,3 +8,5 @@ export {
   CardHeader,
   CardTitle,
 } from './components/ui/card';
+export { Input } from './components/ui/input';
+export { cn } from './lib/utils';

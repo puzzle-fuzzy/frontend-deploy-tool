@@ -8,6 +8,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
+import { useServerInfo } from '../../api/ServerInfoProvider';
 import { publicBaseURL } from '../../shared/config';
 
 interface Props {
@@ -19,7 +20,11 @@ interface Props {
 export function DeployUrl({ slug, activeVersionId }: Props) {
   const { t } = useTranslation();
   const { toast } = useToast();
-  const deployUrl = `${publicBaseURL}/deploy/${slug}/`;
+  // Desktop: use the user-configured server origin (from ServerInfoProvider).
+  // Web: ServerInfoProvider is absent, so origin is '' → fall back to publicBaseURL.
+  const { origin } = useServerInfo();
+  const baseUrl = origin || publicBaseURL;
+  const deployUrl = `${baseUrl}/deploy/${slug}/`;
   const isLive = activeVersionId !== null;
 
   return (
