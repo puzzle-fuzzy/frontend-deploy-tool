@@ -1,15 +1,18 @@
+/// <reference types="vite/client" />
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { App } from './App';
+import { App, ApiClientProvider, createFetchApiClient } from '@deploykit/client';
+import './index.css';
 
-const rootElement = document.getElementById('root');
+const client = createFetchApiClient();
 
-if (!rootElement) {
-  throw new Error('Root element #root was not found.');
-}
+const root = document.getElementById('root');
+if (!root) throw new Error('Root element #root was not found.');
 
-createRoot(rootElement).render(
+createRoot(root).render(
   <StrictMode>
-    <App />
+    <ApiClientProvider client={client}>
+      <App />
+    </ApiClientProvider>
   </StrictMode>
 );

@@ -2,6 +2,13 @@ import type { NativeBridge } from '@deploykit/client';
 import {
   ApiClientProvider,
   App,
+  Button,
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+  Input,
   NativeProvider,
   ServerInfoProvider,
   useApiClient,
@@ -141,30 +148,35 @@ function Onboarding({
 }) {
   const [url, setUrl] = useState('http://localhost:3000');
   return (
-    <form
-      className="flex flex-col gap-3 max-w-sm mx-auto mt-32 p-6"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void onSubmit(url);
-      }}
-    >
-      <h1 className="text-xl font-semibold">
-        Connect to your DeployKit server
-      </h1>
-      <input
-        className="border rounded px-3 py-2"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="https://deploy.example.com"
-      />
-      {error && <p className="text-red-600 text-sm">{error}</p>}
-      <button
-        className="bg-blue-600 text-white rounded px-4 py-2"
-        type="submit"
-      >
-        Connect
-      </button>
-    </form>
+    <main className="flex min-h-dvh items-center justify-center bg-muted/40 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Connect to DeployKit</CardTitle>
+          <CardDescription>
+            Enter your DeployKit server URL to get started.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void onSubmit(url);
+            }}
+          >
+            <Input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://deploy.example.com"
+            />
+            {error && (
+              <p className="text-sm text-destructive">{error}</p>
+            )}
+            <Button type="submit">Connect</Button>
+          </form>
+        </CardContent>
+      </Card>
+    </main>
   );
 }
 
