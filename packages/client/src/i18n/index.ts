@@ -17,4 +17,10 @@ i18n
     },
   });
 
+i18n.on('languageChanged', (language) => {
+  document.documentElement.lang = language.startsWith('zh') ? 'zh-CN' : 'en';
+});
+
+document.documentElement.lang = i18n.language.startsWith('zh') ? 'zh-CN' : 'en';
+
 export default i18n;
