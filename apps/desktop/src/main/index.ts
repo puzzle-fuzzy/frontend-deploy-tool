@@ -5,9 +5,16 @@ import { getServerOrigin } from '../shared/config';
 import { registerIpc } from './ipc';
 import { createTray, destroyTray, isQuitting } from './tray';
 
-if (squirrelStartup) {
-  app.quit();
+function ignoreBrokenPipe(stream: NodeJS.WritableStream): void {
+  stream.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EPIPE') throw error;
+  });
 }
+
+ignoreBrokenPipe(process.stdout);
+ignoreBrokenPipe(process.stderr);
+
+if (squirrelStartup) app.quit();
 
 // ---- Single-instance lock ------------------------------------------------
 const gotTheLock = app.requestSingleInstanceLock();
@@ -85,27 +92,30 @@ function getMainWindow(): BrowserWindow | null {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
-  const ses = session.fromPartition(PARTITION);
-  registerIpc({
-    session: ses,
-    getOrigin: () => getServerOrigin(),
-    getMainWindow,
-    onAuthExpired: (cb) => authExpiredSubscribers.push(cb),
-  });
+app
+  .whenReady()
+  .then(() => {
+    const ses = session.fromPartition(PARTITION);
+    registerIpc({
+      session: ses,
+      getOrigin: () => getServerOrigin(),
+      getMainWindow,
+      onAuthExpired: (cb) => authExpiredSubscribers.push(cb),
+    });
 
-  mainWindow = createMainWindow();
-  createTray(mainWindow);
+    mainWindow = createMainWindow();
+    createTray(mainWindow);
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      mainWindow = createMainWindow();
-    }
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) {
+        mainWindow = createMainWindow();
+      }
+    });
+  })
+  .catch((err) => {
+    console.error('Failed to start app:', err);
+    app.quit();
   });
-}).catch((err) => {
-  console.error('Failed to start app:', err);
-  app.quit();
-});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();

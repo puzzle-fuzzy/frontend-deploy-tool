@@ -16,7 +16,7 @@ import {
 import type { SafeUser } from '@deploykit/shared';
 import { Loader2 } from 'lucide-react';
 import type { FormEvent } from 'react';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createIpcApiClient } from './ipcApiClient';
 
 type Phase = 'loading' | 'onboarding' | 'auth' | 'ready';
@@ -26,35 +26,42 @@ type Phase = 'loading' | 'onboarding' | 'auth' | 'ready';
  * the raw `window.deploykit` bridge. The disk-backed upload methods are wired
  * through `nativeUpload.*` so the shared UI never imports Electron types.
  */
-function useNativeBridge(): NativeBridge {
-  const bridge = window.deploykit;
-  return {
-    ...bridge.native,
-    uploadFolder: (projectId, directoryPath, description, onProgress) =>
-      bridge.nativeUpload.uploadFolder(
-        projectId,
-        directoryPath,
-        description,
-        onProgress
-      ),
-    uploadZipPath: (projectId, zipPath, description, onProgress) =>
-      bridge.nativeUpload.uploadZipPath(
-        projectId,
-        zipPath,
-        description,
-        onProgress
-      ),
-  };
+function useNativeBridge(): NativeBridge | null {
+  return useMemo(() => {
+    const bridge = window.deploykit;
+    if (!bridge?.api || !bridge.native || !bridge.nativeUpload) return null;
+
+    return {
+      ...bridge.native,
+      uploadFolder: (projectId, directoryPath, description, onProgress) =>
+        bridge.nativeUpload.uploadFolder(
+          projectId,
+          directoryPath,
+          description,
+          onProgress
+        ),
+      uploadZipPath: (projectId, zipPath, description, onProgress) =>
+        bridge.nativeUpload.uploadZipPath(
+          projectId,
+          zipPath,
+          description,
+          onProgress
+        ),
+    };
+  }, []);
 }
 
 export function DesktopApp() {
   const native = useNativeBridge();
+  const apiClient = useMemo(() => createIpcApiClient(), []);
   const [phase, setPhase] = useState<Phase>('loading');
   const [origin, setOrigin] = useState('');
   const [user, setUser] = useState<SafeUser | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (!native) return;
+
     let cancelled = false;
     (async () => {
       const o = await native.getServerOrigin();
@@ -86,6 +93,7 @@ export function DesktopApp() {
 
   const onConnect = useCallback(
     async (url: string) => {
+      if (!native) return;
       setError(null);
       const result = await native.validateServer(url);
       if (!result.ok) {
@@ -98,6 +106,10 @@ export function DesktopApp() {
     },
     [native]
   );
+
+  if (!native) {
+    return <MissingDesktopBridge />;
+  }
 
   if (phase === 'loading') {
     return (
@@ -115,7 +127,7 @@ export function DesktopApp() {
     // LoginGate calls useApiClient(), so it needs a provider for the
     // password-login path.
     return (
-      <ApiClientProvider client={createIpcApiClient()}>
+      <ApiClientProvider client={apiClient}>
         <LoginGate
           origin={origin}
           onLoggedIn={(me) => {
@@ -131,11 +143,27 @@ export function DesktopApp() {
   return (
     <NativeProvider bridge={native}>
       <ServerInfoProvider origin={origin}>
-        <ApiClientProvider client={createIpcApiClient()}>
+        <ApiClientProvider client={apiClient}>
           <App />
         </ApiClientProvider>
       </ServerInfoProvider>
     </NativeProvider>
+  );
+}
+
+function MissingDesktopBridge() {
+  return (
+    <main className="flex min-h-dvh items-center justify-center bg-muted/40 p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>Desktop bridge unavailable</CardTitle>
+          <CardDescription>
+            Open this screen from the DeployKit desktop app instead of a plain
+            browser tab, then reload.
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </main>
   );
 }
 
