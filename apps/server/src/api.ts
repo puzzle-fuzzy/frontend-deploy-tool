@@ -59,13 +59,13 @@ export interface ApiDeps {
   userService: UserService;
   /** Loads the session user into `c.var.user` (Node-backed; injected). */
   sessionMiddleware: MiddlewareHandler<AppEnv>;
-  /** Issues a session cookie for `user` (Node-backed; injected). */
+  /** Issues a bearer access token for `user` (Node-backed; injected). */
   issueSession: (c: Context, user: SafeUser) => void;
-  /** Clears the session cookie (Node-backed; injected). */
+  /** Clears the auth state for the current response (Node-backed; injected). */
   clearSession: (c: Context) => void;
   /** Whether self-service registration is allowed on this instance. */
   registrationEnabled: boolean;
-  /** Signs a session token string without setting a cookie (Node-backed). */
+  /** Signs a bearer token string without setting a cookie (Node-backed). */
   signSessionToken: (user: SafeUser) => string;
   /** One-time code store for the desktop auth flow (Node-backed; injected). */
   desktopAuth: {
@@ -114,8 +114,9 @@ export function createApiApp(deps: ApiDeps) {
             401
           );
         }
+        const token = deps.signSessionToken(user);
         deps.issueSession(c, user);
-        return c.json({ user });
+        return c.json({ user, token });
       }
     )
     .post(
@@ -154,8 +155,9 @@ export function createApiApp(deps: ApiDeps) {
           password,
           role: 'viewer',
         });
+        const token = deps.signSessionToken(user);
         deps.issueSession(c, user);
-        return c.json({ user });
+        return c.json({ user, token });
       }
     )
     .post('/api/auth/logout', (c) => {

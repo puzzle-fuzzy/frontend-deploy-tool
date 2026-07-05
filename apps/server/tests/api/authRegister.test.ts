@@ -5,8 +5,6 @@ import { join } from 'node:path';
 import { createApp } from '../../src/app';
 import { createAuthApp } from './helpers';
 
-const SESSION_COOKIE = 'deploykit_session';
-
 let tempDir: string;
 let app: ReturnType<typeof createAuthApp>;
 
@@ -31,34 +29,28 @@ function jsonPost(body: unknown): RequestInit {
   };
 }
 
-function cookieFrom(setCookie: string | null): string {
-  return (setCookie ?? '').split(';')[0];
-}
-
 const GOOD = {
   name: 'Alice',
   email: 'alice@example.com',
   password: 'password123',
 };
 
-test('registers a new viewer account and issues a real session', async () => {
+test('registers a new viewer account and issues a bearer token', async () => {
   const res = await app.request('/api/auth/register', jsonPost(GOOD));
   expect(res.status).toBe(200);
 
-  const setCookie = res.headers.get('set-cookie');
-  expect(setCookie).toContain(SESSION_COOKIE);
-
-  const { user } = await res.json();
-  expect(user.email).toBe('alice@example.com');
-  expect(user.role).toBe('viewer');
-  expect(user.name).toBe('Alice');
-  expect(user).not.toHaveProperty('passwordHash');
+  const body = await res.json();
+  expect(body.user.email).toBe('alice@example.com');
+  expect(body.user.role).toBe('viewer');
+  expect(body.user.name).toBe('Alice');
+  expect(body.user).not.toHaveProperty('passwordHash');
+  expect(body.token).toBeTruthy();
 
   const meRes = await app.request('/api/me', {
-    headers: { Cookie: cookieFrom(setCookie) },
+    headers: { Authorization: `Bearer ${body.token}` },
   });
   expect(meRes.status).toBe(200);
-  expect((await meRes.json()).id).toBe(user.id);
+  expect((await meRes.json()).id).toBe(body.user.id);
 });
 
 test('the new account can sign in via /api/auth/login', async () => {
@@ -69,7 +61,8 @@ test('the new account can sign in via /api/auth/login', async () => {
     jsonPost({ email: GOOD.email, password: GOOD.password })
   );
   expect(loginRes.status).toBe(200);
-  expect(loginRes.headers.get('set-cookie')).toContain(SESSION_COOKIE);
+  const body = await loginRes.json();
+  expect(body.token).toBeTruthy();
 });
 
 test('rejects a duplicate email (case-insensitive)', async () => {

@@ -3,15 +3,11 @@ import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import type { SafeUser } from '@deploykit/shared';
 import { type Session, shell } from 'electron';
-import { getMe } from './auth';
+import { getMe, setDesktopAuthToken } from './auth';
 import { serverRequest } from './serverRequest';
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
-// Mirrors the server's SESSION_MAX_AGE_SECONDS so the cookie lives as long as
-// the token claim. Must be set explicitly — omitting it makes a non-persistent
-// session cookie that does NOT survive restart in `persist:deploykit`.
-const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const SESSION_COOKIE = 'deploykit_session';
+
 
 const SUCCESS_HTML = `<!doctype html><meta charset="utf-8">
 <title>Authorized</title>
@@ -83,18 +79,8 @@ export async function loginViaWeb(
       void (async () => {
         try {
           const { token } = await exchangeCode(ses, origin, code);
-          await ses.cookies.set({
-            url: origin,
-            name: SESSION_COOKIE,
-            value: token,
-            secure: origin.startsWith('https://'),
-            httpOnly: true,
-            path: '/',
-            sameSite: 'lax',
-            expirationDate:
-              Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
-          });
-          const me = await getMe(ses, origin); // confirms the cookie attaches
+          setDesktopAuthToken(token);
+          const me = await getMe(ses, origin);
           finish(me ?? null);
         } catch {
           finish(null);

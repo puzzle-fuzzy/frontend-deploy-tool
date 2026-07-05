@@ -121,4 +121,6 @@ Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs
 1. cookie 和 bearer 方面的思考
 2. 有关 bun workspace 的设计，catalog 方面，是不是需要将所有的包都写在 root 的 package.json 里面
 3. 项目中有关文档 markdown 的整理
-4. 项目中有关架构的设计
+4. 项目中有关架构的设计。
+
+现在请你查看一下这个项目，主要还是关注于 web端，服务端，和桌面端的认证方式，现在就是桌面端现在登陆后一直出现 Error invoking remote method 'api:listProjects': ServerError: Authentication required 等有关认证的问题，应该是electron对cookie 的存储还存在问题，我在思考，这个项目是改为使用 bearer 好还是延续使用 cookie 好呢。请你合理正确的分析这个问题。

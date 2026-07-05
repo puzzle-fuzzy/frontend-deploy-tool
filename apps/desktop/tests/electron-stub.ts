@@ -13,7 +13,8 @@ import { mock } from 'bun:test';
  */
 
 interface NoopReq {
-  setHeader(): void;
+  headers: Record<string, string>;
+  setHeader(name: string, value: string): void;
   on(): NoopReq;
   write(): void;
   end(): void;
@@ -21,12 +22,15 @@ interface NoopReq {
 
 function noopReq(): NoopReq {
   const r: NoopReq = {
-    setHeader() {},
+    headers: {},
+    setHeader(name: string, value: string) {
+      r.headers[name.toLowerCase()] = value;
+    },
     on() {
       return r;
     },
-    write() {},
-    end() {},
+    write() { },
+    end() { },
   };
   return r;
 }
@@ -34,6 +38,7 @@ function noopReq(): NoopReq {
 export interface FakeResponse {
   status: number;
   body: string;
+  headers?: Record<string, string | string[] | undefined>;
   error?: Error;
 }
 
@@ -44,16 +49,20 @@ export interface FakeResponse {
 export function makeFakeReq(res: FakeResponse): unknown {
   const handlers: Record<string, Array<(arg?: unknown) => void>> = {};
   const req = {
-    setHeader() {},
+    headers: {} as Record<string, string>,
+    setHeader(name: string, value: string) {
+      req.headers[name.toLowerCase()] = value;
+    },
     on(event: string, cb: (arg?: unknown) => void) {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(cb);
       return req;
     },
-    write() {},
+    write() { },
     end() {
       const response = {
         statusCode: res.status,
+        headers: res.headers ?? {},
         on(event: string, cb: (a?: unknown) => void) {
           if (event === 'data') setTimeout(() => cb(Buffer.from(res.body)), 0);
           if (event === 'end') setTimeout(() => cb(), 1);

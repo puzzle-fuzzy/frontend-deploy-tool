@@ -3,10 +3,10 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '@deploykit/shared';
-import { adminCookie, createAuthApp, withCookie } from './helpers';
+import { adminToken, createAuthApp, withBearer } from './helpers';
 
 let app: ReturnType<typeof createAuthApp>;
-let cookie: string;
+let token: string;
 let tempDir: string;
 
 beforeEach(async () => {
@@ -16,16 +16,16 @@ beforeEach(async () => {
     storageDir: join(tempDir, 'storage'),
     publicDir: join(tempDir, 'public'),
   });
-  cookie = await adminCookie(app);
+  token = await adminToken(app);
 });
 
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-/** Forwards the admin session cookie on an API request. */
+/** Forwards the admin bearer token on an API request. */
 function req(path: string, init?: RequestInit): Promise<Response> {
-  return Promise.resolve(app.request(path, withCookie(init, cookie)));
+  return Promise.resolve(app.request(path, withBearer(init, token)));
 }
 
 async function createProject(slug = 'demo-app'): Promise<Project> {
@@ -97,7 +97,7 @@ async function versionIdOf(res: Response): Promise<string> {
   return body.version.id;
 }
 
-test('rejects API access without a session cookie', async () => {
+test('rejects API access without a bearer token', async () => {
   const res = await app.request('/api/projects');
   expect(res.status).toBe(401);
   expect(await res.json()).toEqual({
@@ -105,7 +105,7 @@ test('rejects API access without a session cookie', async () => {
   });
 });
 
-test('login returns the safe user (no password hash) and sets a cookie', async () => {
+test('login returns the safe user (no password hash) and a bearer token', async () => {
   const res = await app.request('/api/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -115,8 +115,8 @@ test('login returns the safe user (no password hash) and sets a cookie', async (
     }),
   });
   expect(res.status).toBe(200);
-  expect(res.headers.get('set-cookie')).toContain('deploykit_session=');
   const body = await res.json();
+  expect(body.token).toBeTruthy();
   expect(body.user).not.toHaveProperty('passwordHash');
   expect(body.user.email).toBe('admin@test.local');
   expect(body.user.role).toBe('admin');

@@ -22,6 +22,7 @@ const openExternal = electronStub.shell.openExternal;
 // (exchange, then /api/me).
 const queue: FakeResponse[] = [];
 let qIndex = 0;
+let recordedReqs: Array<{ headers: Record<string, string> }> = [];
 
 // Import AFTER registering the mock.
 const { loginViaWeb } = await import('../src/main/desktopAuth');
@@ -71,15 +72,18 @@ function openedCb(): string {
 beforeEach(() => {
   queue.length = 0;
   qIndex = 0;
+  recordedReqs = [];
   mock.clearAllMocks();
   setNetRequest(() => {
-    const r = queue[qIndex++] ?? { status: 200, body: '{}' };
-    return makeFakeReq(r);
+    const response = queue[qIndex++] ?? { status: 200, body: '{}' };
+    const req = makeFakeReq(response) as { headers: Record<string, string> };
+    recordedReqs.push(req);
+    return req;
   });
 });
 
 describe('loginViaWeb', () => {
-  test('exchanges the code and writes the session cookie', async () => {
+  test('exchanges the code and uses a bearer token for follow-up requests', async () => {
     queue.push(
       {
         status: 200,
@@ -102,23 +106,11 @@ describe('loginViaWeb', () => {
     expect(user).toEqual(FAKE_USER);
     expect((await res.text()).includes('Authorized')).toBe(true);
 
-    expect(calls).toHaveLength(1);
-    const arg = calls[0][0];
-    expect(arg).toMatchObject({
-      url: 'http://localhost:3000',
-      name: 'deploykit_session',
-      value: 'tok.sig',
-      httpOnly: true,
-      path: '/',
-      sameSite: 'lax',
-      secure: false, // http origin
-    });
-    expect((arg as { expirationDate: number }).expirationDate).toBeGreaterThan(
-      Math.floor(Date.now() / 1000)
-    );
+    expect(calls).toHaveLength(0);
+    expect(recordedReqs.at(-1)?.headers.authorization).toBe('Bearer tok.sig');
   });
 
-  test('marks the cookie secure for an https origin', async () => {
+  test('uses the bearer header for an https origin as well', async () => {
     queue.push(
       {
         status: 200,
@@ -134,7 +126,8 @@ describe('loginViaWeb', () => {
     const cb = new URL(openedCb());
     await fetch(`${cb.origin}${cb.pathname}${cb.search}&code=fake-code`);
     await result;
-    expect((calls[0][0] as { secure: boolean }).secure).toBe(true);
+    expect(calls).toHaveLength(0);
+    expect(recordedReqs.at(-1)?.headers.authorization).toBe('Bearer tok.sig');
   });
 
   test('rejects a callback with the wrong state (no exchange, resolves null)', async () => {

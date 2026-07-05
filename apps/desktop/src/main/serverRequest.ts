@@ -5,6 +5,8 @@ export interface RequestOptions {
   path: string;
   /** JSON body (for non-multipart requests). */
   body?: unknown;
+  /** Optional request headers for bearer auth or other metadata. */
+  headers?: Record<string, string>;
   /** Pre-built multipart body with on-write progress reporting. */
   multipart?: { chunks: Buffer[]; totalBytes: number };
   onProgress?: (percent: number) => void;
@@ -77,90 +79,119 @@ export function serverRequest<T>(
   opts: RequestOptions
 ): Promise<RequestResult<T>> {
   return new Promise((resolve, reject) => {
-    const url = `${origin}${opts.path}`;
-    const req = net.request({ url, session: ses, method: opts.method });
+    const performRequest = (attempt = 0) => {
+      const url = `${origin}${opts.path}`;
+      const req = net.request({ url, session: ses, method: opts.method });
 
-    // Compute the JSON body once (cleaner than a __jsonBody side-channel).
-    const jsonBody =
-      opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
+      // Compute the JSON body once (cleaner than a __jsonBody side-channel).
+      const jsonBody =
+        opts.body !== undefined ? JSON.stringify(opts.body) : undefined;
 
-    if (jsonBody !== undefined) {
-      req.setHeader('Content-Type', 'application/json');
-    }
-    if (opts.multipart) {
-      req.setHeader(
-        'Content-Type',
-        'multipart/form-data; boundary=----deploykit'
-      );
-      req.setHeader('Content-Length', String(opts.multipart.totalBytes));
-    }
+      if (opts.headers) {
+        for (const [name, value] of Object.entries(opts.headers)) {
+          req.setHeader(name, value);
+        }
+      }
+      if (jsonBody !== undefined) {
+        req.setHeader('Content-Type', 'application/json');
+      }
+      if (opts.multipart) {
+        req.setHeader(
+          'Content-Type',
+          'multipart/form-data; boundary=----deploykit'
+        );
+        req.setHeader('Content-Length', String(opts.multipart.totalBytes));
+      }
 
-    req.on('response', (response) => {
-      // Store any Set-Cookie headers from the response into the Electron
-      // session's cookie store. Chromium's net.request() does not always
-      // persist cookies automatically — explicit storage ensures subsequent
-      // API calls carry the session cookie.
-      const raw = response.headers['set-cookie'];
-      if (raw) {
-        const cookies = Array.isArray(raw) ? raw : [raw];
-        for (const header of cookies) {
-          const semi = header.indexOf(';');
-          const eq = header.indexOf('=');
-          if (eq === -1) continue;
-          const name = header.slice(0, eq);
-          const value = semi > 0 ? header.slice(eq + 1, semi) : header.slice(eq + 1);
-          const cookieOpts: Electron.CookiesSetDetails = {
-            url: origin,
-            name,
-            value,
-            path: '/',
-            httpOnly: true,
-            secure: false,
-            sameSite: 'lax',
-          };
-          // Parse optional Max-Age.
-          const maxAge = header.match(/Max-Age=(\d+)/i);
-          if (maxAge) {
-            cookieOpts.expirationDate =
-              Math.floor(Date.now() / 1000) + Number(maxAge[1]);
+      req.on('response', (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (c) => chunks.push(c));
+        response.on('end', async () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = response.statusCode;
+
+          try {
+            const raw = response.headers['set-cookie'];
+            const needsCookieSync = Boolean(raw) &&
+              (opts.path.startsWith('/api/auth/login') ||
+                opts.path.startsWith('/api/auth/register') ||
+                opts.path.startsWith('/api/desktop/'));
+            const cookiePromises: Array<Promise<void>> = [];
+            if (raw) {
+              const cookies = Array.isArray(raw) ? raw : [raw];
+              for (const header of cookies) {
+                const semi = header.indexOf(';');
+                const eq = header.indexOf('=');
+                if (eq === -1) continue;
+                const name = header.slice(0, eq);
+                const value =
+                  semi > 0 ? header.slice(eq + 1, semi) : header.slice(eq + 1);
+                const cookieOpts: Electron.CookiesSetDetails = {
+                  url: origin,
+                  name,
+                  value,
+                  path: '/',
+                  httpOnly: true,
+                  secure: false,
+                  sameSite: 'lax',
+                };
+                const maxAge = header.match(/Max-Age=(\d+)/i);
+                if (maxAge) {
+                  cookieOpts.expirationDate =
+                    Math.floor(Date.now() / 1000) + Number(maxAge[1]);
+                }
+                cookiePromises.push(
+                  ses.cookies.set(cookieOpts).catch((err) => {
+                    console.error('[deploykit] Failed to persist cookie:', err);
+                  })
+                );
+              }
+            }
+
+            if (needsCookieSync) {
+              void Promise.all(cookiePromises);
+            }
+
+            const shouldRetry =
+              status === 401 &&
+              attempt === 0 &&
+              !opts.path.startsWith('/api/auth/') &&
+              !opts.path.startsWith('/api/desktop/') &&
+              Boolean(ses?.cookies?.set);
+
+            if (shouldRetry) {
+              setTimeout(() => performRequest(1), 150);
+              return;
+            }
+
+            const { data } = parseResponseBody<T>(status, text);
+            resolve({ status, data });
+          } catch (e) {
+            reject(e);
           }
-          ses.cookies.set(cookieOpts).catch((err) =>
-            console.error('[deploykit] Failed to persist cookie:', err)
-          );
-        }
-      }
-
-      const chunks: Buffer[] = [];
-      response.on('data', (c) => chunks.push(c));
-      response.on('end', () => {
-        const text = Buffer.concat(chunks).toString('utf8');
-        const status = response.statusCode;
-        try {
-          const { data } = parseResponseBody<T>(status, text);
-          resolve({ status, data });
-        } catch (e) {
-          reject(e);
-        }
+        });
       });
-    });
 
-    req.on('error', (err) => reject(new NetworkError(err.message)));
+      req.on('error', (err) => reject(new NetworkError(err.message)));
 
-    // Write body.
-    if (jsonBody !== undefined) {
-      req.write(jsonBody, 'utf8');
-    } else if (opts.multipart) {
-      let written = 0;
-      for (const chunk of opts.multipart.chunks) {
-        req.write(chunk);
-        written += chunk.length;
-        if (opts.onProgress) {
-          opts.onProgress(
-            Math.round((written / opts.multipart.totalBytes) * 100)
-          );
+      // Write body.
+      if (jsonBody !== undefined) {
+        req.write(jsonBody, 'utf8');
+      } else if (opts.multipart) {
+        let written = 0;
+        for (const chunk of opts.multipart.chunks) {
+          req.write(chunk);
+          written += chunk.length;
+          if (opts.onProgress) {
+            opts.onProgress(
+              Math.round((written / opts.multipart.totalBytes) * 100)
+            );
+          }
         }
       }
-    }
-    req.end();
+      req.end();
+    };
+
+    performRequest();
   });
 }

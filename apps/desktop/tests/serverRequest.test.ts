@@ -111,6 +111,29 @@ describe('serverRequest', () => {
     });
   });
 
+  test('does not block auth responses on cookie persistence', async () => {
+    const session = {
+      cookies: {
+        set: () =>
+          new Promise<void>((resolve) => {
+            setTimeout(resolve, 50);
+          }),
+      },
+    };
+    stage({
+      status: 200,
+      body: JSON.stringify({ ok: true }),
+      headers: { 'set-cookie': ['deploykit_session=abc; Path=/; HttpOnly'] },
+    });
+
+    await expect(
+      serverRequest(session as never, 'http://x', {
+        method: 'POST',
+        path: '/api/auth/login',
+      })
+    ).resolves.toEqual({ status: 200, data: { ok: true } });
+  });
+
   test('rejects with NetworkError on a connection error', async () => {
     stage({ status: 0, body: '', error: new Error('connect ECONNREFUSED') });
     const promise = serverRequest({} as never, 'http://x', {

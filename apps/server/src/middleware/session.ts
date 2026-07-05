@@ -98,10 +98,18 @@ export function readSessionCookie(c: Context): string | undefined {
   return getCookie(c, SESSION_COOKIE);
 }
 
+/** Reads a bearer token from the Authorization header, if present. */
+export function readBearerToken(c: Context): string | undefined {
+  const auth = c.req.header('Authorization');
+  if (!auth || !auth.startsWith('Bearer ')) return undefined;
+  return auth.slice('Bearer '.length).trim();
+}
+
 /**
- * Reads the session cookie, verifies it, and loads the matching user into
- * `c.var.user` (or `null`). Never rejects — bad/expired tokens just mean no
- * user, so downstream `requireAuth`/`requireMinRole` decide.
+ * Reads either a bearer token or the session cookie, verifies it, and loads the
+ * matching user into `c.var.user` (or `null`). Never rejects — bad/expired
+ * tokens just mean no user, so downstream `requireAuth`/`requireMinRole`
+ * decide.
  */
 export function createSessionMiddleware(deps: {
   secret: string;
@@ -109,7 +117,7 @@ export function createSessionMiddleware(deps: {
 }): MiddlewareHandler<AppEnv> {
   const { secret, userService } = deps;
   return async (c, next) => {
-    const token = readSessionCookie(c);
+    const token = readBearerToken(c) ?? readSessionCookie(c);
     const payload = token ? verifySessionToken(token, secret) : null;
     const user = payload
       ? (userService.getSafeUser(payload.sub) ?? null)

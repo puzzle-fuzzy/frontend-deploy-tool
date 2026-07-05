@@ -2,16 +2,40 @@ import type { SafeUser } from '@deploykit/shared';
 import type { Session } from 'electron';
 import { ServerError, serverRequest } from './serverRequest';
 
+let desktopToken: string | null = null;
+
+export function setDesktopAuthToken(token: string | null): void {
+  desktopToken = token;
+}
+
+function getDesktopToken(): string | null {
+  return desktopToken;
+}
+
+async function requestWithToken<T>(
+  ses: Session,
+  origin: string,
+  opts: { method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'; path: string; body?: unknown }
+): Promise<T> {
+  const token = getDesktopToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+  const r = await serverRequest<T>(ses, origin, {
+    ...opts,
+    headers,
+  });
+  return r.data;
+}
+
 export async function getMe(
   ses: Session,
   origin: string
 ): Promise<SafeUser | null> {
   try {
-    const r = await serverRequest<SafeUser>(ses, origin, {
+    const user = await requestWithToken<SafeUser>(ses, origin, {
       method: 'GET',
       path: '/api/me',
     });
-    return r.data;
+    return user;
   } catch (e) {
     if (e instanceof ServerError && e.status === 401) return null;
     throw e;
@@ -24,15 +48,14 @@ export async function login(
   email: string,
   password: string
 ): Promise<SafeUser> {
-  // POST /api/auth/login returns { user } and sets a session cookie.
-  // We use the response user directly because Electron's net.request()
-  // processes Set-Cookie asynchronously — a subsequent GET /api/me would
-  // race the cookie store and may come back empty.
-  const r = await serverRequest<{ user: SafeUser }>(ses, origin, {
+  const r = await serverRequest<{ user: SafeUser; token?: string }>(ses, origin, {
     method: 'POST',
     path: '/api/auth/login',
     body: { email, password },
   });
+  if (r.data.token) {
+    setDesktopAuthToken(r.data.token);
+  }
   return r.data.user;
 }
 
@@ -41,15 +64,19 @@ export async function register(
   origin: string,
   input: { name: string; email: string; password: string }
 ): Promise<SafeUser> {
-  const r = await serverRequest<{ user: SafeUser }>(ses, origin, {
+  const r = await serverRequest<{ user: SafeUser; token?: string }>(ses, origin, {
     method: 'POST',
     path: '/api/auth/register',
     body: input,
   });
+  if (r.data.token) {
+    setDesktopAuthToken(r.data.token);
+  }
   return r.data.user;
 }
 
 export async function logout(ses: Session, origin: string): Promise<void> {
+  setDesktopAuthToken(null);
   await serverRequest(ses, origin, {
     method: 'POST',
     path: '/api/auth/logout',

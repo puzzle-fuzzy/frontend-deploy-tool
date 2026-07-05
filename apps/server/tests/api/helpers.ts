@@ -33,12 +33,17 @@ export function createAuthApp(dirs: TmpDirs) {
   });
 }
 
-/** Logs in as the seeded admin and returns the `name=value` cookie pair. */
-export async function adminCookie(app: RequestApp): Promise<string> {
+/** Logs in as the seeded admin and returns the bearer token. */
+export async function adminToken(app: RequestApp): Promise<string> {
   return loginAs(app, ADMIN_EMAIL, ADMIN_PASSWORD);
 }
 
-/** Logs in as any user and returns the `name=value` cookie pair. */
+/** Legacy alias used by older tests that still call the cookie-style helper name. */
+export async function adminCookie(app: RequestApp): Promise<string> {
+  return adminToken(app);
+}
+
+/** Logs in as any user and returns the bearer token. */
 export async function loginAs(
   app: RequestApp,
   email: string,
@@ -49,17 +54,25 @@ export async function loginAs(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  const setCookie = res.headers.get('set-cookie');
-  if (!setCookie) throw new Error(`login as ${email} did not set a cookie`);
-  return setCookie.split(';')[0];
+  const body = await res.json() as { token?: string };
+  if (!body.token) throw new Error(`login as ${email} did not return a token`);
+  return body.token;
 }
 
-/** Adds the session cookie to a request init, preserving existing headers. */
-export function withCookie(
+/** Adds the bearer token to a request init, preserving existing headers. */
+export function withBearer(
   init: RequestInit | undefined,
-  cookie: string
+  token: string
 ): RequestInit {
   const headers = new Headers(init?.headers);
-  headers.set('Cookie', cookie);
+  headers.set('Authorization', `Bearer ${token}`);
   return { ...init, headers };
+}
+
+/** Legacy alias used by older tests that still call the cookie-style helper. */
+export function withCookie(
+  init: RequestInit | undefined,
+  token: string
+): RequestInit {
+  return withBearer(init, token);
 }
