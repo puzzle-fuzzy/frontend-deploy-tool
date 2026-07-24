@@ -200,6 +200,7 @@
     "retry": "Reload activity",
     "loadMore": "Load older events",
     "loadingMore": "Loading older events...",
+    "retryLoadMore": "Retry older events",
     "eventCount": "{{count}} recent events",
     "latestFirst": "Latest first",
     "files": "{{count}} files",
@@ -215,6 +216,7 @@
     "version.activate": "Set as production",
     "version.rollback": "Rolled back",
     "version.delete": "Version deleted",
+    "version.reconcile": "Missing artifact detected",
     "toProject": "to project",
     "ofProject": "of project"
   },
@@ -231,6 +233,7 @@
     "projectNotFound": "Project not found",
     "slugTaken": "This slug is already taken",
     "versionNotFound": "Version not found",
+    "invalidHistoryCursor": "History changed while loading. Refresh and try again.",
     "tooManyFiles": "Too many files",
     "pathTooLong": "File path is too long",
     "extractedTooLarge": "Total file size is too large",

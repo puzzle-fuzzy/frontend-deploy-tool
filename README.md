@@ -27,7 +27,8 @@
 - **版本管理** — 支持 ZIP 上传或文件夹拖拽，自动记录版本历史
 - **一键部署** — 激活版本后立即可访问，支持正式/预览版本
 - **SPA 支持** — 支持 Hash/Path 两种路由模式，Path 模式自动 fallback 到 index.html
-- **操作历史** — 记录所有创建、删除、激活操作（上限 200 条）
+- **操作历史** — 记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载（上限 200 条）
+- **失败恢复** — 上传 staging、同盘原子切换与启动对账；孤儿产物进入可恢复隔离区
 - **明暗主题** — 支持亮色/暗色主题切换
 - **中英文** — 内置中文和英文界面，自动检测浏览器语言
 - **零外部服务** — 内嵌 SQLite + 文件系统存储，无需单独部署数据库
@@ -184,7 +185,11 @@ deploykit/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/projects/:id/history?limit=50` | 获取指定项目的操作历史（上限 200） |
+| GET | `/api/projects/:id/history?limit=50&cursor=...` | 获取指定项目的操作历史页（上限 200） |
+
+历史响应为 `{ items: HistoryEvent[], nextCursor: string | null }`。下一页把
+`nextCursor` 原样作为 `cursor` 传回；游标失效时返回
+`INVALID_HISTORY_CURSOR`，应重新读取第一页。
 
 ### 部署访问
 
@@ -204,6 +209,8 @@ bun run verify        # Biome + 类型检查 + 测试 + 生产构建
 - 前端：Vitest + React Testing Library（[apps/web/tests/unit](apps/web/tests/unit)）
 
 本地与 CI 共享同一个质量入口：`bun run verify`。
+CI 额外保留 14 天的验证日志 `deploykit-verify-{commit}`，并在成功时保留
+`deploykit-web-{commit}` Web 构建产物。
 
 ## 文档
 

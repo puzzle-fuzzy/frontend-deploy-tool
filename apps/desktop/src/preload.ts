@@ -40,8 +40,10 @@ contextBridge.exposeInMainWorld('deploykit', {
       ipcRenderer.invoke('api:rollbackVersion', projectId, versionId),
     deleteVersion: (projectId: string, versionId: string) =>
       ipcRenderer.invoke('api:deleteVersion', projectId, versionId),
-    listProjectHistory: (projectId: string, limit?: number) =>
-      ipcRenderer.invoke('api:listProjectHistory', projectId, limit),
+    listProjectHistory: (
+      projectId: string,
+      query?: import('@deploykit/shared').HistoryPageQuery
+    ) => ipcRenderer.invoke('api:listProjectHistory', projectId, query),
     searchUsers: (query: string) =>
       ipcRenderer.invoke('api:searchUsers', query),
     addMember: (projectId: string, email: string, role: string) =>

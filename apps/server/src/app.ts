@@ -19,6 +19,7 @@ import { createJsonProjectRepository } from './repositories/jsonProjectRepositor
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import { createProjectService } from './services/projectService';
+import { reconcileStorage } from './services/storageReconciler';
 import { createUserService } from './services/userService';
 import { createVersionService } from './services/versionService';
 
@@ -40,6 +41,12 @@ export function createApp(config: AppConfig) {
         legacyDataFile: config.dataFile,
       })
     : createJsonProjectRepository(config.dataFile);
+  const reconciliation = reconcileStorage(repo, config.storageDir);
+  if (Object.values(reconciliation).some((count) => count > 0)) {
+    console.warn(
+      `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`
+    );
+  }
   const projectService = createProjectService(repo);
   const versionService = createVersionService(repo, config);
   const userService = createUserService(repo);

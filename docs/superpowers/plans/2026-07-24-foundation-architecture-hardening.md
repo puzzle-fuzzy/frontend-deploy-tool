@@ -148,5 +148,5 @@
 
 - [x] Replace remaining native confirmation UI with the existing non-layout-shifting dialog primitive.
 - [x] Audit history pagination, empty/loading/error states, and responsive behavior against the current design system.
-- [x] Split the production bundle at stable framework, UI, and avatar dependency boundaries; keep feature source ownership cohesive.
+- [x] Split the authenticated workspace with a React lazy boundary and let Rolldown preserve dependency ordering; keep feature source ownership cohesive.
 - [x] Re-run `bun run verify` and visually inspect the served application at desktop and mobile widths.

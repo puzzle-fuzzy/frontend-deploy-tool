@@ -1,6 +1,7 @@
 import type { ApiApp } from '@deploykit/server/api';
 import type {
-  HistoryEvent,
+  HistoryPage,
+  HistoryPageQuery,
   Project,
   SafeUser,
   Settings,
@@ -242,17 +243,21 @@ export function createFetchApiClient(): ApiClient {
 
     async listProjectHistory(
       projectId: string,
-      limit = 50
-    ): Promise<HistoryEvent[]> {
+      query: HistoryPageQuery = {}
+    ): Promise<HistoryPage> {
+      const requestQuery = {
+        limit: String(query.limit ?? 50),
+        cursor: query.cursor,
+      };
       const res = await client.api.projects[':id'].history.$get(
         {
           param: { id: projectId },
-          query: { limit: String(limit) },
+          query: requestQuery,
         },
         { headers: getAuthHeaders() }
       );
       await checkOk(res);
-      return (await res.json()) as HistoryEvent[];
+      return (await res.json()) as HistoryPage;
     },
 
     async searchUsers(query: string): Promise<SafeUser[]> {

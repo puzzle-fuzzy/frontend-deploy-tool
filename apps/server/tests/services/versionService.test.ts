@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -58,6 +59,98 @@ function config(storageDir: string): AppConfig {
 }
 
 describe('createVersionService', () => {
+  test('promotes a validated upload from staging into its final directory', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.versions = [];
+    demoProject.activeVersionId = null;
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+    };
+
+    try {
+      const result = await createVersionService(
+        repo,
+        config(storageDir)
+      ).uploadVersion(
+        'p1',
+        {
+          versionDesc: 'staged build',
+          file: null,
+          folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+        },
+        'user-1'
+      );
+
+      expect(
+        existsSync(join(storageDir, 'p1', result.version.id, 'index.html'))
+      ).toBe(true);
+      expect(existsSync(join(storageDir, '.staging', result.version.id))).toBe(
+        false
+      );
+      expect(data.projects[0].versions[0].id).toBe(result.version.id);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans staging and final artifacts when metadata commit fails', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.versions = [];
+    demoProject.activeVersionId = null;
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: () => {
+        throw new Error('metadata commit failed');
+      },
+    };
+
+    try {
+      await expect(
+        createVersionService(repo, config(storageDir)).uploadVersion(
+          'p1',
+          {
+            versionDesc: 'failed commit',
+            file: null,
+            folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+          },
+          'user-1'
+        )
+      ).rejects.toThrow('metadata commit failed');
+
+      const stagingRoot = join(storageDir, '.staging');
+      expect(existsSync(stagingRoot) ? readdirSync(stagingRoot) : []).toEqual(
+        []
+      );
+      const projectRoot = join(storageDir, 'p1');
+      expect(existsSync(projectRoot) ? readdirSync(projectRoot) : []).toEqual(
+        []
+      );
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('does not record history when promoting the already active version', () => {
     const storageDir = mkdtempSync(
       join(tmpdir(), 'deploykit-version-service-')

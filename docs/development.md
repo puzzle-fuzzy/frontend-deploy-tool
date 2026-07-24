@@ -53,8 +53,8 @@ REGISTRATION_ENABLED=false
 bun run test          # 根目录（或 cd apps/server && bun test）
 ```
 
-- `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史端点、安全头、健康探针、请求编号与上传失败清理。
-- `tests/services/` — 领域/服务/工具单元测试：slug、版本不变量、`safePath`、JSON/SQLite 原子 mutation 与回滚、`deployResolver`、`artifactService`、配置门禁。
+- `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史游标端点、安全头、健康探针、请求编号与上传失败清理。
+- `tests/services/` — 领域/服务/工具单元测试：slug、历史游标、版本不变量、`safePath`、JSON/SQLite 原子 mutation 与回滚、`deployResolver`、`artifactService`、存储启动对账与配置门禁。
 
 应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口。
 
@@ -75,11 +75,24 @@ bun run test          # Vitest + React Testing Library
 3. 上传一个版本：
    - **ZIP**：选择 `.zip`（服务端安全解压 + 扁平化）。
    - **文件夹**：选择构建产物目录（`webkitdirectory`，保留相对路径）。
+   - 服务端先写入 `.voasx/storage/.staging/`，全部校验通过后再原子移动到正式版本目录。
    - 上传后保持预览态；必须显式发布后才成为正式版本。
 4. 预览：
    - 正式版本：`http://localhost:4010/deploy/{slug}/`
    - 指定版本：`http://localhost:4010/deploy/{slug}/{versionId}/`
 5. 路径路由应用请先在项目设置开启 SPA 模式，详见 [vite-deployment.md](vite-deployment.md)。
+
+服务启动时会以 SQLite 元数据为真源对账产物目录。中断 staging 会清理，孤儿
+正式产物会移动到 `.recovery/orphans/` 供人工恢复；缺少入口文件的已记录版本
+会进入 `failed`，缺失的线上版本会安全下线，不会自动选择其他版本。
+
+## CI 证据
+
+GitHub Actions 与本地共用 `bun run verify`。每次执行会保留 14 天：
+
+- `deploykit-verify-{commit}`：完整 `verify.log`，失败时也上传；
+- `deploykit-web-{commit}`：验证成功后的 `apps/web/dist` 与
+  `apps/server/public`，可用于核对实际交付内容。
 
 ## 添加依赖
 

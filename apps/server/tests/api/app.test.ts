@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { adminCookie, createAuthApp, withCookie } from './helpers';
@@ -121,4 +127,23 @@ test('readiness fails when the metadata repository cannot be opened', async () =
   expect(response.status).toBe(500);
   expect((await response.json()).error.code).toBe('INTERNAL_ERROR');
   expect(response.headers.get('X-Request-Id')).toBeTruthy();
+});
+
+test('cleans interrupted staging uploads while composing the app', () => {
+  const recoveryRoot = mkdtempSync(join(tmpdir(), 'deploykit-recovery-'));
+  const stagingDir = join(recoveryRoot, 'storage', '.staging', 'interrupted');
+  mkdirSync(stagingDir, { recursive: true });
+  writeFileSync(join(stagingDir, 'index.html'), 'partial');
+
+  try {
+    createAuthApp({
+      dataFile: join(recoveryRoot, 'data.json'),
+      storageDir: join(recoveryRoot, 'storage'),
+      publicDir: join(recoveryRoot, 'public'),
+    });
+
+    expect(existsSync(join(recoveryRoot, 'storage', '.staging'))).toBe(false);
+  } finally {
+    rmSync(recoveryRoot, { recursive: true, force: true });
+  }
 });

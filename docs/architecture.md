@@ -35,7 +35,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug 校验、`parseSettings`）、`version.ts`（激活、替换活跃版本）、`history.ts`（追加事件，上限 200） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`storageReconciler`（启动时元数据/产物对账）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
 | `app.ts` | 组合根 | `createApp(config)`：配置校验、服务装配、`/health/*`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
@@ -79,6 +79,11 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 请求/响应类型由路由处理器的 `c.json(...)` 与 `hono/validator` 推导；前端经 `hono/client` 自动获得类型，无需手写。完整端点表见根 [README](../README.md#api-接口)。错误统一为 `{ "error": { "code": ErrorCode, "message": string } }`。上传端点使用 `multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。
 
+历史接口返回 `{ items, nextCursor }`。`nextCursor` 是只包含历史事件 ID
+的版本化 Base64URL 不透明令牌；下一页从该事件之后继续，因此列表头部新增事件
+不会导致重复或跳项。历史仍保留最近 200 条，游标对应事件离开保留窗口后返回
+`INVALID_HISTORY_CURSOR`，客户端保留已显示内容并提示刷新或重试。
+
 ## 存储布局
 
 ```
@@ -87,6 +92,7 @@ apps/server/
 ├── data.json                              # 旧版本数据，仅在 SQLite 为空时导入一次
 ├── public/                                # 管理面板（打包脚本同步自 apps/web/dist）
 └── .voasx/storage/
+    ├── .staging/                          # 上传处理中间目录（启动时清理）
     └── {projectId}/
         └── {versionId}/                   # 该版本的扁平化静态文件
             └── index.html, assets/, ...
@@ -95,6 +101,13 @@ apps/server/
 - `deploykit.sqlite`：启用 WAL、`synchronous=NORMAL` 与 `busy_timeout`。当前采用单行版本化状态文档；写用例通过同步 `mutate` + `IMMEDIATE` 事务防止并发覆盖，适合单节点/共享本机数据库；需要多节点查询扩展时再关系化拆表。
 - 旧 `data.json`：仅在 SQLite 状态行不存在时导入，导入前创建 `.sqlite-migration.bak`，原文件保持不变。
 - 产物目录：删除项目/版本时联动清理；`flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除 `__MACOSX`。
+- 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
+  checksum 校验后，通过 `rename` 原子移动到正式版本目录，再提交 SQLite 元数据。
+  元数据提交失败会删除正式目录。
+- 应用开始服务前执行一次对账：清理中断 staging 与旧 ZIP 临时文件；没有元数据
+  引用的正式产物移动到 `.recovery/orphans/`，不做不可恢复删除。元数据存在但
+  缺少 `index.html` 的版本标记为 `failed` 并记录 `version.reconcile`。若缺失
+  版本原本在线，只会清空 `activeVersionId`，不会自动发布另一个版本。
 - 路径均可通过环境变量重定位（`DATABASE_FILE` / `DATA_FILE` / `STORAGE_DIR` / `PUBLIC_DIR`）。
 
 ## 前端结构（packages/client/src）

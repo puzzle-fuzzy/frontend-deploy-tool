@@ -7,6 +7,7 @@ import {
   Rocket,
   RotateCcw,
   Settings2,
+  ShieldAlert,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -23,7 +24,6 @@ interface ProjectHistoryTimelineProps {
 }
 
 const HISTORY_PAGE_SIZE = 50;
-const MAX_HISTORY_EVENTS = 200;
 
 const ACTION_ICONS: Record<HistoryAction, LucideIcon> = {
   'project.create': FolderPlus,
@@ -35,6 +35,7 @@ const ACTION_ICONS: Record<HistoryAction, LucideIcon> = {
   'version.activate': Rocket,
   'version.rollback': RotateCcw,
   'version.delete': Trash2,
+  'version.reconcile': ShieldAlert,
 };
 
 export function ProjectHistoryTimeline({
@@ -47,45 +48,84 @@ export function ProjectHistoryTimeline({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [retryToken, setRetryToken] = useState(0);
-  const [limit, setLimit] = useState(HISTORY_PAGE_SIZE);
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
+  const requestGeneration = useRef(0);
   const translateRef = useRef(t);
   translateRef.current = t;
 
   useEffect(() => {
-    let active = true;
-    const isLoadingMore = limit > HISTORY_PAGE_SIZE;
-    setLoading(!isLoadingMore);
-    setLoadingMore(isLoadingMore);
+    const generation = ++requestGeneration.current;
+    setLoading(true);
+    setEvents([]);
+    setNextCursor(null);
+    setLoadingMore(false);
+    setLoadMoreError(null);
     setError(null);
 
     api
-      .listProjectHistory(projectId, limit)
-      .then((nextEvents) => {
-        if (active) setEvents(nextEvents);
+      .listProjectHistory(projectId, { limit: HISTORY_PAGE_SIZE })
+      .then((page) => {
+        if (requestGeneration.current !== generation) return;
+        setEvents(page.items);
+        setNextCursor(page.nextCursor);
       })
       .catch((reason: unknown) => {
-        if (active) {
-          setError(
-            getLocalizedError(
-              reason,
-              translateRef.current,
-              translateRef.current('history.failed')
-            )
-          );
-        }
+        if (requestGeneration.current !== generation) return;
+        setError(
+          getLocalizedError(
+            reason,
+            translateRef.current,
+            translateRef.current('history.failed')
+          )
+        );
       })
       .finally(() => {
-        if (active) {
-          setLoading(false);
-          setLoadingMore(false);
-        }
+        if (requestGeneration.current === generation) setLoading(false);
       });
 
     return () => {
-      active = false;
+      if (requestGeneration.current === generation) {
+        requestGeneration.current += 1;
+      }
     };
-  }, [api, projectId, refreshKey, retryToken, limit]);
+  }, [api, projectId, refreshKey, retryToken]);
+
+  const loadOlder = async () => {
+    if (!nextCursor || loadingMore) return;
+    const cursor = nextCursor;
+    const generation = requestGeneration.current;
+    setLoadingMore(true);
+    setLoadMoreError(null);
+
+    try {
+      const page = await api.listProjectHistory(projectId, {
+        limit: HISTORY_PAGE_SIZE,
+        cursor,
+      });
+      if (requestGeneration.current !== generation) return;
+      setEvents((current) => {
+        const knownIds = new Set(current.map((event) => event.id));
+        return [
+          ...current,
+          ...page.items.filter((event) => !knownIds.has(event.id)),
+        ];
+      });
+      setNextCursor(page.nextCursor);
+    } catch (reason) {
+      if (requestGeneration.current !== generation) return;
+      setLoadMoreError(
+        getLocalizedError(
+          reason,
+          translateRef.current,
+          translateRef.current('history.failed')
+        )
+      );
+    } finally {
+      if (requestGeneration.current === generation) setLoadingMore(false);
+    }
+  };
 
   if (loading) {
     return <HistorySkeleton />;
@@ -143,25 +183,34 @@ export function ProjectHistoryTimeline({
           <HistoryRow key={event.id} event={event} index={index} />
         ))}
       </ol>
-      {(loadingMore || events.length === limit) &&
-        limit < MAX_HISTORY_EVENTS && (
-          <div className="flex justify-center border-x border-b bg-card p-5">
+      {(nextCursor || loadingMore || loadMoreError) && (
+        <div className="flex justify-center border-x border-b bg-card p-5">
+          {loadMoreError ? (
+            <div className="flex flex-col items-center gap-3 text-center sm:flex-row">
+              <p className="text-sm text-destructive">{loadMoreError}</p>
+              <Button
+                type="button"
+                variant="outline"
+                className="min-h-11"
+                disabled={loadingMore}
+                onClick={loadOlder}
+              >
+                {t('history.retryLoadMore')}
+              </Button>
+            </div>
+          ) : (
             <Button
               type="button"
               variant="outline"
               className="min-h-11 min-w-40"
               disabled={loadingMore}
-              onClick={() => {
-                setLoadingMore(true);
-                setLimit((current) =>
-                  Math.min(current + HISTORY_PAGE_SIZE, MAX_HISTORY_EVENTS)
-                );
-              }}
+              onClick={loadOlder}
             >
               {loadingMore ? t('history.loadingMore') : t('history.loadMore')}
             </Button>
-          </div>
-        )}
+          )}
+        </div>
+      )}
     </div>
   );
 }

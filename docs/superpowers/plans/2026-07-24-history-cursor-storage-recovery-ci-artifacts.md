@@ -16,7 +16,7 @@
 - Cursor values are opaque transport tokens and must never expose filesystem paths or credentials.
 - Stage and final artifact directories must remain on the same filesystem so `renameSync` is atomic.
 - Missing active artifacts must deactivate the project; never auto-promote another version.
-- Runtime reconciliation may delete only DeployKit-owned staging and unreferenced artifact directories.
+- Runtime reconciliation may delete only DeployKit-owned staging; unreferenced final artifacts must move into `.recovery/orphans/`.
 - `bun run verify` remains the local and CI source of truth.
 
 ---
@@ -33,15 +33,15 @@
 - Consumes: the already-passing `bun run verify` foundation state
 - Produces: a clean Git checkpoint before the next behavior changes
 
-- [ ] Confirm the remote `origin` exists, `main` matches `origin/main`, and GitHub authentication can push.
-- [ ] Inspect `git status --short`, `git diff --check`, and ignored runtime paths so no database, credential, cache, or generated output is staged.
-- [ ] Stage the foundation changes and create:
+- [x] Confirm the remote `origin` exists, `main` matches `origin/main`, and GitHub authentication can push.
+- [x] Inspect `git status --short`, `git diff --check`, and ignored runtime paths so no database, credential, cache, or generated output is staged.
+- [x] Stage the foundation changes and create:
 
 ```bash
 git commit -m "feat: redesign DeployKit and harden its foundation"
 ```
 
-- [ ] Confirm the checkpoint commit contains no runtime database, `.env`, `.voasx`, `dist`, or Electron output.
+- [x] Confirm the checkpoint commit contains no runtime database, `.env`, `.voasx`, `dist`, or Electron output.
 
 ## Task 2: Define and test opaque history pagination
 
@@ -81,15 +81,15 @@ export function paginateHistory(
 - `undefined` from `paginateHistory` means a malformed or expired cursor.
 - Server service methods return `HistoryPage` and translate `undefined` into `ApiError('INVALID_HISTORY_CURSOR', ..., 400)`.
 
-- [ ] Add domain tests proving a first page returns exactly `limit` items and a cursor only when older events exist.
-- [ ] Add domain tests proving a second page starts after the cursor even when a newer event is prepended.
-- [ ] Add domain tests proving malformed, unknown, and expired cursors are rejected.
-- [ ] Add API tests for the page envelope, `nextCursor`, no duplicate IDs across pages, project scoping, and `INVALID_HISTORY_CURSOR`.
-- [ ] Run the focused tests and confirm the old array response fails the new expectations.
-- [ ] Add `historyPageSchema`, `HistoryPage`, `HistoryPageQuery`, and `INVALID_HISTORY_CURSOR`.
-- [ ] Implement a versioned Base64URL cursor containing only the event ID; validate its exact object shape before use.
-- [ ] Update both history routes and service methods to accept `limit` plus `cursor` and return the page envelope.
-- [ ] Run the focused server tests until they pass.
+- [x] Add domain tests proving a first page returns exactly `limit` items and a cursor only when older events exist.
+- [x] Add domain tests proving a second page starts after the cursor even when a newer event is prepended.
+- [x] Add domain tests proving malformed, unknown, and expired cursors are rejected.
+- [x] Add API tests for the page envelope, `nextCursor`, no duplicate IDs across pages, project scoping, and `INVALID_HISTORY_CURSOR`.
+- [x] Run the focused tests and confirm the old array response fails the new expectations.
+- [x] Add `historyPageSchema`, `HistoryPage`, `HistoryPageQuery`, and `INVALID_HISTORY_CURSOR`.
+- [x] Implement a versioned Base64URL cursor containing only the event ID; validate its exact object shape before use.
+- [x] Update both history routes and service methods to accept `limit` plus `cursor` and return the page envelope.
+- [x] Run the focused server tests until they pass.
 
 ## Task 3: Move Web and Electron history clients to append-only pages
 
@@ -121,16 +121,16 @@ listProjectHistory(
 
 - Produces: initial replacement, older-page append, next-cursor state, and retry behavior without re-fetching all previously rendered rows.
 
-- [ ] Rewrite timeline tests to expect `{ items, nextCursor }`.
-- [ ] Add a test proving “load older” sends the previous `nextCursor` and appends unique rows.
-- [ ] Add a test proving a refresh key resets the cursor and replaces stale rows.
-- [ ] Add a test proving a load-more failure keeps already rendered events and offers a retry.
-- [ ] Run focused client and desktop tests and confirm signatures fail before implementation.
-- [ ] Update the transport-neutral client contract, Hono client, preload bridge, IPC handler, and renderer adapter.
-- [ ] URL-encode the desktop cursor and omit it when absent.
-- [ ] Replace growing-limit refetches with one initial page and cursor-driven append requests.
-- [ ] Keep an inline footer error for load-more failures while retaining the full-page initial error state.
-- [ ] Run focused client and desktop tests until they pass.
+- [x] Rewrite timeline tests to expect `{ items, nextCursor }`.
+- [x] Add a test proving “load older” sends the previous `nextCursor` and appends unique rows.
+- [x] Add a test proving a refresh key resets the cursor and replaces stale rows.
+- [x] Add a test proving a load-more failure keeps already rendered events and offers a retry.
+- [x] Run focused client and desktop tests and confirm signatures fail before implementation.
+- [x] Update the transport-neutral client contract, Hono client, preload bridge, IPC handler, and renderer adapter.
+- [x] URL-encode the desktop cursor and omit it when absent.
+- [x] Replace growing-limit refetches with one initial page and cursor-driven append requests.
+- [x] Keep an inline footer error for load-more failures while retaining the full-page initial error state.
+- [x] Run focused client and desktop tests until they pass.
 
 ## Task 4: Make uploads crash-safe and reconcile storage at startup
 
@@ -152,7 +152,7 @@ listProjectHistory(
 ```ts
 export interface StorageReconciliationReport {
   removedStagingEntries: number;
-  removedOrphanVersions: number;
+  quarantinedOrphanVersions: number;
   markedFailedVersions: number;
   deactivatedProjects: number;
 }
@@ -171,19 +171,19 @@ validate project → write .staging/<versionId> → validate and checksum
 → remove final directory if metadata commit fails
 ```
 
-- [ ] Add upload tests proving success leaves only the final directory and failure leaves neither staging nor final artifacts.
-- [ ] Add reconciliation tests for stale staging entries, orphan version directories, missing inactive artifacts, and missing active artifacts.
-- [ ] Add a test proving reconciliation is idempotent and does not append duplicate recovery history.
-- [ ] Run focused tests and confirm they fail before implementation.
-- [ ] Refactor uploads to process inside `.staging/<versionId>`, keep ZIP temporary data inside staging, and rename only after all validation and checksum work succeeds.
-- [ ] Implement startup reconciliation:
+- [x] Add upload tests proving success leaves only the final directory and failure leaves neither staging nor final artifacts.
+- [x] Add reconciliation tests for stale staging entries, orphan version directories, missing inactive artifacts, and missing active artifacts.
+- [x] Add a test proving reconciliation is idempotent and does not append duplicate recovery history.
+- [x] Run focused tests and confirm they fail before implementation.
+- [x] Refactor uploads to process inside `.staging/<versionId>`, keep ZIP temporary data inside staging, and rename only after all validation and checksum work succeeds.
+- [x] Implement startup reconciliation:
   - delete `.staging`;
-  - delete project/version directories absent from metadata;
+  - quarantine project/version directories absent from metadata under `.recovery/orphans/`;
   - mark referenced versions without `index.html` as `failed`;
   - clear `activeVersionId` when its artifact is missing;
   - append `version.reconcile` history as actor `system` once per newly failed version.
-- [ ] Call reconciliation during app composition before services begin handling requests and log only non-empty reports.
-- [ ] Run focused service and API tests until they pass.
+- [x] Call reconciliation during app composition before services begin handling requests and log only non-empty reports.
+- [x] Run focused service and API tests until they pass.
 
 ## Task 5: Retain CI evidence and document the recovery model
 
@@ -201,7 +201,7 @@ validate project → write .staging/<versionId> → validate and checksum
   - `deploykit-web-${{ github.sha }}` containing `apps/web/dist` and `apps/server/public` after a successful build;
   - 14-day artifact retention.
 
-- [ ] Change the CI Verify step to:
+- [x] Change the CI Verify step to:
 
 ```yaml
 - name: Verify
@@ -211,9 +211,9 @@ validate project → write .staging/<versionId> → validate and checksum
     bun run verify 2>&1 | tee verify.log
 ```
 
-- [ ] Add an `if: always()` verification-log upload and an `if: success()` Web-bundle upload using `actions/upload-artifact@v4`, `if-no-files-found: error`, and `retention-days: 14`.
-- [ ] Document cursor expiry, staging/final ownership, startup reconciliation, failed artifact behavior, and CI artifact names.
-- [ ] Run formatting/check commands and inspect the workflow diff for valid indentation and expressions.
+- [x] Add an `if: always()` verification-log upload and an `if: success()` Web-bundle upload using `actions/upload-artifact@v4`, `if-no-files-found: error`, and `retention-days: 14`.
+- [x] Document cursor expiry, staging/final ownership, startup reconciliation, failed artifact behavior, and CI artifact names.
+- [x] Run formatting/check commands and inspect the workflow diff for valid indentation and expressions.
 
 ## Task 6: Complete validation and publish main
 
@@ -225,17 +225,17 @@ validate project → write .staging/<versionId> → validate and checksum
 
 - Produces: a verified `main` branch pushed to `origin/main`.
 
-- [ ] Run focused server, client, and desktop tests.
-- [ ] Run `bun run verify`.
-- [ ] Restart the local development server from the new code.
-- [ ] Verify `/`, `/health/live`, `/health/ready`, a paginated history request, and an API error preserving `X-Request-Id`.
-- [ ] Inspect the history timeline at desktop and mobile widths, including loading older events and a load-more error state.
-- [ ] Run `git diff --check` and confirm runtime data/build output remain ignored.
-- [ ] Commit the next-stage changes:
+- [x] Run focused server, client, and desktop tests.
+- [x] Run `bun run verify`.
+- [x] Restart the local development server from the new code.
+- [x] Verify `/`, `/health/live`, `/health/ready`, a paginated history request, and an API error preserving `X-Request-Id`.
+- [x] Inspect the history timeline at desktop and mobile widths, including loading older events and a load-more error state.
+- [x] Run `git diff --check` and confirm runtime data/build output remain ignored.
+- [x] Commit the next-stage changes:
 
 ```bash
 git commit -m "feat: add recoverable deploy storage and cursor history"
 ```
 
-- [ ] Rebase only if `origin/main` advanced; otherwise push the verified `main` directly.
-- [ ] Push `main` to `origin` and inspect the resulting GitHub Actions run until it completes or exposes an actionable failure.
+- [x] Rebase only if `origin/main` advanced; otherwise push the verified `main` directly.
+- [x] Push `main` to `origin` and inspect the resulting GitHub Actions run until it completes or exposes an actionable failure.

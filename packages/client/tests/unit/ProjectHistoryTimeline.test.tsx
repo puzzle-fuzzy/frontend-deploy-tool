@@ -22,15 +22,18 @@ function historyEvent(overrides: Partial<HistoryEvent> = {}): HistoryEvent {
 describe('ProjectHistoryTimeline', () => {
   it('renders project events in the API order', async () => {
     const client = mockApiClient({
-      listProjectHistory: vi.fn().mockResolvedValue([
-        historyEvent({
-          id: 'history-2',
-          action: 'version.upload',
-          versionId: 'version-1',
-          versionName: 'Build 01',
-        }),
-        historyEvent(),
-      ]),
+      listProjectHistory: vi.fn().mockResolvedValue({
+        items: [
+          historyEvent({
+            id: 'history-2',
+            action: 'version.upload',
+            versionId: 'version-1',
+            versionName: 'Build 01',
+          }),
+          historyEvent(),
+        ],
+        nextCursor: null,
+      }),
     });
 
     renderWithClient(
@@ -39,7 +42,9 @@ describe('ProjectHistoryTimeline', () => {
     );
 
     await waitFor(() =>
-      expect(client.listProjectHistory).toHaveBeenCalledWith('project-1', 50)
+      expect(client.listProjectHistory).toHaveBeenCalledWith('project-1', {
+        limit: 50,
+      })
     );
     const items = await screen.findAllByRole('listitem');
     expect(items).toHaveLength(2);
@@ -50,7 +55,10 @@ describe('ProjectHistoryTimeline', () => {
 
   it('renders a helpful empty state', async () => {
     const client = mockApiClient({
-      listProjectHistory: vi.fn().mockResolvedValue([]),
+      listProjectHistory: vi.fn().mockResolvedValue({
+        items: [],
+        nextCursor: null,
+      }),
     });
 
     renderWithClient(
@@ -66,7 +74,10 @@ describe('ProjectHistoryTimeline', () => {
     const listProjectHistory = vi
       .fn()
       .mockRejectedValueOnce(new Error('Network unavailable'))
-      .mockResolvedValueOnce([historyEvent()]);
+      .mockResolvedValueOnce({
+        items: [historyEvent()],
+        nextCursor: null,
+      });
     const client = mockApiClient({ listProjectHistory });
     const user = userEvent.setup();
 
@@ -85,15 +96,24 @@ describe('ProjectHistoryTimeline', () => {
     expect(listProjectHistory).toHaveBeenCalledTimes(2);
   });
 
-  it('loads older events in bounded batches', async () => {
-    const firstPage = Array.from({ length: 50 }, (_, index) =>
-      historyEvent({ id: `history-${index}` })
-    );
-    const expandedPage = [...firstPage, historyEvent({ id: 'history-older' })];
+  it('loads older events using the next cursor and appends unique rows', async () => {
+    const firstPage = [
+      historyEvent({ id: 'history-newest' }),
+      historyEvent({ id: 'history-middle' }),
+    ];
     const listProjectHistory = vi
       .fn()
-      .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce(expandedPage);
+      .mockResolvedValueOnce({
+        items: firstPage,
+        nextCursor: 'cursor-middle',
+      })
+      .mockResolvedValueOnce({
+        items: [
+          historyEvent({ id: 'history-middle' }),
+          historyEvent({ id: 'history-oldest' }),
+        ],
+        nextCursor: null,
+      });
     const user = userEvent.setup();
 
     renderWithClient(
@@ -106,13 +126,87 @@ describe('ProjectHistoryTimeline', () => {
     );
 
     await waitFor(() =>
-      expect(listProjectHistory).toHaveBeenLastCalledWith('project-1', 100)
+      expect(listProjectHistory).toHaveBeenLastCalledWith('project-1', {
+        limit: 50,
+        cursor: 'cursor-middle',
+      })
     );
     await waitFor(() =>
-      expect(screen.getAllByRole('listitem')).toHaveLength(51)
+      expect(screen.getAllByRole('listitem')).toHaveLength(3)
     );
     expect(
       screen.queryByRole('button', { name: 'history.loadMore' })
     ).not.toBeInTheDocument();
+  });
+
+  it('resets the cursor and replaces rows when the refresh key changes', async () => {
+    const listProjectHistory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [historyEvent({ id: 'history-before' })],
+        nextCursor: 'cursor-before',
+      })
+      .mockResolvedValueOnce({
+        items: [historyEvent({ id: 'history-after' })],
+        nextCursor: null,
+      });
+    const client = mockApiClient({ listProjectHistory });
+    const view = renderWithClient(
+      <ProjectHistoryTimeline projectId="project-1" refreshKey="initial" />,
+      client
+    );
+
+    expect(
+      await screen.findByText('history.project.create')
+    ).toBeInTheDocument();
+    view.rerender(
+      <ProjectHistoryTimeline projectId="project-1" refreshKey="updated" />
+    );
+
+    await waitFor(() => expect(listProjectHistory).toHaveBeenCalledTimes(2));
+    expect(listProjectHistory).toHaveBeenLastCalledWith('project-1', {
+      limit: 50,
+    });
+    await waitFor(() =>
+      expect(screen.getAllByRole('listitem')).toHaveLength(1)
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent('01');
+  });
+
+  it('keeps rendered events when loading older history fails and retries', async () => {
+    const listProjectHistory = vi
+      .fn()
+      .mockResolvedValueOnce({
+        items: [historyEvent({ id: 'history-current' })],
+        nextCursor: 'cursor-current',
+      })
+      .mockRejectedValueOnce(new Error('Older history unavailable'))
+      .mockResolvedValueOnce({
+        items: [historyEvent({ id: 'history-older' })],
+        nextCursor: null,
+      });
+    const user = userEvent.setup();
+
+    renderWithClient(
+      <ProjectHistoryTimeline projectId="project-1" refreshKey="initial" />,
+      mockApiClient({ listProjectHistory })
+    );
+
+    await user.click(
+      await screen.findByRole('button', { name: 'history.loadMore' })
+    );
+    expect(await screen.findByText('Older history unavailable')).toBeVisible();
+    expect(screen.getAllByRole('listitem')).toHaveLength(1);
+
+    await user.click(
+      screen.getByRole('button', { name: 'history.retryLoadMore' })
+    );
+    await waitFor(() =>
+      expect(screen.getAllByRole('listitem')).toHaveLength(2)
+    );
+    expect(listProjectHistory).toHaveBeenLastCalledWith('project-1', {
+      limit: 50,
+      cursor: 'cursor-current',
+    });
   });
 });

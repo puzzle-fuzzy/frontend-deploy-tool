@@ -97,6 +97,7 @@ export const historyEventSchema = z.object({
     'version.activate',
     'version.rollback',
     'version.delete',
+    'version.reconcile',
   ]),
   projectId: z.string(),
   projectName: z.string(),
@@ -114,6 +115,11 @@ export const historyEventSchema = z.object({
    * Omitted on legacy events written before this field existed.
    */
   metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const historyPageSchema = z.object({
+  items: z.array(historyEventSchema),
+  nextCursor: z.string().nullable(),
 });
 
 export const dataSchema = z.object({
@@ -141,4 +147,9 @@ export type Version = z.infer<typeof versionSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type HistoryAction = z.infer<typeof historyEventSchema>['action'];
 export type HistoryEvent = z.infer<typeof historyEventSchema>;
+export type HistoryPage = z.infer<typeof historyPageSchema>;
+export interface HistoryPageQuery {
+  limit?: number;
+  cursor?: string;
+}
 export type Data = z.infer<typeof dataSchema>;

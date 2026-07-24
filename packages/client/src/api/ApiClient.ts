@@ -1,5 +1,6 @@
 import type {
-  HistoryEvent,
+  HistoryPage,
+  HistoryPageQuery,
   Project,
   SafeUser,
   Settings,
@@ -67,8 +68,8 @@ export interface ApiClient {
   deleteVersion(projectId: string, versionId: string): Promise<{ ok: boolean }>;
   listProjectHistory(
     projectId: string,
-    limit?: number
-  ): Promise<HistoryEvent[]>;
+    query?: HistoryPageQuery
+  ): Promise<HistoryPage>;
   searchUsers(query: string): Promise<SafeUser[]>;
   addMember(
     projectId: string,

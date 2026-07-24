@@ -1,6 +1,6 @@
 import type {
   CreateProjectInput,
-  HistoryEvent,
+  HistoryPage,
   Project,
   Role,
   SafeUser,
@@ -54,8 +54,12 @@ export interface ProjectService {
     targetUserId: string,
     actorId: string
   ): Project;
-  listHistory(limit?: string): HistoryEvent[];
-  listProjectHistory(projectId: string, limit?: string): HistoryEvent[];
+  listHistory(limit?: string, cursor?: string): HistoryPage;
+  listProjectHistory(
+    projectId: string,
+    limit?: string,
+    cursor?: string
+  ): HistoryPage;
 }
 
 export interface UploadVersionInput {

@@ -30,4 +30,28 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Verify
-        run: bun run verify
+        id: verify
+        shell: bash
+        run: |
+          set -o pipefail
+          bun run verify 2>&1 | tee verify.log
+
+      - name: Upload verification log
+        if: always() && steps.verify.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploykit-verify-${{ github.sha }}
+          path: verify.log
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload verified Web bundle
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deploykit-web-${{ github.sha }}
+          path: |
+            apps/web/dist
+            apps/server/public
+          if-no-files-found: error
+          retention-days: 14

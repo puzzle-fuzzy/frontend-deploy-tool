@@ -1,3 +1,4 @@
+import type { HistoryPageQuery } from '@deploykit/shared';
 import {
   type BrowserWindow,
   ipcMain,
@@ -154,11 +155,15 @@ export function registerIpc(deps: {
   );
   ipcMain.handle(
     'api:listProjectHistory',
-    async (_e, projectId: string, limit = 50) =>
+    async (_e, projectId: string, query: HistoryPageQuery = {}) =>
       toIpcResult(async () => {
+        const search = new URLSearchParams({
+          limit: String(query.limit ?? 50),
+        });
+        if (query.cursor) search.set('cursor', query.cursor);
         const r = await serverRequest(session, getOrigin(), {
           method: 'GET',
-          path: `/api/projects/${projectId}/history?limit=${limit}`,
+          path: `/api/projects/${projectId}/history?${search.toString()}`,
         });
         return r.data;
       })

@@ -14,6 +14,7 @@ const CODE_TO_I18N_KEY: Partial<Record<ApiErrorCode, string>> = {
   PROJECT_NOT_FOUND: 'error.projectNotFound',
   PROJECT_SLUG_TAKEN: 'error.slugTaken',
   VERSION_NOT_FOUND: 'error.versionNotFound',
+  INVALID_HISTORY_CURSOR: 'error.invalidHistoryCursor',
   TOO_MANY_FILES: 'error.tooManyFiles',
   PATH_TOO_LONG: 'error.pathTooLong',
   EXTRACTED_TOO_LARGE: 'error.extractedTooLarge',

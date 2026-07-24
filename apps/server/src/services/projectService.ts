@@ -1,10 +1,10 @@
 import type {
   CreateProjectInput,
-  HistoryEvent,
+  HistoryPage,
   Project,
   Settings,
 } from '@deploykit/shared';
-import { appendHistoryEvent, parseHistoryLimit } from '../domain/history';
+import { appendHistoryEvent, paginateHistory } from '../domain/history';
 import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -291,12 +291,22 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       });
     },
 
-    listHistory(limit?: string): HistoryEvent[] {
-      const max = parseHistoryLimit(limit);
-      return repo.load().history.slice(0, max);
+    listHistory(limit?: string, cursor?: string): HistoryPage {
+      const page = paginateHistory(repo.load().history, limit, cursor);
+      if (!page) {
+        throw new ApiError(
+          ErrorCode.INVALID_HISTORY_CURSOR,
+          'History cursor is invalid or has expired'
+        );
+      }
+      return page;
     },
 
-    listProjectHistory(projectId: string, limit?: string): HistoryEvent[] {
+    listProjectHistory(
+      projectId: string,
+      limit?: string,
+      cursor?: string
+    ): HistoryPage {
       const data = repo.load();
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -305,10 +315,18 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
           'Project not found',
           404
         );
-      const max = parseHistoryLimit(limit);
-      return data.history
-        .filter((event) => event.projectId === projectId)
-        .slice(0, max);
+      const page = paginateHistory(
+        data.history.filter((event) => event.projectId === projectId),
+        limit,
+        cursor
+      );
+      if (!page) {
+        throw new ApiError(
+          ErrorCode.INVALID_HISTORY_CURSOR,
+          'History cursor is invalid or has expired'
+        );
+      }
+      return page;
     },
   };
 }

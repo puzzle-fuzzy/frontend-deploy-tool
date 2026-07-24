@@ -3,6 +3,8 @@ export type {
   Data,
   HistoryAction,
   HistoryEvent,
+  HistoryPage,
+  HistoryPageQuery,
   Project,
   ProjectMember,
   Role,
@@ -16,6 +18,7 @@ export type {
 export {
   dataSchema,
   historyEventSchema,
+  historyPageSchema,
   projectMemberSchema,
   projectSchema,
   roleSchema,

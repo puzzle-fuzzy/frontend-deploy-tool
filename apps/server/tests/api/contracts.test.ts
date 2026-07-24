@@ -427,7 +427,7 @@ test('publishing a version marks it production and demotes the previous version'
   expect(secondAfter?.publishedAt).toBeTruthy();
   expect(secondAfter?.publishedBy).toBeTruthy();
 
-  const events = await (await req('/api/history?limit=10')).json();
+  const { items: events } = await (await req('/api/history?limit=10')).json();
   const publishEvents = events.filter(
     (e: { action: string }) => e.action === 'version.publish'
   );
@@ -456,7 +456,7 @@ test('rollback is a distinct publish-like action in history', async () => {
     'preview'
   );
 
-  const events = await (await req('/api/history?limit=10')).json();
+  const { items: events } = await (await req('/api/history?limit=10')).json();
   const rollback = events.find(
     (e: { action: string }) => e.action === 'version.rollback'
   );
@@ -549,11 +549,12 @@ test('records project and version events in history with the actor id', async ()
   await uploadVersion(project.id);
 
   const res = await req('/api/history?limit=10');
-  const events = await res.json();
+  const { items: events, nextCursor } = await res.json();
   expect(events.map((e: { action: string }) => e.action)).toEqual([
     'version.upload',
     'project.create',
   ]);
+  expect(nextCursor).toBeNull();
   // Every event records the admin actor.
   for (const event of events) {
     expect(event.actorId).toBe(events[0].actorId);
@@ -571,7 +572,7 @@ test('records structured metadata on upload and activate history events', async 
     method: 'PUT',
   });
 
-  const events = await (await req('/api/history?limit=10')).json();
+  const { items: events } = await (await req('/api/history?limit=10')).json();
   const upload = events.find(
     (e: { action: string }) => e.action === 'version.upload'
   );
@@ -604,7 +605,7 @@ test('records project update and settings update events', async () => {
     body: JSON.stringify({ spaMode: true, routingType: 'hash' }),
   });
 
-  const events = await (await req('/api/history?limit=10')).json();
+  const { items: events } = await (await req('/api/history?limit=10')).json();
   expect(events.map((e: { action: string }) => e.action)).toEqual([
     'project.update_settings',
     'project.update',
@@ -641,7 +642,7 @@ test('does not record history for project or settings no-op updates', async () =
   expect(settingsRes.status).toBe(200);
   expect((await settingsRes.json()).updatedAt).toBe(project.updatedAt);
 
-  const events = await (await req('/api/history?limit=10')).json();
+  const { items: events } = await (await req('/api/history?limit=10')).json();
   expect(events.map((e: { action: string }) => e.action)).toEqual([
     'project.create',
   ]);
@@ -655,11 +656,66 @@ test('lists history for a single project', async () => {
 
   const res = await req(`/api/projects/${first.id}/history?limit=10`);
   expect(res.status).toBe(200);
-  const events = await res.json();
+  const { items: events } = await res.json();
   expect(events.map((e: { projectId: string }) => e.projectId)).toEqual([
     first.id,
     first.id,
   ]);
+});
+
+test('paginates project history with a stable opaque cursor', async () => {
+  const project = await createProject('cursor');
+  for (const name of ['Cursor 1', 'Cursor 2', 'Cursor 3']) {
+    await req(`/api/projects/${project.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+  }
+
+  const firstResponse = await req(
+    `/api/projects/${project.id}/history?limit=2`
+  );
+  expect(firstResponse.status).toBe(200);
+  const firstPage = await firstResponse.json();
+  expect(firstPage.items).toHaveLength(2);
+  expect(firstPage.nextCursor).toBeString();
+
+  await req(`/api/projects/${project.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: 'New head event' }),
+  });
+
+  const secondResponse = await req(
+    `/api/projects/${project.id}/history?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor)}`
+  );
+  expect(secondResponse.status).toBe(200);
+  const secondPage = await secondResponse.json();
+  expect(secondPage.items).toHaveLength(2);
+  expect(
+    secondPage.items.some((event: { id: string }) =>
+      firstPage.items.some(
+        (firstEvent: { id: string }) => firstEvent.id === event.id
+      )
+    )
+  ).toBe(false);
+  expect(secondPage.nextCursor).toBeNull();
+});
+
+test('rejects malformed and expired history cursors', async () => {
+  const project = await createProject('invalid-cursor');
+  const res = await req(
+    `/api/projects/${project.id}/history?cursor=not-a-valid-cursor`
+  );
+
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({
+    error: {
+      code: 'INVALID_HISTORY_CURSOR',
+      message: 'History cursor is invalid or has expired',
+    },
+  });
 });
 
 test('cleans up and returns 500 when zip extraction fails', async () => {

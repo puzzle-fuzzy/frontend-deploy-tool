@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
-import type { Project } from '@deploykit/shared';
+import type { HistoryEvent, Project } from '@deploykit/shared';
+import { paginateHistory } from '../../src/domain/history';
 import {
   DEFAULT_PROJECT_SETTINGS,
   isSlugUnique,
@@ -21,6 +22,19 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     createdBy: 'user-1',
     members: [],
     ...overrides,
+  };
+}
+
+function makeHistoryEvent(id: string): HistoryEvent {
+  return {
+    id,
+    action: 'project.update',
+    projectId: 'p1',
+    projectName: 'Demo',
+    versionId: '',
+    versionName: '',
+    timestamp: `2026-07-24T00:00:${id.padStart(2, '0')}.000Z`,
+    actorId: 'user-1',
   };
 }
 
@@ -78,5 +92,58 @@ describe('isSlugUnique (slug-uniqueness invariant)', () => {
   test('compares slugs exactly (case-sensitive, no implicit normalization)', () => {
     expect(isSlugUnique([makeProject({ slug: 'demo' })], 'Demo')).toBe(true);
     expect(isSlugUnique([makeProject({ slug: 'demo' })], 'demo-')).toBe(true);
+  });
+});
+
+describe('paginateHistory', () => {
+  test('returns bounded pages and an opaque cursor only when older events exist', () => {
+    const events = [
+      makeHistoryEvent('3'),
+      makeHistoryEvent('2'),
+      makeHistoryEvent('1'),
+    ];
+
+    const first = paginateHistory(events, '2');
+    expect(first?.items.map((event) => event.id)).toEqual(['3', '2']);
+    expect(first?.nextCursor).toBeString();
+
+    const second = paginateHistory(events, '2', first?.nextCursor ?? undefined);
+    expect(second).toEqual({
+      items: [events[2]],
+      nextCursor: null,
+    });
+  });
+
+  test('continues after the cursor when newer events are prepended', () => {
+    const initial = [
+      makeHistoryEvent('4'),
+      makeHistoryEvent('3'),
+      makeHistoryEvent('2'),
+      makeHistoryEvent('1'),
+    ];
+    const first = paginateHistory(initial, '2');
+
+    const withNewHead = [makeHistoryEvent('5'), ...initial];
+    const second = paginateHistory(
+      withNewHead,
+      '2',
+      first?.nextCursor ?? undefined
+    );
+
+    expect(second?.items.map((event) => event.id)).toEqual(['2', '1']);
+    expect(second?.nextCursor).toBeNull();
+  });
+
+  test('rejects malformed, unknown, and expired cursors', () => {
+    const events = [makeHistoryEvent('2'), makeHistoryEvent('1')];
+
+    expect(paginateHistory(events, '1', 'not-a-cursor')).toBeUndefined();
+
+    const expired = paginateHistory(
+      [makeHistoryEvent('expired'), ...events],
+      '1'
+    )?.nextCursor;
+    expect(expired).toBeString();
+    expect(paginateHistory(events, '1', expired ?? undefined)).toBeUndefined();
   });
 });

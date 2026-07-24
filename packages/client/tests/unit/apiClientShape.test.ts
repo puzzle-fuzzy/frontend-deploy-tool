@@ -95,9 +95,9 @@ describe('createFetchApiClient', () => {
     );
   });
 
-  it('loads project history with the requested limit', async () => {
+  it('loads project history with the requested limit and opaque cursor', async () => {
     mockListProjectHistory.mockResolvedValue(
-      new Response(JSON.stringify([]), {
+      new Response(JSON.stringify({ items: [], nextCursor: null }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       })
@@ -108,12 +108,15 @@ describe('createFetchApiClient', () => {
     );
     const client = createFetchApiClient();
 
-    await client.listProjectHistory('project-1', 25);
+    await client.listProjectHistory('project-1', {
+      limit: 25,
+      cursor: 'cursor/one',
+    });
 
     expect(mockListProjectHistory).toHaveBeenCalledWith(
       {
         param: { id: 'project-1' },
-        query: { limit: '25' },
+        query: { limit: '25', cursor: 'cursor/one' },
       },
       expect.objectContaining({ headers: undefined })
     );

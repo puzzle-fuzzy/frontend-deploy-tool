@@ -1,4 +1,4 @@
-import { mkdirSync, rmSync } from 'node:fs';
+import { mkdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   HistoryAction,
@@ -92,10 +92,13 @@ export function createVersionService(
 
       const versionId = createId();
       const versionName = versionId.substring(0, 7);
+      const stagingDir = join(config.storageDir, '.staging', versionId);
       const versionDir = join(config.storageDir, projectId, versionId);
-      mkdirSync(versionDir, { recursive: true });
+      mkdirSync(stagingDir, { recursive: true });
 
       let sourceType: VersionSourceType = 'unknown';
+      let promotedToFinal = false;
+      let version: Version | undefined;
       try {
         // Check file count limit
         if (config.maxFileCount && folderFiles.length > config.maxFileCount) {
@@ -115,18 +118,18 @@ export function createVersionService(
             );
           }
 
-          const zipPath = join(config.storageDir, `${versionId}.zip`);
+          const zipPath = join(stagingDir, 'upload.zip');
           let zipCleanupNeeded = true;
 
           try {
             await Bun.write(zipPath, file);
-            await extractZip(zipPath, versionDir);
+            await extractZip(zipPath, stagingDir);
             rmSync(zipPath, { force: true });
             zipCleanupNeeded = false;
 
             // Check extracted size limit
             if (config.maxExtractedSize) {
-              const extractedSize = getDirectorySize(versionDir);
+              const extractedSize = getDirectorySize(stagingDir);
               if (extractedSize > config.maxExtractedSize) {
                 throw new ApiError(
                   ErrorCode.EXTRACTED_TOO_LARGE,
@@ -135,7 +138,7 @@ export function createVersionService(
               }
             }
 
-            flattenOutput(versionDir);
+            flattenOutput(stagingDir);
           } finally {
             // Ensure ZIP temp file is cleaned up in all cases
             if (zipCleanupNeeded) {
@@ -149,7 +152,7 @@ export function createVersionService(
         } else if (folderFiles.length > 0) {
           sourceType = 'folder';
           const totalSize = await writeFolderFiles(
-            versionDir,
+            stagingDir,
             folderFiles,
             config.maxPathLength
           );
@@ -162,7 +165,7 @@ export function createVersionService(
             );
           }
 
-          flattenOutput(versionDir);
+          flattenOutput(stagingDir);
         } else if (file && file.size > 0) {
           throw new ApiError(
             ErrorCode.INVALID_UPLOAD,
@@ -174,9 +177,28 @@ export function createVersionService(
 
         // A deployable build must expose an index.html; otherwise the upload
         // would "succeed" but /deploy/:slug/ would 404.
-        assertIndexHtml(versionDir);
+        assertIndexHtml(stagingDir);
+
+        version = {
+          id: versionId,
+          name: versionName,
+          description: versionDesc,
+          createdAt: new Date().toISOString(),
+          size: getDirectorySize(stagingDir),
+          fileCount: countFiles(stagingDir),
+          sourceType,
+          status: 'preview',
+          publishedAt: null,
+          publishedBy: null,
+          checksum: checksumDirectory(stagingDir),
+        };
+
+        mkdirSync(join(config.storageDir, projectId), { recursive: true });
+        renameSync(stagingDir, versionDir);
+        promotedToFinal = true;
       } catch (err) {
-        removeDir(versionDir);
+        removeDir(stagingDir);
+        if (promotedToFinal) removeDir(versionDir);
         if (err instanceof ApiError) throw err;
         throw new ApiError(
           ErrorCode.FILE_PROCESSING_FAILED,
@@ -185,19 +207,14 @@ export function createVersionService(
         );
       }
 
-      const version: Version = {
-        id: versionId,
-        name: versionName,
-        description: versionDesc,
-        createdAt: new Date().toISOString(),
-        size: getDirectorySize(versionDir),
-        fileCount: countFiles(versionDir),
-        sourceType,
-        status: 'preview',
-        publishedAt: null,
-        publishedBy: null,
-        checksum: checksumDirectory(versionDir),
-      };
+      if (!version) {
+        removeDir(versionDir);
+        throw new ApiError(
+          ErrorCode.FILE_PROCESSING_FAILED,
+          'File processing failed before version metadata was created',
+          500
+        );
+      }
       // Upload ≠ go-live (principle §6.1): every version starts preview-only.
       // Production is reached only by an explicit publish (activateVersion).
       try {
