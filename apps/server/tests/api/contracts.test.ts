@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '@deploykit/shared';
+import { ErrorCode, parseApiErrorEnvelope } from '@deploykit/shared/errors';
 import { adminToken, createAuthApp, withBearer } from './helpers';
 
 let app: ReturnType<typeof createAuthApp>;
@@ -100,8 +101,12 @@ async function versionIdOf(res: Response): Promise<string> {
 test('rejects API access without a bearer token', async () => {
   const res = await app.request('/api/projects');
   expect(res.status).toBe(401);
-  expect(await res.json()).toEqual({
-    error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+  expect(res.headers.get('X-Request-Id')).toBeTruthy();
+  expect(parseApiErrorEnvelope(await res.json())).toEqual({
+    error: {
+      code: ErrorCode.UNAUTHORIZED,
+      message: 'Authentication required',
+    },
   });
 });
 

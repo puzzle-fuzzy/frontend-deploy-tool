@@ -138,33 +138,50 @@ export function UploadVersionDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <span className="grid size-8 place-items-center rounded-md border border-primary/35 bg-primary/12 text-primary">
-              <HardDriveUpload className="size-4" />
+      <DialogContent className="gap-0 p-0 sm:max-w-3xl">
+        <DialogHeader className="grid gap-0 border-b sm:grid-cols-[10rem_1fr]">
+          <div className="border-b bg-primary p-6 text-primary-foreground sm:border-b-0 sm:border-r">
+            <span className="editorial-number text-6xl">01</span>
+            <HardDriveUpload className="mt-16 size-5" />
+          </div>
+          <div className="p-6 sm:p-8">
+            <span className="editorial-meta text-primary">
+              Artifact / Upload
             </span>
-            {t('upload.title')}
-          </DialogTitle>
+            <DialogTitle className="mt-5 text-3xl font-normal tracking-[-0.05em]">
+              {t('upload.title')}
+            </DialogTitle>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              {t('versions.uploadDesc')}
+            </p>
+          </div>
         </DialogHeader>
         <form onSubmit={handleSubmit}>
-          <FieldGroup>
+          <FieldGroup className="gap-5 p-6 sm:p-8">
             <button
               type="button"
               onDrop={handleDrop}
               onDragOver={(e) => e.preventDefault()}
               onClick={handleSelectZip}
-              className="flex w-full cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-primary/45 bg-primary/6 p-8 text-center transition-colors hover:bg-primary/10"
+              className="group grid min-h-56 w-full cursor-pointer border bg-card text-left hover:border-primary hover:bg-primary hover:text-primary-foreground sm:grid-cols-[10rem_1fr]"
             >
-              <div className="mb-3 flex size-12 items-center justify-center rounded-lg border border-primary/35 bg-card text-primary">
-                <Upload className="size-6" />
+              <div className="flex items-start justify-between border-b p-6 sm:block sm:border-b-0 sm:border-r">
+                <span className="editorial-number text-6xl text-primary group-hover:text-primary-foreground">
+                  01
+                </span>
+                <Upload className="size-6 text-primary group-hover:text-primary-foreground sm:mt-16" />
               </div>
-              <p className="text-base font-medium">
-                {label ?? t('upload.dropzone')}
-              </p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {t('upload.dropzoneDesc')}
-              </p>
+              <div className="flex flex-col justify-end p-6 sm:p-8">
+                <p className="text-2xl font-medium tracking-[-0.04em] sm:text-3xl">
+                  {label ?? t('upload.dropzone')}
+                </p>
+                <p className="mt-3 text-sm text-muted-foreground group-hover:text-primary-foreground/70">
+                  {t('upload.dropzoneDesc')}
+                </p>
+                <span className="editorial-meta mt-8 border-t pt-4 text-muted-foreground group-hover:border-primary-foreground/25 group-hover:text-primary-foreground/70">
+                  ZIP / Directory / index.html
+                </span>
+              </div>
             </button>
 
             <div className="grid gap-2 sm:grid-cols-3">
@@ -173,6 +190,7 @@ export function UploadVersionDialog({
                 size="default"
                 type="button"
                 onClick={handleSelectZip}
+                className="h-12 justify-between px-4"
               >
                 <FileArchive className="size-4" />
                 {t('upload.selectZip')}
@@ -182,6 +200,7 @@ export function UploadVersionDialog({
                 size="default"
                 type="button"
                 onClick={handleSelectFolder}
+                className="h-12 justify-between px-4"
               >
                 <FolderOpen className="size-4" />
                 {t('upload.selectFolder')}
@@ -191,6 +210,7 @@ export function UploadVersionDialog({
                   variant="outline"
                   size="default"
                   type="button"
+                  className="h-12 justify-between px-4"
                   onClick={async () => {
                     const picked = await native.pickDirectory();
                     if (picked) {
@@ -211,10 +231,10 @@ export function UploadVersionDialog({
             </div>
 
             {uploading && (
-              <div className="space-y-1 rounded-lg border border-border bg-muted/35 p-3">
-                <Progress value={progress} className="h-1.5" />
-                <p className="text-right text-xs text-muted-foreground">
-                  {progress}%
+              <div className="grid items-center gap-4 border bg-muted p-4 sm:grid-cols-[1fr_auto]">
+                <Progress value={progress} className="h-2" />
+                <p className="editorial-meta text-right text-primary">
+                  {String(progress).padStart(3, '0')}%
                 </p>
               </div>
             )}
@@ -232,7 +252,7 @@ export function UploadVersionDialog({
               />
             </Field>
 
-            <DialogFooter>
+            <DialogFooter className="mx-0 -mb-8 rounded-none border-t bg-muted p-5 sm:-mx-8 sm:px-8">
               <Button
                 variant="outline"
                 type="button"
@@ -245,6 +265,7 @@ export function UploadVersionDialog({
                 type="submit"
                 disabled={(!file && !folderFiles && !nativeDir) || uploading}
                 size="default"
+                className="min-w-40"
               >
                 {uploading ? `${progress}%` : t('upload.submit')}
               </Button>

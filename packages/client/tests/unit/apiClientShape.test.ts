@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ApiClient } from '../../src/api/ApiClient';
 
-const { mockGetMe } = vi.hoisted(() => ({
+const { mockGetMe, mockListProjectHistory } = vi.hoisted(() => ({
   mockGetMe: vi.fn(),
+  mockListProjectHistory: vi.fn(),
 }));
 
 vi.mock('hono/client', () => ({
@@ -19,6 +20,7 @@ vi.mock('hono/client', () => ({
         ':id': {
           $patch: vi.fn(),
           $delete: vi.fn(),
+          history: { $get: mockListProjectHistory },
           settings: { $patch: vi.fn() },
           versions: {
             ':versionId': {
@@ -46,6 +48,7 @@ const EXPECTED_METHODS = [
   'publishVersion',
   'rollbackVersion',
   'deleteVersion',
+  'listProjectHistory',
 ] as const;
 
 describe('createFetchApiClient', () => {
@@ -57,7 +60,9 @@ describe('createFetchApiClient', () => {
   });
 
   it('implements every ApiClient method', async () => {
-    const { createFetchApiClient } = await import('../../src/api/fetchApiClient');
+    const { createFetchApiClient } = await import(
+      '../../src/api/fetchApiClient'
+    );
     const client: ApiClient = createFetchApiClient();
     for (const name of EXPECTED_METHODS) {
       expect(typeof client[name]).toBe('function');
@@ -73,17 +78,44 @@ describe('createFetchApiClient', () => {
       })
     );
 
-    const { createFetchApiClient } = await import('../../src/api/fetchApiClient');
+    const { createFetchApiClient } = await import(
+      '../../src/api/fetchApiClient'
+    );
     const client: ApiClient = createFetchApiClient();
     const user = await client.getMe();
 
     expect(user).toMatchObject({ id: 'u1', name: 'Ada' });
     expect(mockGetMe).toHaveBeenCalledWith(
+      undefined,
       expect.objectContaining({
         headers: expect.objectContaining({
           Authorization: 'Bearer persisted-token',
         }),
       })
+    );
+  });
+
+  it('loads project history with the requested limit', async () => {
+    mockListProjectHistory.mockResolvedValue(
+      new Response(JSON.stringify([]), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+
+    const { createFetchApiClient } = await import(
+      '../../src/api/fetchApiClient'
+    );
+    const client = createFetchApiClient();
+
+    await client.listProjectHistory('project-1', 25);
+
+    expect(mockListProjectHistory).toHaveBeenCalledWith(
+      {
+        param: { id: 'project-1' },
+        query: { limit: '25' },
+      },
+      expect.objectContaining({ headers: undefined })
     );
   });
 });

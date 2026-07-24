@@ -28,32 +28,41 @@ export function createJsonProjectRepository(
     renameSync(tempFile, dataFile);
   }
 
-  return {
-    load(): Data {
-      if (!existsSync(dataFile)) return createEmptyData();
-      let raw: unknown;
+  function loadData(): Data {
+    if (!existsSync(dataFile)) return createEmptyData();
+    let raw: unknown;
+    try {
+      raw = JSON.parse(readFileSync(dataFile, 'utf-8'));
+    } catch {
+      return createEmptyData();
+    }
+
+    const { data, migrated } = migrate(raw);
+
+    // Persist the upgraded shape once so later loads skip migration. Back up
+    // the pre-migration file first so the change is always reversible.
+    if (migrated) {
       try {
-        raw = JSON.parse(readFileSync(dataFile, 'utf-8'));
+        copyFileSync(dataFile, `${dataFile}.bak`);
       } catch {
-        return createEmptyData();
+        // Best-effort backup; migration still proceeds.
       }
+      writeData(data);
+    }
 
-      const { data, migrated } = migrate(raw);
+    return data;
+  }
 
-      // Persist the upgraded shape once so later loads skip migration. Back up
-      // the pre-migration file first so the change is always reversible.
-      if (migrated) {
-        try {
-          copyFileSync(dataFile, `${dataFile}.bak`);
-        } catch {
-          // Best-effort backup; migration still proceeds.
-        }
-        writeData(data);
-      }
-
-      return data;
-    },
+  return {
+    load: loadData,
 
     save: writeData,
+
+    mutate<T>(operation: (data: Data) => T): T {
+      const data = loadData();
+      const result = operation(data);
+      writeData(data);
+      return result;
+    },
   };
 }

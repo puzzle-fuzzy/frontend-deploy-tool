@@ -1,5 +1,11 @@
-import { createFetchApiClient } from '@deploykit/client';
+import {
+  ApiClientError,
+  checkOk,
+  createFetchApiClient,
+} from '@deploykit/client';
+import { ErrorCode } from '@deploykit/shared/errors';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { getLocalizedError } from '../../src/shared/error-messages';
 
 describe('createFetchApiClient().uploadVersion', () => {
   const OriginalXMLHttpRequest = globalThis.XMLHttpRequest;
@@ -45,5 +51,49 @@ describe('createFetchApiClient().uploadVersion', () => {
     const uploaded = sentBody.get('folderFiles');
     expect(uploaded).toBeInstanceOf(File);
     expect((uploaded as File).name).toBe('dist/assets/app.js');
+  });
+});
+
+describe('API error contract', () => {
+  it('preserves status, stable code, and request id from an error response', async () => {
+    let caught: unknown;
+    try {
+      await checkOk({
+        ok: false,
+        status: 409,
+        statusText: 'Conflict',
+        headers: new Headers({ 'X-Request-Id': 'request-web-01' }),
+        text: async () =>
+          JSON.stringify({
+            error: {
+              code: ErrorCode.PROJECT_SLUG_TAKEN,
+              message: 'Server wording can change',
+            },
+          }),
+      });
+    } catch (error) {
+      caught = error;
+    }
+
+    expect(caught).toBeInstanceOf(ApiClientError);
+    expect(caught).toMatchObject({
+      status: 409,
+      code: ErrorCode.PROJECT_SLUG_TAKEN,
+      requestId: 'request-web-01',
+      message: 'Server wording can change',
+    });
+  });
+
+  it('localizes by stable code before considering server message wording', () => {
+    const error = new ApiClientError(
+      'Completely new server message',
+      400,
+      ErrorCode.INVALID_CREDENTIALS,
+      'request-web-02'
+    );
+
+    expect(getLocalizedError(error, (key) => `translated:${key}`)).toBe(
+      'translated:error.invalidCredentials'
+    );
   });
 });

@@ -114,3 +114,54 @@ test('save creates the parent directory when it does not exist', () => {
 
   expect(existsSync(dataFile)).toBe(true);
 });
+
+test('mutate returns the callback result and persists its changes', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const repo = createJsonProjectRepository(dataFile);
+
+  const result = repo.mutate((data) => {
+    data.history.push({
+      id: 'history-1',
+      action: 'project.create',
+      projectId: 'project-1',
+      projectName: 'Signal Desk',
+      versionId: '',
+      versionName: '',
+      timestamp: '2026-07-24T00:00:00.000Z',
+      actorId: 'user-1',
+    });
+    return data.history.length;
+  });
+
+  expect(result).toBe(1);
+  expect(repo.load().history).toHaveLength(1);
+});
+
+test('mutate does not persist changes when the callback throws', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const repo = createJsonProjectRepository(dataFile);
+  repo.save({
+    schemaVersion: CURRENT_SCHEMA_VERSION,
+    projects: [],
+    users: [],
+    history: [],
+  });
+
+  expect(() =>
+    repo.mutate((data) => {
+      data.history.push({
+        id: 'history-1',
+        action: 'project.create',
+        projectId: 'project-1',
+        projectName: 'Signal Desk',
+        versionId: '',
+        versionName: '',
+        timestamp: '2026-07-24T00:00:00.000Z',
+        actorId: 'user-1',
+      });
+      throw new Error('reject mutation');
+    })
+  ).toThrow('reject mutation');
+
+  expect(repo.load().history).toEqual([]);
+});

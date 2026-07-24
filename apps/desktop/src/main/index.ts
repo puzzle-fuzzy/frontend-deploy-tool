@@ -91,17 +91,15 @@ function createMainWindow(): BrowserWindow {
     const maxAttempts = 60; // ~30 seconds
     const retryLoad = () => {
       attempts++;
-      win
-        .loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL)
-        .catch(() => {
-          if (attempts < maxAttempts) {
-            setTimeout(retryLoad, 500);
-          } else {
-            console.error(
-              `Failed to load dev server after ${maxAttempts} attempts`
-            );
-          }
-        });
+      win.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL).catch(() => {
+        if (attempts < maxAttempts) {
+          setTimeout(retryLoad, 500);
+        } else {
+          console.error(
+            `Failed to load dev server after ${maxAttempts} attempts`
+          );
+        }
+      });
     };
     retryLoad();
     win.webContents.openDevTools();

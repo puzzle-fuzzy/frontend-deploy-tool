@@ -1,5 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import type { SafeUser, User } from '@deploykit/shared';
+import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import type { UserService } from './contracts';
@@ -48,20 +49,33 @@ export function createUserService(repo: ProjectRepository): UserService {
     },
 
     createUser({ name, email, password, role }) {
-      const data = repo.load();
-      const now = new Date().toISOString();
-      const user: User = {
-        id: createId(),
-        name,
-        email,
-        passwordHash: Bun.password.hashSync(password),
-        role,
-        createdAt: now,
-        updatedAt: now,
-      };
-      data.users.push(user);
-      repo.save(data);
-      return toSafeUser(user);
+      const normalizedEmail = email.toLowerCase();
+      const passwordHash = Bun.password.hashSync(password);
+      return repo.mutate((data) => {
+        if (
+          data.users.some(
+            (user) => user.email.toLowerCase() === normalizedEmail
+          )
+        ) {
+          throw new ApiError(
+            ErrorCode.EMAIL_ALREADY_EXISTS,
+            'Email is already registered',
+            400
+          );
+        }
+        const now = new Date().toISOString();
+        const user: User = {
+          id: createId(),
+          name,
+          email: normalizedEmail,
+          passwordHash,
+          role,
+          createdAt: now,
+          updatedAt: now,
+        };
+        data.users.push(user);
+        return toSafeUser(user);
+      });
     },
 
     searchByEmail(query) {
@@ -75,22 +89,23 @@ export function createUserService(repo: ProjectRepository): UserService {
     },
 
     seedAdminIfMissing(email, password) {
-      const data = repo.load();
-      if (data.users.length > 0) return null;
-
       const plain = password || generatePassword();
-      const now = new Date().toISOString();
-      data.users.push({
-        id: createId(),
-        name: 'Admin',
-        email,
-        passwordHash: Bun.password.hashSync(plain),
-        role: 'admin',
-        createdAt: now,
-        updatedAt: now,
+      const passwordHash = Bun.password.hashSync(plain);
+      return repo.mutate((data) => {
+        if (data.users.length > 0) return null;
+
+        const now = new Date().toISOString();
+        data.users.push({
+          id: createId(),
+          name: 'Admin',
+          email: email.toLowerCase(),
+          passwordHash,
+          role: 'admin',
+          createdAt: now,
+          updatedAt: now,
+        });
+        return plain;
       });
-      repo.save(data);
-      return plain;
     },
   };
 }

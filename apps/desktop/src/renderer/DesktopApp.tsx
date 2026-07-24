@@ -3,18 +3,13 @@ import {
   ApiClientProvider,
   App,
   Button,
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
   Input,
   NativeProvider,
   ServerInfoProvider,
 } from '@deploykit/client';
 import { Loader2 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { createIpcApiClient } from './ipcApiClient';
+import { createIpcApiClient, unwrapIpcResult } from './ipcApiClient';
 
 type Phase = 'loading' | 'onboarding' | 'ready';
 
@@ -31,18 +26,22 @@ function useNativeBridge(): NativeBridge | null {
     return {
       ...bridge.native,
       uploadFolder: (projectId, directoryPath, description, onProgress) =>
-        bridge.nativeUpload.uploadFolder(
-          projectId,
-          directoryPath,
-          description,
-          onProgress
+        unwrapIpcResult(
+          bridge.nativeUpload.uploadFolder(
+            projectId,
+            directoryPath,
+            description,
+            onProgress
+          )
         ),
       uploadZipPath: (projectId, zipPath, description, onProgress) =>
-        bridge.nativeUpload.uploadZipPath(
-          projectId,
-          zipPath,
-          description,
-          onProgress
+        unwrapIpcResult(
+          bridge.nativeUpload.uploadZipPath(
+            projectId,
+            zipPath,
+            description,
+            onProgress
+          )
         ),
     };
   }, []);
@@ -98,9 +97,26 @@ export function DesktopApp() {
 
   if (phase === 'loading') {
     return (
-      <div className="flex items-center justify-center min-h-dvh">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
-      </div>
+      <main className="editorial-shell grid min-h-dvh bg-background md:grid-cols-[1fr_18rem]">
+        <div className="flex flex-col justify-between p-10">
+          <span className="editorial-meta text-primary">
+            DeployKit / Desktop
+          </span>
+          <div>
+            <h1 className="editorial-display">Loading workspace</h1>
+            <Loader2 className="mt-10 size-5 animate-spin text-primary" />
+          </div>
+          <span className="editorial-meta text-muted-foreground">
+            Native client / Electron
+          </span>
+        </div>
+        <div className="flex flex-col justify-between bg-primary p-8 text-primary-foreground">
+          <span className="editorial-number">01</span>
+          <span className="editorial-meta text-primary-foreground/70">
+            Connecting
+          </span>
+        </div>
+      </main>
     );
   }
 
@@ -123,16 +139,23 @@ export function DesktopApp() {
 
 function MissingDesktopBridge() {
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Desktop bridge unavailable</CardTitle>
-          <CardDescription>
-            Open this screen from the DeployKit desktop app instead of a plain
-            browser tab, then reload.
-          </CardDescription>
-        </CardHeader>
-      </Card>
+    <main className="editorial-shell grid min-h-dvh bg-background md:grid-cols-[16rem_1fr]">
+      <div className="flex flex-col justify-between bg-primary p-8 text-primary-foreground">
+        <span className="editorial-number">00</span>
+        <span className="editorial-meta text-primary-foreground/70">
+          Bridge missing
+        </span>
+      </div>
+      <div className="flex flex-col justify-center p-8 md:p-16">
+        <span className="editorial-meta text-primary">Desktop / Runtime</span>
+        <h1 className="mt-6 max-w-2xl text-5xl font-light tracking-[-0.06em]">
+          Desktop bridge unavailable
+        </h1>
+        <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
+          Open this screen from the DeployKit desktop app instead of a plain
+          browser tab, then reload.
+        </p>
+      </div>
     </main>
   );
 }
@@ -146,32 +169,57 @@ function Onboarding({
 }) {
   const [url, setUrl] = useState('http://localhost:4010');
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-muted/40 p-4">
-      <Card className="w-full max-w-sm">
-        <CardHeader>
-          <CardTitle>Connect to DeployKit</CardTitle>
-          <CardDescription>
-            Enter your DeployKit server URL to get started.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form
-            className="flex flex-col gap-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              void onSubmit(url);
-            }}
-          >
-            <Input
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="https://deploy.example.com"
-            />
-            {error && <p className="text-sm text-destructive">{error}</p>}
-            <Button type="submit">Connect</Button>
-          </form>
-        </CardContent>
-      </Card>
+    <main className="editorial-shell grid min-h-dvh bg-background md:grid-cols-[1fr_0.8fr]">
+      <section className="flex flex-col justify-between border-b p-8 md:border-b-0 md:border-r md:p-12">
+        <div className="flex justify-between border-b pb-5">
+          <span className="editorial-meta text-primary">
+            DeployKit / Desktop
+          </span>
+          <span className="editorial-meta text-muted-foreground">01 / 03</span>
+        </div>
+        <div>
+          <span className="editorial-eyebrow">Remote server / Origin</span>
+          <h1 className="editorial-display mt-8">Connect workspace</h1>
+          <p className="mt-8 max-w-xl text-lg leading-relaxed text-muted-foreground">
+            Enter the address of the DeployKit server this desktop client should
+            manage.
+          </p>
+        </div>
+        <span className="editorial-meta text-muted-foreground">
+          Native upload · System notifications
+        </span>
+      </section>
+      <section className="flex flex-col justify-center p-8 md:p-12">
+        <div className="mb-10 bg-primary p-6 text-primary-foreground">
+          <span className="editorial-number">01</span>
+          <p className="editorial-meta mt-16 text-primary-foreground/70">
+            Server origin
+          </p>
+        </div>
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void onSubmit(url);
+          }}
+        >
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://deploy.example.com"
+            className="h-13 font-mono"
+          />
+          {error && (
+            <p className="border-l-4 border-destructive bg-destructive/8 px-4 py-3 text-sm text-destructive">
+              {error}
+            </p>
+          )}
+          <Button type="submit" className="h-13 justify-between px-5">
+            Connect
+            <span aria-hidden>→</span>
+          </Button>
+        </form>
+      </section>
     </main>
   );
 }

@@ -5,7 +5,7 @@ import type { SafeUser } from '@deploykit/shared';
 import type { Context } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { createApiApp } from './api';
-import type { AppConfig } from './config';
+import { type AppConfig, validateAppConfig } from './config';
 import { createDesktopAuthCodeStore } from './desktopAuth';
 import { ApiError, ErrorCode } from './errors';
 import {
@@ -16,13 +16,14 @@ import {
   setSessionCookie,
 } from './middleware/session';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
+import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import { createProjectService } from './services/projectService';
 import { createUserService } from './services/userService';
 import { createVersionService } from './services/versionService';
 
 /**
- * Composes the Hono application: wires the JSON repository into the project,
+ * Composes the Hono application: wires the configured repository into the project,
  * version, and user services, seeds an admin on first run, resolves the session
  * secret, and provides the Node-backed auth helpers (session middleware, cookie
  * issue/clear) to the typed `/api` app. Then layers the deploy route, security
@@ -30,9 +31,15 @@ import { createVersionService } from './services/versionService';
  * from `Bun.serve` so tests can exercise `createApp()` without opening a port.
  */
 export function createApp(config: AppConfig) {
+  validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
 
-  const repo = createJsonProjectRepository(config.dataFile);
+  const repo = config.databaseFile
+    ? createSqliteProjectRepository({
+        databaseFile: config.databaseFile,
+        legacyDataFile: config.dataFile,
+      })
+    : createJsonProjectRepository(config.dataFile);
   const projectService = createProjectService(repo);
   const versionService = createVersionService(repo, config);
   const userService = createUserService(repo);
@@ -107,6 +114,11 @@ export function createApp(config: AppConfig) {
         force: true,
       }),
   })
+    .get('/health/live', (c) => c.body(null, 204))
+    .get('/health/ready', (c) => {
+      repo.load();
+      return c.json({ status: 'ok' as const });
+    })
     .route(
       '/',
       createDeployRoutes({ projectService, storageDir: config.storageDir })

@@ -8,7 +8,6 @@ import { serverRequest } from './serverRequest';
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
 
-
 const SUCCESS_HTML = `<!doctype html><meta charset="utf-8">
 <title>Authorized</title>
 <body style="font-family:system-ui;text-align:center;padding:2rem">

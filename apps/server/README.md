@@ -10,7 +10,7 @@ HTTP 请求
    +-- /api/* ──────────> API 路由（auth / projects / versions / history）
    |                         |-- domain/ 纯规则
    |                         |-- services/ 用例
-   |                         |-- repositories/ JSON 持久化（data.json，原子写入）
+   |                         |-- repositories/ SQLite 持久化（WAL + 原子 mutate）
    |                         |-- .voasx/storage/ 文件操作
    |
    +-- /deploy/:slug/* ─> 部署路由（deployResolver + artifactService）
@@ -31,7 +31,9 @@ HTTP 请求
 - **指定版本预览** — `/deploy/{slug}/{versionId}/`
 - **SPA fallback** — 每个项目可配置 hash/path 两种路由模式
 - **操作历史** — 记录创建、更新、上传、发布、回滚、删除等操作（上限 200）
-- **认证与角色** — session cookie 认证；`admin` / `developer` / `viewer` 分级授权
+- **认证与角色** — bearer/session 认证；`admin` / `developer` / `viewer` 分级授权
+- **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
+- **请求追踪** — 每个响应携带 `X-Request-Id`，也会接受并回传有效的上游请求编号
 - **路径安全** — `safeJoin` 拦截路径遍历；上传有大小/数量/路径长度上限
 - **类型化路由** — [src/api.ts](src/api.ts) 导出 `ApiApp`，供前端 `hono/client` 自动推导请求/响应类型
 
@@ -46,7 +48,7 @@ src/
 ├── errors.ts                 # ApiError（onError 转为 { error } 响应）
 ├── domain/                   # 纯领域规则（project / version / history）
 ├── middleware/               # 认证、session、角色授权
-├── repositories/             # ProjectRepository 接口 + JSON 实现（原子写入）
+├── repositories/             # ProjectRepository + SQLite WAL/JSON 实现
 ├── services/                 # 用例 + 契约（contracts.ts：Bun 无关的服务接口）
 │   ├── projectService.ts     # 项目用例
 │   ├── versionService.ts     # 版本上传/发布/回滚/删除
@@ -68,7 +70,7 @@ bun install
 bun run dev:server          # 仅后端
 ```
 
-服务默认运行在 `http://localhost:3000`。如需管理面板，先在仓库根目录运行 `bun run build`，打包脚本会将前端构建同步到 `apps/server/public/`。
+服务默认运行在 `http://localhost:4010`。如需管理面板，先在仓库根目录运行 `bun run build`，打包脚本会将前端构建同步到 `apps/server/public/`。
 
 ## 配置
 
@@ -76,12 +78,19 @@ bun run dev:server          # 仅后端
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `3000` | 监听端口 |
-| `DATA_FILE` | `apps/server/data.json` | 元数据文件 |
+| `DEPLOYKIT_ENV` / `NODE_ENV` | `development` | `development` / `test` / `production`；生产模式启用启动门禁 |
+| `PORT` | `4010` | 监听端口；配置无效时直接拒绝启动 |
+| `DATABASE_FILE` | `apps/server/deploykit.sqlite` | SQLite 元数据文件（WAL） |
+| `DATA_FILE` | `apps/server/data.json` | 旧 JSON 数据；仅在 SQLite 为空时导入一次并备份 |
 | `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物目录 |
 | `PUBLIC_DIR` | `apps/server/public` | 管理面板静态目录 |
 | `PUBLIC_BASE_URL` | — | 公开基础 URL；以 `https://` 开头时 session cookie 标记为 Secure |
+| `SESSION_SECRET` | 开发环境临时生成 | 生产必填且至少 32 个字符 |
+| `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@deploykit.local` / 开发环境随机生成 | 空用户库首次启动时创建管理员；生产密码必填 |
+| `REGISTRATION_ENABLED` | 开发 `true`、生产 `false` | 是否开放自助注册 |
 | `MAX_ZIP_SIZE` / `MAX_EXTRACTED_SIZE` / `MAX_FILE_COUNT` / `MAX_PATH_LENGTH` | 100MB / 100MB / 1000 / 1000 | 上传上限 |
+
+所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
 
 ## 部署路由
 
@@ -105,6 +114,13 @@ bun run dev:server          # 仅后端
 ## API
 
 见根 [README](../../README.md#api-接口)。错误格式：`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码定义在 [src/errors.ts](src/errors.ts) 的 `ErrorCode`）。
+
+公开运行端点：
+
+- `GET /health/live` — 返回 `204`，只表示进程可处理 HTTP。
+- `GET /health/ready` — 返回 `{ "status": "ok" }`，并实际读取元数据仓库。
+
+所有响应包含 `X-Request-Id`。调用方可传入合法的 `X-Request-Id` 以串联代理、服务端日志和客户端报错。
 
 ## 测试
 

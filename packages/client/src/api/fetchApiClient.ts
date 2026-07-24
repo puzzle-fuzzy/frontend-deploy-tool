@@ -1,8 +1,13 @@
 import type { ApiApp } from '@deploykit/server/api';
-import type { Project, SafeUser, Settings } from '@deploykit/shared';
+import type {
+  HistoryEvent,
+  Project,
+  SafeUser,
+  Settings,
+} from '@deploykit/shared';
 import { hc } from 'hono/client';
 import type { ApiClient, UploadableFile, UploadProgress } from './ApiClient';
-import { checkOk, extractMessage } from './errors';
+import { checkOk, createApiClientError } from './errors';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
@@ -179,7 +184,12 @@ export function createFetchApiClient(): ApiClient {
             resolve(JSON.parse(xhr.responseText));
           } else {
             reject(
-              new Error(extractMessage(xhr.responseText) || 'Upload failed')
+              createApiClientError(
+                xhr.status,
+                xhr.responseText,
+                xhr.statusText || 'Upload failed',
+                xhr.getResponseHeader('X-Request-Id')
+              )
             );
           }
         };
@@ -230,6 +240,21 @@ export function createFetchApiClient(): ApiClient {
       return (await res.json()) as { ok: boolean };
     },
 
+    async listProjectHistory(
+      projectId: string,
+      limit = 50
+    ): Promise<HistoryEvent[]> {
+      const res = await client.api.projects[':id'].history.$get(
+        {
+          param: { id: projectId },
+          query: { limit: String(limit) },
+        },
+        { headers: getAuthHeaders() }
+      );
+      await checkOk(res);
+      return (await res.json()) as HistoryEvent[];
+    },
+
     async searchUsers(query: string): Promise<SafeUser[]> {
       const res = await client.api.users.search.$get(
         { query: { q: query } },
@@ -245,7 +270,10 @@ export function createFetchApiClient(): ApiClient {
       role: string
     ): Promise<{ project: Project }> {
       const res = await client.api.projects[':id'].members.$post(
-        { param: { id: projectId }, json: { email, role: role as 'member' | 'owner' } },
+        {
+          param: { id: projectId },
+          json: { email, role: role as 'member' | 'owner' },
+        },
         { headers: getAuthHeaders() }
       );
       await checkOk(res);

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { adminCookie, createAuthApp, withCookie } from './helpers';
@@ -7,6 +7,7 @@ import { adminCookie, createAuthApp, withCookie } from './helpers';
 let tempDir: string;
 let cookie: string;
 let request: (path: string, init?: RequestInit) => Promise<Response>;
+let rawRequest: (path: string, init?: RequestInit) => Promise<Response>;
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-test-'));
@@ -16,6 +17,7 @@ beforeEach(async () => {
     publicDir: join(tempDir, 'public'),
   });
   cookie = await adminCookie(app);
+  rawRequest = (path, init) => Promise.resolve(app.request(path, init));
   request = (path, init) =>
     Promise.resolve(app.request(path, withCookie(init, cookie)));
 });
@@ -76,4 +78,47 @@ test('rejects activating an unknown version without setting an active version', 
   const currentProject = await list.json();
   // Upload ≠ go-live and the failed activate must not set an active version.
   expect(currentProject.activeVersionId).toBeNull();
+});
+
+test('exposes public liveness and repository readiness endpoints', async () => {
+  const live = await rawRequest('/health/live');
+  expect(live.status).toBe(204);
+  expect(live.headers.get('X-Request-Id')).toBeTruthy();
+
+  const ready = await rawRequest('/health/ready');
+  expect(ready.status).toBe(200);
+  expect(await ready.json()).toEqual({ status: 'ok' });
+});
+
+test('propagates a valid request id across success and error responses', async () => {
+  const requestId = 'deploykit-test-request-01';
+  const ready = await rawRequest('/health/ready', {
+    headers: { 'X-Request-Id': requestId },
+  });
+  expect(ready.headers.get('X-Request-Id')).toBe(requestId);
+
+  const unauthorized = await rawRequest('/api/projects', {
+    headers: { 'X-Request-Id': requestId },
+  });
+  expect(unauthorized.status).toBe(401);
+  expect(unauthorized.headers.get('X-Request-Id')).toBe(requestId);
+});
+
+test('readiness fails when the metadata repository cannot be opened', async () => {
+  const databaseFile = join(tempDir, 'broken.sqlite');
+  const brokenApp = createAuthApp({
+    databaseFile,
+    dataFile: join(tempDir, 'broken.json'),
+    storageDir: join(tempDir, 'broken-storage'),
+    publicDir: join(tempDir, 'broken-public'),
+  });
+  rmSync(databaseFile, { force: true });
+  rmSync(`${databaseFile}-wal`, { force: true });
+  rmSync(`${databaseFile}-shm`, { force: true });
+  writeFileSync(databaseFile, 'not a sqlite database');
+
+  const response = await brokenApp.request('/health/ready');
+  expect(response.status).toBe(500);
+  expect((await response.json()).error.code).toBe('INTERNAL_ERROR');
+  expect(response.headers.get('X-Request-Id')).toBeTruthy();
 });

@@ -17,6 +17,7 @@ interface RequestApp {
 }
 
 export interface TmpDirs {
+  databaseFile?: string;
   dataFile: string;
   storageDir: string;
   publicDir: string;
@@ -54,7 +55,7 @@ export async function loginAs(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email, password }),
   });
-  const body = await res.json() as { token?: string };
+  const body = (await res.json()) as { token?: string };
   if (!body.token) throw new Error(`login as ${email} did not return a token`);
   return body.token;
 }

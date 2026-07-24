@@ -54,15 +54,17 @@ describe('parseResponseBody', () => {
 
   test('401 with {error.message} throws ServerError carrying that message', () => {
     const body = JSON.stringify({
-      error: { message: 'Authentication required' },
+      error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
     });
     try {
-      parseResponseBody(401, body);
+      parseResponseBody(401, body, 'request-desktop-01');
       throw new Error('expected parseResponseBody to throw');
     } catch (e) {
       expect(e).toBeInstanceOf(ServerError);
       expect((e as ServerError).message).toBe('Authentication required');
       expect((e as ServerError).status).toBe(401);
+      expect((e as ServerError).code).toBe('UNAUTHORIZED');
+      expect((e as ServerError).requestId).toBe('request-desktop-01');
     }
   });
 
@@ -98,7 +100,10 @@ describe('serverRequest', () => {
   test('rejects with ServerError (message + status) on 401', async () => {
     stage({
       status: 401,
-      body: JSON.stringify({ error: { message: 'Authentication required' } }),
+      body: JSON.stringify({
+        error: { code: 'UNAUTHORIZED', message: 'Authentication required' },
+      }),
+      headers: { 'x-request-id': 'request-desktop-02' },
     });
     const promise = serverRequest({} as never, 'http://x', {
       method: 'GET',
@@ -108,6 +113,8 @@ describe('serverRequest', () => {
     await expect(promise).rejects.toMatchObject({
       message: 'Authentication required',
       status: 401,
+      code: 'UNAUTHORIZED',
+      requestId: 'request-desktop-02',
     });
   });
 

@@ -14,9 +14,9 @@ bun install      # 安装整个 Bun 工作区（apps/* + packages/*）
 
 | 命令 | 说明 |
 |------|------|
-| `bun run dev:server` | 仅后端（API + 部署，`localhost:3000`）。`public/` 为空时无管理面板 |
-| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 代理到 `localhost:3000` |
-| `bun run dev` | 同 `dev:server` |
+| `bun run dev:server` | 仅后端（API + 部署，`localhost:4010`）。`public/` 为空时无管理面板 |
+| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 代理到 `localhost:4010` |
+| `bun run dev` | 同时启动后端与 Web 开发服务器 |
 | `bun run build` | 构建所有包并将 `apps/web/dist` 打包到 `apps/server/public` |
 | `bun run package` | 仅执行打包脚本（`scripts/package-web.ts`） |
 | `bun run test` | 运行所有包的测试 |
@@ -24,12 +24,26 @@ bun install      # 安装整个 Bun 工作区（apps/* + packages/*）
 | `bun run lint` | ESLint（前端） |
 | `bun run check` / `check:fix` | Biome 检查 / 自动修复 |
 | `bun run format` / `format:check` | Biome 格式化 / 检查 |
+| `bun run verify` | CI 同款：Biome、类型检查、测试、生产构建 |
 
 ### 三种本地开发形态
 
 1. **仅后端**：`bun run dev:server`。用于调试 API / 部署路由；管理面板不渲染（`public/` 为空时 `/` 返回 404 SPA fallback）。
 2. **前端开发（全栈）**：开两个终端——`bun run dev:server` 与 `bun run dev:web`。在 `localhost:5018` 操作，Vite 把 `/api` 代理到后端，享受 HMR。
 3. **生产形态**：`bun run build && bun run dev:server`。后端从 `apps/server/public` 托管已构建的管理面板，与线上行为一致。
+
+生产运行前必须设置：
+
+```bash
+DEPLOYKIT_ENV=production
+SESSION_SECRET=<至少 32 个随机字符>
+ADMIN_PASSWORD=<首次管理员密码>
+REGISTRATION_ENABLED=false
+```
+
+配置解析采用 fail-fast：无效端口、上传限制、布尔值或 `PUBLIC_BASE_URL`
+会直接阻止启动，不会悄悄改用默认值。启动后可检查
+`/health/live`（进程）与 `/health/ready`（元数据仓库）。
 
 ## 测试
 
@@ -39,8 +53,8 @@ bun install      # 安装整个 Bun 工作区（apps/* + packages/*）
 bun run test          # 根目录（或 cd apps/server && bun test）
 ```
 
-- `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史端点、安全头、上传失败清理。
-- `tests/services/` — 领域/服务/工具单元测试：slug、版本不变量、`safePath`、原子写入、`deployResolver`、`artifactService`、`parseSettings`。
+- `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史端点、安全头、健康探针、请求编号与上传失败清理。
+- `tests/services/` — 领域/服务/工具单元测试：slug、版本不变量、`safePath`、JSON/SQLite 原子 mutation 与回滚、`deployResolver`、`artifactService`、配置门禁。
 
 应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口。
 
@@ -59,12 +73,12 @@ bun run test          # Vitest + React Testing Library
 1. 启动后端：`bun run dev:server`（或全栈开发模式）。
 2. 打开管理面板创建项目，获得 `slug`。
 3. 上传一个版本：
-   - **ZIP**：选择 `.zip`（服务端 `tar -xf` 解压 + 扁平化）。
+   - **ZIP**：选择 `.zip`（服务端安全解压 + 扁平化）。
    - **文件夹**：选择构建产物目录（`webkitdirectory`，保留相对路径）。
-   - 第一个版本自动激活为正式版本。
+   - 上传后保持预览态；必须显式发布后才成为正式版本。
 4. 预览：
-   - 正式版本：`http://localhost:3000/deploy/{slug}/`
-   - 指定版本：`http://localhost:3000/deploy/{slug}/{versionId}/`
+   - 正式版本：`http://localhost:4010/deploy/{slug}/`
+   - 指定版本：`http://localhost:4010/deploy/{slug}/{versionId}/`
 5. 路径路由应用请先在项目设置开启 SPA 模式，详见 [vite-deployment.md](vite-deployment.md)。
 
 ## 添加依赖
@@ -75,4 +89,4 @@ bun run test          # Vitest + React Testing Library
 ## Git 约定
 
 - 提交信息使用 Conventional Commits（`feat:` / `fix:` / `refactor:` / `test:` / `docs:` / `chore:`）。
-- `apps/server/public/`、`apps/web/dist/`、`data.json`、`.voasx/` 均被 gitignore，不要提交构建产物或本地数据。
+- `apps/server/public/`、`apps/web/dist/`、`deploykit.sqlite*`、`data.json*`、`.voasx/` 均被 gitignore，不要提交构建产物或本地数据。

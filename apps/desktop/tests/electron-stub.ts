@@ -29,8 +29,8 @@ function noopReq(): NoopReq {
     on() {
       return r;
     },
-    write() { },
-    end() { },
+    write() {},
+    end() {},
   };
   return r;
 }
@@ -58,7 +58,7 @@ export function makeFakeReq(res: FakeResponse): unknown {
       handlers[event].push(cb);
       return req;
     },
-    write() { },
+    write() {},
     end() {
       const response = {
         statusCode: res.status,

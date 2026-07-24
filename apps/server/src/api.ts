@@ -1,5 +1,6 @@
 import type { SafeUser } from '@deploykit/shared';
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
+import { requestId } from 'hono/request-id';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
 import { ApiError, ErrorCode } from './errors';
@@ -89,6 +90,7 @@ export interface ApiDeps {
  */
 export function createApiApp(deps: ApiDeps) {
   return new Hono<AppEnv>()
+    .use('*', requestId())
     .use('/api/*', deps.sessionMiddleware)
     .use('/api/*', requireAuthExceptPublic)
     .post(
@@ -142,13 +144,6 @@ export function createApiApp(deps: ApiDeps) {
         }
         const { name, email, password } = c.req.valid('json');
         const normalizedEmail = email.toLowerCase();
-        if (deps.userService.findByEmail(normalizedEmail)) {
-          throw new ApiError(
-            ErrorCode.EMAIL_ALREADY_EXISTS,
-            'Email is already registered',
-            400
-          );
-        }
         const user = deps.userService.createUser({
           name,
           email: normalizedEmail,

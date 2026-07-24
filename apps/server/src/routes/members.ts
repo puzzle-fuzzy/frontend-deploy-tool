@@ -1,9 +1,17 @@
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
 import { ApiError, ErrorCode } from '../errors';
 import { requireProjectRole } from '../middleware/auth';
 import type { AppEnv, ProjectService } from '../services/contracts';
+
+function requireActorId(c: Context<AppEnv>): string {
+  const user = c.get('user');
+  if (!user) {
+    throw new ApiError(ErrorCode.UNAUTHORIZED, 'Authentication required', 401);
+  }
+  return user.id;
+}
 
 export function createMemberRoutes(deps: { projectService: ProjectService }) {
   const { projectService } = deps;
@@ -33,7 +41,7 @@ export function createMemberRoutes(deps: { projectService: ProjectService }) {
           c.req.param('id'),
           email,
           role,
-          c.get('user')!.id
+          requireActorId(c)
         );
         return c.json({ project });
       }
@@ -45,7 +53,7 @@ export function createMemberRoutes(deps: { projectService: ProjectService }) {
         projectService.removeMember(
           c.req.param('id'),
           c.req.param('userId'),
-          c.get('user')!.id
+          requireActorId(c)
         );
         return c.json({ ok: true });
       }
@@ -68,7 +76,7 @@ export function createMemberRoutes(deps: { projectService: ProjectService }) {
         const project = projectService.transferOwnership(
           c.req.param('id'),
           targetUserId,
-          c.get('user')!.id
+          requireActorId(c)
         );
         return c.json({ project });
       }

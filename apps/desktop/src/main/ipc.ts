@@ -11,10 +11,38 @@ import {
   normalizeOrigin,
   setServerOrigin,
 } from '../shared/config';
+import type { IpcResult } from '../shared/ipcResult';
 import { getMe, login, logout, register, validateServer } from './auth';
 import { loginViaWeb } from './desktopAuth';
 import { pickDirectory, uploadFolder, uploadZipPath } from './nativeUpload';
-import { serverRequest } from './serverRequest';
+import { ServerError, serverRequest } from './serverRequest';
+
+async function toIpcResult<T>(
+  operation: () => T | Promise<T>
+): Promise<IpcResult<T>> {
+  try {
+    return { ok: true, data: await operation() };
+  } catch (error) {
+    if (error instanceof ServerError) {
+      return {
+        ok: false,
+        error: {
+          message: error.message,
+          status: error.status,
+          code: error.code,
+          requestId: error.requestId,
+        },
+      };
+    }
+    return {
+      ok: false,
+      error: {
+        message: error instanceof Error ? error.message : String(error),
+        status: 0,
+      },
+    };
+  }
+}
 
 /**
  * Registers all `window.deploykit.*` handlers. `getMainWindow` is a thunk
@@ -29,122 +57,155 @@ export function registerIpc(deps: {
   const { session, getOrigin, getMainWindow, onAuthExpired } = deps;
 
   // ---- API methods (mirror ApiClient over IPC) -------------------------------
-  ipcMain.handle('api:getMe', async () => getMe(session, getOrigin()));
+  ipcMain.handle('api:getMe', async () =>
+    toIpcResult(() => getMe(session, getOrigin()))
+  );
   ipcMain.handle('api:login', async (_e, email: string, password: string) =>
-    login(session, getOrigin(), email, password)
+    toIpcResult(() => login(session, getOrigin(), email, password))
   );
   ipcMain.handle(
     'api:register',
     async (_e, input: { name: string; email: string; password: string }) =>
-      register(session, getOrigin(), input)
+      toIpcResult(() => register(session, getOrigin(), input))
   );
-  ipcMain.handle('api:logout', async () => logout(session, getOrigin()));
-  ipcMain.handle('api:listProjects', async () => {
-    const r = await serverRequest<unknown[]>(session, getOrigin(), {
-      method: 'GET',
-      path: '/api/projects',
-    });
-    return r.data;
-  });
-  ipcMain.handle('api:createProject', async (_e, input) => {
-    const r = await serverRequest(session, getOrigin(), {
-      method: 'POST',
-      path: '/api/projects',
-      body: input,
-    });
-    return r.data;
-  });
-  ipcMain.handle('api:updateProject', async (_e, id: string, updates) => {
-    const r = await serverRequest(session, getOrigin(), {
-      method: 'PATCH',
-      path: `/api/projects/${id}`,
-      body: updates,
-    });
-    return r.data;
-  });
-  ipcMain.handle('api:deleteProject', async (_e, id: string) => {
-    const r = await serverRequest(session, getOrigin(), {
-      method: 'DELETE',
-      path: `/api/projects/${id}`,
-    });
-    return r.data;
-  });
-  ipcMain.handle('api:updateSettings', async (_e, id: string, settings) => {
-    const r = await serverRequest(session, getOrigin(), {
-      method: 'PATCH',
-      path: `/api/projects/${id}/settings`,
-      body: settings,
-    });
-    return r.data;
-  });
-  ipcMain.handle(
-    'api:publishVersion',
-    async (_e, projectId: string, versionId: string) => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'POST',
-        path: `/api/projects/${projectId}/versions/${versionId}/publish`,
+  ipcMain.handle('api:logout', async () =>
+    toIpcResult(() => logout(session, getOrigin()))
+  );
+  ipcMain.handle('api:listProjects', async () =>
+    toIpcResult(async () => {
+      const r = await serverRequest<unknown[]>(session, getOrigin(), {
+        method: 'GET',
+        path: '/api/projects',
       });
       return r.data;
-    }
+    })
+  );
+  ipcMain.handle('api:createProject', async (_e, input) =>
+    toIpcResult(async () => {
+      const r = await serverRequest(session, getOrigin(), {
+        method: 'POST',
+        path: '/api/projects',
+        body: input,
+      });
+      return r.data;
+    })
+  );
+  ipcMain.handle('api:updateProject', async (_e, id: string, updates) =>
+    toIpcResult(async () => {
+      const r = await serverRequest(session, getOrigin(), {
+        method: 'PATCH',
+        path: `/api/projects/${id}`,
+        body: updates,
+      });
+      return r.data;
+    })
+  );
+  ipcMain.handle('api:deleteProject', async (_e, id: string) =>
+    toIpcResult(async () => {
+      const r = await serverRequest(session, getOrigin(), {
+        method: 'DELETE',
+        path: `/api/projects/${id}`,
+      });
+      return r.data;
+    })
+  );
+  ipcMain.handle('api:updateSettings', async (_e, id: string, settings) =>
+    toIpcResult(async () => {
+      const r = await serverRequest(session, getOrigin(), {
+        method: 'PATCH',
+        path: `/api/projects/${id}/settings`,
+        body: settings,
+      });
+      return r.data;
+    })
+  );
+  ipcMain.handle(
+    'api:publishVersion',
+    async (_e, projectId: string, versionId: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'POST',
+          path: `/api/projects/${projectId}/versions/${versionId}/publish`,
+        });
+        return r.data;
+      })
   );
   ipcMain.handle(
     'api:rollbackVersion',
-    async (_e, projectId: string, versionId: string) => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'POST',
-        path: `/api/projects/${projectId}/versions/${versionId}/rollback`,
-      });
-      return r.data;
-    }
+    async (_e, projectId: string, versionId: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'POST',
+          path: `/api/projects/${projectId}/versions/${versionId}/rollback`,
+        });
+        return r.data;
+      })
   );
   ipcMain.handle(
     'api:deleteVersion',
-    async (_e, projectId: string, versionId: string) => {
+    async (_e, projectId: string, versionId: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'DELETE',
+          path: `/api/projects/${projectId}/versions/${versionId}`,
+        });
+        return r.data;
+      })
+  );
+  ipcMain.handle(
+    'api:listProjectHistory',
+    async (_e, projectId: string, limit = 50) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'GET',
+          path: `/api/projects/${projectId}/history?limit=${limit}`,
+        });
+        return r.data;
+      })
+  );
+  ipcMain.handle('api:searchUsers', async (_e, query: string) =>
+    toIpcResult(async () => {
       const r = await serverRequest(session, getOrigin(), {
-        method: 'DELETE',
-        path: `/api/projects/${projectId}/versions/${versionId}`,
+        method: 'GET',
+        path: `/api/users/search?q=${encodeURIComponent(query)}`,
       });
       return r.data;
-    }
+    })
   );
-  ipcMain.handle('api:searchUsers', async (_e, query: string) => {
-    const r = await serverRequest(session, getOrigin(), {
-      method: 'GET',
-      path: `/api/users/search?q=${encodeURIComponent(query)}`,
-    });
-    return r.data;
-  });
   ipcMain.handle(
     'api:addMember',
-    async (_e, projectId: string, email: string, role: string) => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'POST',
-        path: `/api/projects/${projectId}/members`,
-        body: { email, role },
-      });
-      return r.data;
-    }
+    async (_e, projectId: string, email: string, role: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'POST',
+          path: `/api/projects/${projectId}/members`,
+          body: { email, role },
+        });
+        return r.data;
+      })
   );
   ipcMain.handle(
     'api:removeMember',
-    async (_e, projectId: string, userId: string) => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'DELETE',
-        path: `/api/projects/${projectId}/members/${userId}`,
-      });
-      return r.data;
-    }
+    async (_e, projectId: string, userId: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'DELETE',
+          path: `/api/projects/${projectId}/members/${userId}`,
+        });
+        return r.data;
+      })
   );
   ipcMain.handle(
     'api:transferOwnership',
-    async (_e, projectId: string, targetUserId: string) => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'POST',
-        path: `/api/projects/${projectId}/transfer`,
-        body: { targetUserId },
-      });
-      return r.data;
-    }
+    async (_e, projectId: string, targetUserId: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'POST',
+          path: `/api/projects/${projectId}/transfer`,
+          body: { targetUserId },
+        });
+        return r.data;
+      })
   );
   // api:uploadVersion is NOT registered here — uploads go through nativeUpload
   // (nativeUpload.uploadFolder / uploadZipPath) since they read bytes from disk.
@@ -191,13 +252,15 @@ export function registerIpc(deps: {
       progressChannel: string
     ) => {
       const win = getMainWindow();
-      return uploadFolder(
-        session,
-        getOrigin(),
-        projectId,
-        directoryPath,
-        description,
-        win ? (p) => win.webContents.send(progressChannel, p) : undefined
+      return toIpcResult(() =>
+        uploadFolder(
+          session,
+          getOrigin(),
+          projectId,
+          directoryPath,
+          description,
+          win ? (p) => win.webContents.send(progressChannel, p) : undefined
+        )
       );
     }
   );
@@ -211,13 +274,15 @@ export function registerIpc(deps: {
       progressChannel: string
     ) => {
       const win = getMainWindow();
-      return uploadZipPath(
-        session,
-        getOrigin(),
-        projectId,
-        zipPath,
-        description,
-        win ? (p) => win.webContents.send(progressChannel, p) : undefined
+      return toIpcResult(() =>
+        uploadZipPath(
+          session,
+          getOrigin(),
+          projectId,
+          zipPath,
+          description,
+          win ? (p) => win.webContents.send(progressChannel, p) : undefined
+        )
       );
     }
   );

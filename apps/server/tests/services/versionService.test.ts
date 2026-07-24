@@ -82,6 +82,7 @@ describe('createVersionService', () => {
       save: () => {
         saved = true;
       },
+      mutate: (operation) => operation(data),
     };
 
     try {
@@ -121,6 +122,7 @@ describe('createVersionService', () => {
     const repo: ProjectRepository = {
       load: () => data,
       save: () => {},
+      mutate: (operation) => operation(data),
     };
 
     try {

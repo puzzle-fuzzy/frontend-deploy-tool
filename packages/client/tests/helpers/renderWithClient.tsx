@@ -19,6 +19,7 @@ export function mockApiClient(overrides: Partial<ApiClient> = {}): ApiClient {
     publishVersion: vi.fn(),
     rollbackVersion: vi.fn(),
     deleteVersion: vi.fn(),
+    listProjectHistory: vi.fn(),
   } as unknown as ApiClient;
   return Object.assign(stub, overrides) as ApiClient;
 }

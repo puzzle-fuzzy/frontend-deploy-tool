@@ -1,3 +1,7 @@
+import {
+  type ApiErrorCode,
+  parseApiErrorEnvelope,
+} from '@deploykit/shared/errors';
 import { net, type Session } from 'electron';
 
 export interface RequestOptions {
@@ -17,13 +21,23 @@ export interface RequestResult<T> {
   data: T;
 }
 
-/** Thrown on non-2xx; message is the server's `{ error.message }`. */
+/** Thrown on non-2xx with the stable server error identity intact. */
 export class ServerError extends Error {
   readonly status: number;
-  constructor(message: string, status: number) {
+  readonly code?: ApiErrorCode;
+  readonly requestId?: string;
+
+  constructor(
+    message: string,
+    status: number,
+    code?: ApiErrorCode,
+    requestId?: string
+  ) {
     super(message);
     this.name = 'ServerError';
     this.status = status;
+    this.code = code;
+    this.requestId = requestId;
   }
 }
 
@@ -41,12 +55,33 @@ export class NetworkError extends Error {
  * through the client barrel) so the main process never transitively loads
  * renderer-only code (e.g. `shared/config`, which reads `window`).
  */
-export function extractMessage(text: string): string {
+export function extractServerError(text: string): {
+  message: string;
+  code?: ApiErrorCode;
+} {
   try {
-    return JSON.parse(text)?.error?.message ?? text;
+    const raw = JSON.parse(text) as unknown;
+    const parsed = parseApiErrorEnvelope(raw);
+    if (parsed) return parsed.error;
+    if (
+      raw &&
+      typeof raw === 'object' &&
+      'error' in raw &&
+      raw.error &&
+      typeof raw.error === 'object' &&
+      'message' in raw.error &&
+      typeof raw.error.message === 'string'
+    ) {
+      return { message: raw.error.message };
+    }
+    return { message: text };
   } catch {
-    return text;
+    return { message: text };
   }
+}
+
+export function extractMessage(text: string): string {
+  return extractServerError(text).message;
 }
 
 /**
@@ -56,7 +91,8 @@ export function extractMessage(text: string): string {
  */
 export function parseResponseBody<T>(
   status: number,
-  text: string
+  text: string,
+  requestId?: string
 ): {
   isError: false;
   data: T;
@@ -70,7 +106,13 @@ export function parseResponseBody<T>(
     }
     return { isError: false, data };
   }
-  throw new ServerError(extractMessage(text) || `HTTP ${status}`, status);
+  const parsed = extractServerError(text);
+  throw new ServerError(
+    parsed.message || `HTTP ${status}`,
+    status,
+    parsed.code,
+    requestId
+  );
 }
 
 export function serverRequest<T>(
@@ -112,7 +154,8 @@ export function serverRequest<T>(
 
           try {
             const raw = response.headers['set-cookie'];
-            const needsCookieSync = Boolean(raw) &&
+            const needsCookieSync =
+              Boolean(raw) &&
               (opts.path.startsWith('/api/auth/login') ||
                 opts.path.startsWith('/api/auth/register') ||
                 opts.path.startsWith('/api/desktop/'));
@@ -164,7 +207,10 @@ export function serverRequest<T>(
               return;
             }
 
-            const { data } = parseResponseBody<T>(status, text);
+            const requestId = firstHeaderValue(
+              response.headers['x-request-id']
+            );
+            const { data } = parseResponseBody<T>(status, text, requestId);
             resolve({ status, data });
           } catch (e) {
             reject(e);
@@ -194,4 +240,10 @@ export function serverRequest<T>(
 
     performRequest();
   });
+}
+
+function firstHeaderValue(
+  value: string | string[] | undefined
+): string | undefined {
+  return Array.isArray(value) ? value[0] : value;
 }

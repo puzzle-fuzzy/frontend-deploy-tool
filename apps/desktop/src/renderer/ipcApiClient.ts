@@ -3,19 +3,37 @@ import type {
   UploadableFile,
   UploadProgress,
 } from '@deploykit/client';
+import { ApiClientError } from '@deploykit/client/errors';
+import type { IpcResult } from '../shared/ipcResult';
+
+export async function unwrapIpcResult<T>(
+  promise: Promise<IpcResult<T>>
+): Promise<T> {
+  const result = await promise;
+  if (result.ok) return result.data;
+  throw new ApiClientError(
+    result.error.message,
+    result.error.status,
+    result.error.code,
+    result.error.requestId
+  );
+}
 
 export function createIpcApiClient(): ApiClient {
   const bridge = window.deploykit;
   return {
-    getMe: () => bridge.api.getMe(),
-    login: (email, password) => bridge.api.login(email, password),
-    register: (input) => bridge.api.register(input),
-    logout: () => bridge.api.logout(),
-    listProjects: () => bridge.api.listProjects(),
-    createProject: (input) => bridge.api.createProject(input),
-    updateProject: (id, updates) => bridge.api.updateProject(id, updates),
-    deleteProject: (id) => bridge.api.deleteProject(id),
-    updateSettings: (id, settings) => bridge.api.updateSettings(id, settings),
+    getMe: () => unwrapIpcResult(bridge.api.getMe()),
+    login: (email, password) =>
+      unwrapIpcResult(bridge.api.login(email, password)),
+    register: (input) => unwrapIpcResult(bridge.api.register(input)),
+    logout: () => unwrapIpcResult(bridge.api.logout()),
+    listProjects: () => unwrapIpcResult(bridge.api.listProjects()),
+    createProject: (input) => unwrapIpcResult(bridge.api.createProject(input)),
+    updateProject: (id, updates) =>
+      unwrapIpcResult(bridge.api.updateProject(id, updates)),
+    deleteProject: (id) => unwrapIpcResult(bridge.api.deleteProject(id)),
+    updateSettings: (id, settings) =>
+      unwrapIpcResult(bridge.api.updateSettings(id, settings)),
     uploadVersion: (
       _projectId: string,
       _file: UploadableFile | null,
@@ -30,17 +48,19 @@ export function createIpcApiClient(): ApiClient {
       );
     },
     publishVersion: (projectId, versionId) =>
-      bridge.api.publishVersion(projectId, versionId),
+      unwrapIpcResult(bridge.api.publishVersion(projectId, versionId)),
     rollbackVersion: (projectId, versionId) =>
-      bridge.api.rollbackVersion(projectId, versionId),
+      unwrapIpcResult(bridge.api.rollbackVersion(projectId, versionId)),
     deleteVersion: (projectId, versionId) =>
-      bridge.api.deleteVersion(projectId, versionId),
-    searchUsers: (query) => bridge.api.searchUsers(query),
+      unwrapIpcResult(bridge.api.deleteVersion(projectId, versionId)),
+    listProjectHistory: (projectId, limit) =>
+      unwrapIpcResult(bridge.api.listProjectHistory(projectId, limit)),
+    searchUsers: (query) => unwrapIpcResult(bridge.api.searchUsers(query)),
     addMember: (projectId, email, role) =>
-      bridge.api.addMember(projectId, email, role),
+      unwrapIpcResult(bridge.api.addMember(projectId, email, role)),
     removeMember: (projectId, userId) =>
-      bridge.api.removeMember(projectId, userId),
+      unwrapIpcResult(bridge.api.removeMember(projectId, userId)),
     transferOwnership: (projectId, targetUserId) =>
-      bridge.api.transferOwnership(projectId, targetUserId),
+      unwrapIpcResult(bridge.api.transferOwnership(projectId, targetUserId)),
   };
 }

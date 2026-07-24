@@ -26,3 +26,9 @@ export {
   versionSourceTypeSchema,
   versionStatusSchema,
 } from './domain';
+export type { ApiErrorEnvelope, ErrorCode as ApiErrorCode } from './errors';
+export {
+  ErrorCode,
+  isErrorCode,
+  parseApiErrorEnvelope,
+} from './errors';

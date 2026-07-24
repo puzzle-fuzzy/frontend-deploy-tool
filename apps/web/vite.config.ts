@@ -15,6 +15,31 @@ export default defineConfig({
     // apps/server/public so the backend can serve the management UI.
     outDir: path.resolve(__dirname, 'dist'),
     emptyOutDir: true,
+    rolldownOptions: {
+      output: {
+        // Keep the authenticated workspace from becoming one cache-hostile
+        // bundle. These groups follow stable dependency boundaries rather than
+        // individual screens, so upgrades invalidate only the affected layer.
+        codeSplitting: {
+          minSize: 0,
+          includeDependenciesRecursively: false,
+          groups: [
+            {
+              name: 'ui',
+              test: /node_modules\/.*(@base-ui|radix-ui|lucide-react)/,
+            },
+            {
+              name: 'avatar',
+              test: /node_modules\/.*@dicebear/,
+            },
+            {
+              name: 'framework',
+              test: /node_modules\/.*\/node_modules\/(react|react-dom|scheduler|hono|i18next|react-i18next)\//,
+            },
+          ],
+        },
+      },
+    },
   },
   resolve: {
     alias: {

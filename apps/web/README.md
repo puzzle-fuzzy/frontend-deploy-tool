@@ -5,7 +5,7 @@
 ## 架构
 
 ```
-浏览器 (localhost:5018)          Bun 服务器 (localhost:3000)
+浏览器 (localhost:5018)          Bun 服务器 (localhost:4010)
    |                                  |
    |── /api/* ── Vite proxy ─────────>│── API 处理
    |                                  |
@@ -13,7 +13,7 @@
    |   #/projects/{id}                |
 ```
 
-1. 开发时 Vite 代理 `/api` 到后端 `localhost:3000`
+1. 开发时 Vite 代理 `/api` 到后端 `localhost:4010`
 2. 生产构建输出到 `apps/web/dist/`；根目录 `bun run build` 会将其打包到 `apps/server/public/`，由后端同源托管
 3. 页面路由使用 URL hash（`#/projects/{id}`），纯客户端状态
 4. API 客户端使用 `hono/client`，类型由后端 `ApiApp` 推导
@@ -45,7 +45,7 @@ bun install
 bun run dev:web
 ```
 
-开发服务器运行在 `http://localhost:5018`，`/api` 自动代理到 `localhost:3000`。需同时运行后端：另开终端 `bun run dev:server`。
+开发服务器运行在 `http://localhost:5018`，`/api` 自动代理到 `localhost:4010`。需同时运行后端：另开终端 `bun run dev:server`。
 
 ## 构建
 

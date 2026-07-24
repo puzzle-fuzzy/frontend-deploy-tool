@@ -77,7 +77,8 @@
     "format": "bun biome format --write .",
     "format:check": "bun biome format .",
     "check": "bun biome check .",
-    "check:fix": "bun biome check --write ."
+    "check:fix": "bun biome check --write .",
+    "verify": "bun run check && bun run typecheck && bun run test && bun run build"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

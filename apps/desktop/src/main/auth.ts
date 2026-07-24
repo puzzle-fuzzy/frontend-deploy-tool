@@ -15,7 +15,11 @@ function getDesktopToken(): string | null {
 async function requestWithToken<T>(
   ses: Session,
   origin: string,
-  opts: { method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'; path: string; body?: unknown }
+  opts: {
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+    path: string;
+    body?: unknown;
+  }
 ): Promise<T> {
   const token = getDesktopToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
@@ -48,11 +52,15 @@ export async function login(
   email: string,
   password: string
 ): Promise<SafeUser> {
-  const r = await serverRequest<{ user: SafeUser; token?: string }>(ses, origin, {
-    method: 'POST',
-    path: '/api/auth/login',
-    body: { email, password },
-  });
+  const r = await serverRequest<{ user: SafeUser; token?: string }>(
+    ses,
+    origin,
+    {
+      method: 'POST',
+      path: '/api/auth/login',
+      body: { email, password },
+    }
+  );
   if (r.data.token) {
     setDesktopAuthToken(r.data.token);
   }
@@ -64,11 +72,15 @@ export async function register(
   origin: string,
   input: { name: string; email: string; password: string }
 ): Promise<SafeUser> {
-  const r = await serverRequest<{ user: SafeUser; token?: string }>(ses, origin, {
-    method: 'POST',
-    path: '/api/auth/register',
-    body: input,
-  });
+  const r = await serverRequest<{ user: SafeUser; token?: string }>(
+    ses,
+    origin,
+    {
+      method: 'POST',
+      path: '/api/auth/register',
+      body: input,
+    }
+  );
   if (r.data.token) {
     setDesktopAuthToken(r.data.token);
   }

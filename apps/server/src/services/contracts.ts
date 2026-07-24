@@ -21,6 +21,8 @@ import type {
 export type AppEnv = {
   Variables: {
     user: SafeUser | null;
+    /** Correlation id populated by Hono's request-id middleware. */
+    requestId: string;
   };
 };
 

@@ -44,11 +44,19 @@ export function DropdownMenuAvatar({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="icon" className="rounded-full" />}
+        render={
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-10 border-foreground/30 bg-transparent"
+          />
+        }
       >
-        <Avatar>
+        <Avatar className="rounded-none">
           <AvatarImage src="" alt={user.name} />
-          <AvatarFallback>{initials(user.name) || 'DK'}</AvatarFallback>
+          <AvatarFallback className="rounded-none bg-primary text-primary-foreground">
+            {initials(user.name) || 'DK'}
+          </AvatarFallback>
         </Avatar>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="min-w-48">

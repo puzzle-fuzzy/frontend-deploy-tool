@@ -1,6 +1,13 @@
 import { join } from 'node:path';
 
+export type RuntimeEnvironment = 'development' | 'test' | 'production';
+
 export interface AppConfig {
+  /** Runtime safety mode. Manual test fixtures may omit it (development). */
+  environment?: RuntimeEnvironment;
+  /** SQLite metadata store. Omit only in isolated tests using JSON fixtures. */
+  databaseFile?: string;
+  /** Legacy JSON store, imported once when SQLite is empty. */
   dataFile: string;
   storageDir: string;
   publicDir: string;
@@ -33,56 +40,149 @@ export function loadConfig({
   appDir,
   env = process.env,
 }: LoadConfigOptions): ServerConfig {
-  return {
-    port: parsePort(env.PORT),
+  const environment = parseEnvironment(env.DEPLOYKIT_ENV ?? env.NODE_ENV);
+  const publicBaseURL = parsePublicBaseURL(env.PUBLIC_BASE_URL);
+  const config: ServerConfig = {
+    environment,
+    port: parsePositiveInteger('PORT', env.PORT, 4010, 65535),
+    databaseFile: env.DATABASE_FILE ?? join(appDir, 'deploykit.sqlite'),
     dataFile: env.DATA_FILE ?? join(appDir, 'data.json'),
     storageDir: env.STORAGE_DIR ?? join(appDir, '.voasx', 'storage'),
     publicDir: env.PUBLIC_DIR ?? join(appDir, 'public'),
-    publicBaseURL: env.PUBLIC_BASE_URL,
+    publicBaseURL,
     // Auth
-    sessionSecret: env.SESSION_SECRET,
+    sessionSecret: emptyToUndefined(env.SESSION_SECRET),
     adminEmail: env.ADMIN_EMAIL ?? 'admin@deploykit.local',
     adminPassword: env.ADMIN_PASSWORD ?? '',
-    secureCookies: env.PUBLIC_BASE_URL?.startsWith('https://') ?? false,
-    // Registration defaults to open; set REGISTRATION_ENABLED=false to close it.
-    registrationEnabled: parseFlag(env.REGISTRATION_ENABLED, true),
+    secureCookies: publicBaseURL?.startsWith('https://') ?? false,
+    // Local development stays convenient; production fails closed by default.
+    registrationEnabled: parseFlag(
+      'REGISTRATION_ENABLED',
+      env.REGISTRATION_ENABLED,
+      environment !== 'production'
+    ),
     // Upload limits with defaults (values in bytes/count)
-    maxZipSize: parseSize(env.MAX_ZIP_SIZE),
-    maxExtractedSize: parseSize(env.MAX_EXTRACTED_SIZE),
-    maxFileCount: parseCount(env.MAX_FILE_COUNT),
-    maxPathLength: parseCount(env.MAX_PATH_LENGTH),
+    maxZipSize: parsePositiveInteger(
+      'MAX_ZIP_SIZE',
+      env.MAX_ZIP_SIZE,
+      100 * 1024 * 1024
+    ),
+    maxExtractedSize: parsePositiveInteger(
+      'MAX_EXTRACTED_SIZE',
+      env.MAX_EXTRACTED_SIZE,
+      100 * 1024 * 1024
+    ),
+    maxFileCount: parsePositiveInteger(
+      'MAX_FILE_COUNT',
+      env.MAX_FILE_COUNT,
+      1000
+    ),
+    maxPathLength: parsePositiveInteger(
+      'MAX_PATH_LENGTH',
+      env.MAX_PATH_LENGTH,
+      1000
+    ),
   };
+  validateAppConfig(config);
+  return config;
+}
+
+/**
+ * Validates safety invariants even when `createApp()` receives a manually
+ * assembled config instead of one produced by `loadConfig()`.
+ */
+export function validateAppConfig(config: AppConfig): void {
+  const environment = config.environment ?? 'development';
+  if (config.publicBaseURL) parsePublicBaseURL(config.publicBaseURL);
+  if (environment !== 'production') return;
+
+  if (!config.sessionSecret) {
+    throw new Error(
+      'SESSION_SECRET is required when DEPLOYKIT_ENV or NODE_ENV is production'
+    );
+  }
+  if (config.sessionSecret.length < 32) {
+    throw new Error(
+      'SESSION_SECRET must be at least 32 characters in production'
+    );
+  }
+  if (!config.adminPassword) {
+    throw new Error(
+      'ADMIN_PASSWORD is required in production to prevent logging a generated credential'
+    );
+  }
+}
+
+function parseEnvironment(value: string | undefined): RuntimeEnvironment {
+  if (value === undefined || value.trim() === '') return 'development';
+  const normalized = value.trim().toLowerCase();
+  if (
+    normalized === 'development' ||
+    normalized === 'test' ||
+    normalized === 'production'
+  ) {
+    return normalized;
+  }
+  throw new Error(
+    `Invalid DEPLOYKIT_ENV/NODE_ENV: expected development, test, or production; received "${value}"`
+  );
 }
 
 /** Parses a boolean env flag, falling back to the default when unset/empty. */
-function parseFlag(value: string | undefined, defaultValue: boolean): boolean {
+function parseFlag(
+  name: string,
+  value: string | undefined,
+  defaultValue: boolean
+): boolean {
   if (value === undefined || value === '') return defaultValue;
-  return !['false', '0', 'no', 'off'].includes(value.toLowerCase().trim());
+  const normalized = value.toLowerCase().trim();
+  if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+  if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  throw new Error(
+    `Invalid ${name}: expected true/false, 1/0, yes/no, or on/off; received "${value}"`
+  );
 }
 
-function parsePort(value: string | undefined): number {
-  if (!value) return 4010;
-
-  const port = Number(value);
-  if (!Number.isInteger(port) || port <= 0 || port > 65535) return 4010;
-
-  return port;
+function parsePositiveInteger(
+  name: string,
+  value: string | undefined,
+  defaultValue: number,
+  maximum = Number.MAX_SAFE_INTEGER
+): number {
+  if (value === undefined || value.trim() === '') return defaultValue;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0 || parsed > maximum) {
+    throw new Error(
+      `Invalid ${name}: expected an integer between 1 and ${maximum}; received "${value}"`
+    );
+  }
+  return parsed;
 }
 
-function parseSize(value: string | undefined): number {
-  if (!value) return 100 * 1024 * 1024; // 100MB default
-
-  const size = Number(value);
-  if (!Number.isInteger(size) || size <= 0) return 100 * 1024 * 1024;
-
-  return size;
+function emptyToUndefined(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
-function parseCount(value: string | undefined): number {
-  if (!value) return 1000; // 1000 files/chars default
-
-  const count = Number(value);
-  if (!Number.isInteger(count) || count <= 0) return 1000;
-
-  return count;
+function parsePublicBaseURL(value: string | undefined): string | undefined {
+  const normalized = emptyToUndefined(value);
+  if (!normalized) return undefined;
+  let url: URL;
+  try {
+    url = new URL(normalized);
+  } catch {
+    throw new Error(
+      `Invalid PUBLIC_BASE_URL: expected an absolute http(s) URL; received "${value}"`
+    );
+  }
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error(
+      `Invalid PUBLIC_BASE_URL: expected an absolute http(s) URL without credentials; received "${value}"`
+    );
+  }
+  return normalized.replace(/\/+$/, '');
 }

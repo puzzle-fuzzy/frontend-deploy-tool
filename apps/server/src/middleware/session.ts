@@ -101,7 +101,7 @@ export function readSessionCookie(c: Context): string | undefined {
 /** Reads a bearer token from the Authorization header, if present. */
 export function readBearerToken(c: Context): string | undefined {
   const auth = c.req.header('Authorization');
-  if (!auth || !auth.startsWith('Bearer ')) return undefined;
+  if (!auth?.startsWith('Bearer ')) return undefined;
   return auth.slice('Bearer '.length).trim();
 }
 

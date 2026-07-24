@@ -1,4 +1,9 @@
-import type { Project, SafeUser, Settings } from '@deploykit/shared';
+import type {
+  HistoryEvent,
+  Project,
+  SafeUser,
+  Settings,
+} from '@deploykit/shared';
 
 /**
  * A file that can be uploaded. A real browser `File` satisfies this; Electron
@@ -60,6 +65,10 @@ export interface ApiClient {
     versionId: string
   ): Promise<{ ok: boolean }>;
   deleteVersion(projectId: string, versionId: string): Promise<{ ok: boolean }>;
+  listProjectHistory(
+    projectId: string,
+    limit?: number
+  ): Promise<HistoryEvent[]>;
   searchUsers(query: string): Promise<SafeUser[]>;
   addMember(
     projectId: string,

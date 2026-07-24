@@ -1,22 +1,22 @@
 # DeployKit
 
-前端产物部署管理系统 — 上传、版本管理、一键部署静态网站。仅需 Bun 运行时，无需外部数据库。
+前端产物部署管理系统 — 上传、版本管理、一键部署静态网站。仅需 Bun 运行时，无需外部数据库服务。
 
 ## 架构
 
 ```
-浏览器 ──── http://localhost:3000 ────> Bun 服务器 (Hono)
+浏览器 ──── http://localhost:4010 ────> Bun 服务器 (Hono)
    |                                      |
    |── 管理面板 (/) ────────────────────>|── 托管 React SPA (apps/server/public/)
    |                                      |
-   |── API (/api/*) ─────────────────────>|── data.json 读写
+   |── API (/api/*) ─────────────────────>|── SQLite 元数据
    |                                      |── .voasx/storage/ 文件操作
    |                                      |
    |── 部署访问 (/deploy/:slug/) ───────>|── 从 .voasx/storage/ 提供静态文件
                                           |── SPA fallback (可选)
 ```
 
-1. Bun 运行 Hono 服务，`data.json` 存储元数据，`.voasx/storage/` 存储部署产物
+1. Bun 运行 Hono 服务，`deploykit.sqlite` 以 WAL 模式存储元数据，`.voasx/storage/` 存储部署产物
 2. 前端管理面板（React SPA）构建后输出到 `apps/web/dist/`，由根目录打包脚本同步到 `apps/server/public/`，再由同一服务托管
 3. 用户通过管理面板上传 ZIP 或文件夹，服务端自动解压、扁平化并记录版本
 4. 部署访问通过 `/deploy/{slug}/` 路径提供静态文件，支持 SPA fallback
@@ -30,7 +30,7 @@
 - **操作历史** — 记录所有创建、删除、激活操作（上限 200 条）
 - **明暗主题** — 支持亮色/暗色主题切换
 - **中英文** — 内置中文和英文界面，自动检测浏览器语言
-- **零外部依赖** — 仅需 Bun 运行时，无数据库（JSON + 文件系统存储）
+- **零外部服务** — 内嵌 SQLite + 文件系统存储，无需单独部署数据库
 
 ## 快速开始
 
@@ -45,8 +45,8 @@ bun install
 | 命令 | 说明 |
 |------|------|
 | `bun run dev:server` | 仅后端（API + 部署访问）。`apps/server/public/` 为空时不含管理面板 |
-| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 自动代理到 `localhost:3000` |
-| `bun run dev` | 同 `dev:server` |
+| `bun run dev:web` | 前端开发服务器（Vite，`localhost:5018`），`/api` 自动代理到 `localhost:4010` |
+| `bun run dev` | 同时启动后端和 Web 开发服务器 |
 
 全栈开发：开两个终端分别运行 `bun run dev:server` 与 `bun run dev:web`。
 
@@ -68,7 +68,7 @@ bun run build
 bun run dev:server   # 或 bun run apps/server/src/index.ts
 ```
 
-访问管理面板：`http://localhost:3000`
+访问管理面板：`http://localhost:4010`
 
 ## 工作区结构
 
@@ -85,28 +85,20 @@ deploykit/
 │   │   │   ├── config.ts          # 环境与路径配置
 │   │   │   ├── errors.ts          # ApiError
 │   │   │   ├── domain/            # 纯领域规则（project/version/history）
-│   │   │   ├── repositories/      # 持久化接口 + JSON 实现（原子写入）
+│   │   │   ├── repositories/      # 持久化接口 + SQLite / 旧 JSON 实现
 │   │   │   ├── services/          # 用例（project/version/artifact/deploy）
 │   │   │   ├── routes/            # HTTP 路由（projects/versions/history/deploy）
 │   │   │   └── utils/             # id、mime、safePath
 │   │   ├── tests/                 # API 契约测试 + 服务/领域单元测试
-│   │   ├── data.json              # 项目元数据（gitignore）
+│   │   ├── deploykit.sqlite       # SQLite 元数据（gitignore）
+│   │   ├── data.json              # 旧版元数据，仅用于首次迁移（gitignore）
 │   │   ├── public/                # 管理面板（由打包脚本同步，gitignore）
 │   │   └── .voasx/storage/        # 部署产物（gitignore）
 │   │       └── {projectId}/{versionId}/
 │   ├── desktop/                   # Electron 桌面端（Vite + React，封装管理面板）
-│   └── web/                       # @deploykit/web — React 管理面板
-│       ├── src/
-│       │   ├── main.tsx           # 应用入口
-│       │   ├── App.tsx            # Provider + DeployPage
-│       │   ├── pages/DeployPage.tsx   # 页面外壳
-│       │   ├── features/          # 功能模块（projects/versions/settings/deploy/theme/i18n）
-│       │   ├── shared/api.ts      # hono/client 类型化客户端（上传用 XHR）
-│       │   ├── shared/ui/         # shadcn/ui 组件
-│       │   └── i18n/              # i18next（中/英）
-│       ├── dist/                  # 构建产物（gitignore）
-│       └── tests/unit/            # Vitest + RTL 单元测试
+│   └── web/                       # @deploykit/web — Vite Web 入口与构建
 ├── packages/
+│   ├── client/                    # 共享 React 客户端、功能模块、ApiClient 与测试
 │   └── shared/                    # @deploykit/shared — 跨包领域类型
 ├── docs/                          # 架构与开发文档
 ├── scripts/package-web.ts         # web → server 打包脚本
@@ -117,7 +109,8 @@ deploykit/
 
 **后端** ([apps/server](apps/server))
 - Hono + Bun
-- JSON 文件持久化（原子写入）+ 文件系统存储
+- 内嵌 SQLite（WAL）元数据 + 文件系统产物存储
+- 旧 `data.json` 在数据库为空时安全导入一次，并保留迁移备份
 - 类型化路由导出（`ApiApp`）驱动前端 `hono/client`
 
 **前端** ([apps/web](apps/web))
@@ -133,8 +126,9 @@ deploykit/
 
 | 变量 | 默认值 | 说明 |
 |------|--------|------|
-| `PORT` | `3000` | 服务监听端口 |
-| `DATA_FILE` | `apps/server/data.json` | 元数据文件路径 |
+| `PORT` | `4010` | 服务监听端口 |
+| `DATABASE_FILE` | `apps/server/deploykit.sqlite` | SQLite 数据库路径 |
+| `DATA_FILE` | `apps/server/data.json` | 旧 JSON 数据路径，仅用于首次迁移 |
 | `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物存储目录 |
 | `PUBLIC_DIR` | `apps/server/public` | 管理面板静态文件目录 |
 | `PUBLIC_BASE_URL` | （同源） | 部署链接的公开基础 URL |
@@ -190,7 +184,7 @@ deploykit/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/history?limit=50` | 获取操作历史（上限 200） |
+| GET | `/api/projects/:id/history?limit=50` | 获取指定项目的操作历史（上限 200） |
 
 ### 部署访问
 
@@ -203,12 +197,13 @@ deploykit/
 
 ```bash
 bun run test          # 全部（shared / server / web）
+bun run verify        # Biome + 类型检查 + 测试 + 生产构建
 ```
 
 - 后端：`bun test`（[apps/server/tests](apps/server/tests)）— API 契约 + 服务/领域单元测试
 - 前端：Vitest + React Testing Library（[apps/web/tests/unit](apps/web/tests/unit)）
 
-质量脚本：`bun run typecheck`、`bun run lint`、`bun run check`（Biome）、`bun run format`。
+本地与 CI 共享同一个质量入口：`bun run verify`。
 
 ## 文档
 
