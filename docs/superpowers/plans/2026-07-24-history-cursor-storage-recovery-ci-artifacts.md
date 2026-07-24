@@ -211,7 +211,7 @@ validate project → write .staging/<versionId> → validate and checksum
     bun run verify 2>&1 | tee verify.log
 ```
 
-- [x] Add an `if: always()` verification-log upload and an `if: success()` Web-bundle upload using `actions/upload-artifact@v4`, `if-no-files-found: error`, and `retention-days: 14`.
+- [x] Add an `if: always()` verification-log upload and an `if: success()` Web-bundle upload using `actions/upload-artifact@v6`, `if-no-files-found: error`, and `retention-days: 14`.
 - [x] Document cursor expiry, staging/final ownership, startup reconciliation, failed artifact behavior, and CI artifact names.
 - [x] Run formatting/check commands and inspect the workflow diff for valid indentation and expressions.
 
