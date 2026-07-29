@@ -242,6 +242,9 @@ describe('createVersionService', () => {
 
       expect(existsSync(deletedDir)).toBe(false);
       expect(existsSync(remainingDir)).toBe(true);
+      const trashRoot = join(storageDir, '.recovery', 'trash');
+      const operation = readdirSync(trashRoot)[0];
+      expect(existsSync(join(trashRoot, operation, 'COMMITTED'))).toBe(true);
       expect(data.projects[0].activeVersionId).toBeNull();
       expect(data.projects[0].versions[0]?.status).toBe('preview');
       expect(data.history[0]?.metadata).toMatchObject({
@@ -249,6 +252,44 @@ describe('createVersionService', () => {
         previousActiveVersionId: 'v1',
         activeVersionId: null,
       });
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores version artifacts when metadata deletion fails', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const versionDir = join(storageDir, 'p1', 'v1');
+    mkdirSync(versionDir, { recursive: true });
+    writeFileSync(join(versionDir, 'index.html'), 'ready');
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [project()],
+      users: [],
+      history: [],
+    };
+    let absentDuringMutation = false;
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: () => {
+        absentDuringMutation = !existsSync(versionDir);
+        throw new Error('metadata delete failed');
+      },
+    };
+
+    try {
+      expect(() =>
+        createVersionService(repo, config(storageDir)).deleteVersion(
+          'p1',
+          'v1',
+          'user-1'
+        )
+      ).toThrow('metadata delete failed');
+      expect(absentDuringMutation).toBe(true);
+      expect(existsSync(join(versionDir, 'index.html'))).toBe(true);
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }

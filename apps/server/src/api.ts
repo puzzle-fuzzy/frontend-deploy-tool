@@ -80,7 +80,6 @@ export interface ApiDeps {
       redirectUri: string;
     } | null;
   };
-  removeProjectDir: (projectId: string) => void;
 }
 
 /**
@@ -290,7 +289,6 @@ export function createApiApp(deps: ApiDeps) {
       '/',
       createProjectRoutes({
         projectService: deps.projectService,
-        removeProjectDir: deps.removeProjectDir,
       })
     )
     .route(

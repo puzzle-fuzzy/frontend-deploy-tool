@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
@@ -21,6 +21,7 @@ import {
 } from './repositories/sessionRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
+import { createArtifactRecoveryService } from './services/artifactRecovery';
 import { createProjectService } from './services/projectService';
 import { createSessionService } from './services/sessionService';
 import { reconcileStorage } from './services/storageReconciler';
@@ -51,8 +52,11 @@ export function createApp(config: AppConfig) {
       `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`
     );
   }
-  const projectService = createProjectService(repo);
-  const versionService = createVersionService(repo, config);
+  const artifactRecovery = createArtifactRecoveryService(config.storageDir);
+  const projectService = createProjectService(repo, { artifactRecovery });
+  const versionService = createVersionService(repo, config, {
+    artifactRecovery,
+  });
   const userService = createUserService(repo);
 
   // Seed an admin on first run so the app is usable immediately.
@@ -126,11 +130,6 @@ export function createApp(config: AppConfig) {
     desktopAuth,
     registrationEnabled: config.registrationEnabled,
     uploadRouteLimits,
-    removeProjectDir: (projectId) =>
-      rmSync(join(config.storageDir, projectId), {
-        recursive: true,
-        force: true,
-      }),
   });
 
   return new Hono()

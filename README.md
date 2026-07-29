@@ -190,7 +190,7 @@ deploykit/
 | POST | `/api/projects` | 创建项目（developer/admin） | `{ name, slug, description }` |
 | PATCH | `/api/projects/:id` | 更新项目信息（项目 owner/admin） | `{ name?, slug?, description? }` |
 | PATCH | `/api/projects/:id/settings` | 更新项目设置（项目 owner/admin） | `{ spaMode, routingType }` |
-| DELETE | `/api/projects/:id` | 删除项目及其文件（项目 owner/admin） | — |
+| DELETE | `/api/projects/:id` | 删除项目；产物先进入可恢复区（项目 owner/admin） | — |
 | GET | `/api/projects/:id/versions` | 获取项目（项目成员/admin） | — |
 | GET | `/api/projects/:id/users/search` | 搜索成员候选人（项目 owner/admin） | `?q=email` |
 
@@ -202,7 +202,7 @@ deploykit/
 | POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
 | POST | `/api/projects/:id/versions/:vid/rollback` | 手动回滚到指定版本（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
 | PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
-| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件；删除线上版本会下线项目，不自动选择替代版本 | — |
+| DELETE | `/api/projects/:id/versions/:vid` | 删除版本；产物先进入可恢复区，删除线上版本会下线项目，不自动选择替代版本 | — |
 
 发布与回滚采用乐观并发控制：服务端只在
 `expectedActiveVersionId` 与当前线上版本一致时执行；否则返回

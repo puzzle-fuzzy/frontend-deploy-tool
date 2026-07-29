@@ -11,12 +11,8 @@ import { ApiError, ErrorCode } from '../errors';
 import { requireProjectRole } from '../middleware/auth';
 import type { AppEnv, ProjectService } from '../services/contracts';
 
-export function createProjectRoutes(deps: {
-  projectService: ProjectService;
-  /** Removes the on-disk artifacts for a deleted project. */
-  removeProjectDir: (projectId: string) => void;
-}) {
-  const { projectService, removeProjectDir } = deps;
+export function createProjectRoutes(deps: { projectService: ProjectService }) {
+  const { projectService } = deps;
 
   return new Hono<AppEnv>()
     .get('/api/projects', (c) => {
@@ -55,11 +51,7 @@ export function createProjectRoutes(deps: {
       requireProjectRole('owner', () => projectService),
       (c) => {
         const id = parseIdParam(c.req.param('id'));
-        const removed = projectService.deleteProject(
-          id,
-          c.get('user')?.id ?? 'system'
-        );
-        removeProjectDir(removed.id);
+        projectService.deleteProject(id, c.get('user')?.id ?? 'system');
         return c.json({ ok: true });
       }
     )

@@ -14,11 +14,15 @@ import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
+import type { ArtifactRecoveryService } from './artifactRecovery';
 import type { ProjectService } from './contracts';
 
 export type { ProjectService } from './contracts';
 
-export function createProjectService(repo: ProjectRepository): ProjectService {
+export function createProjectService(
+  repo: ProjectRepository,
+  options: { artifactRecovery?: ArtifactRecoveryService } = {}
+): ProjectService {
   return {
     listProjects(actor: Actor): Project[] {
       return repo
@@ -193,19 +197,27 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
     },
 
     deleteProject(id: string, actorId: string): Project {
-      return repo.mutate((data) => {
-        const idx = data.projects.findIndex((p) => p.id === id);
-        if (idx === -1)
-          throw new ApiError(
-            ErrorCode.PROJECT_NOT_FOUND,
-            'Project not found',
-            404
-          );
+      const lease = options.artifactRecovery?.stageProjectDeletion(id);
+      try {
+        const removed = repo.mutate((data) => {
+          const idx = data.projects.findIndex((p) => p.id === id);
+          if (idx === -1)
+            throw new ApiError(
+              ErrorCode.PROJECT_NOT_FOUND,
+              'Project not found',
+              404
+            );
 
-        const removed = data.projects.splice(idx, 1)[0];
-        appendHistoryEvent(data, 'project.delete', removed, actorId);
+          const deleted = data.projects.splice(idx, 1)[0];
+          appendHistoryEvent(data, 'project.delete', deleted, actorId);
+          return deleted;
+        });
+        commitRecoveryLease(lease);
         return removed;
-      });
+      } catch (error) {
+        lease?.rollback();
+        throw error;
+      }
     },
 
     addMember(
@@ -384,4 +396,17 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       return page;
     },
   };
+}
+
+function commitRecoveryLease(
+  lease: ReturnType<ArtifactRecoveryService['stageProjectDeletion']> | undefined
+): void {
+  try {
+    lease?.commit();
+  } catch (error) {
+    console.error(
+      '[deploykit] Metadata deletion committed but trash marker failed',
+      error
+    );
+  }
 }

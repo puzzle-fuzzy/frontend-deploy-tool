@@ -13,6 +13,10 @@ import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
+  type ArtifactRecoveryService,
+  createArtifactRecoveryService,
+} from './artifactRecovery';
+import {
   assertIndexHtml,
   checksumDirectory,
   countFiles,
@@ -28,8 +32,12 @@ export type { UploadVersionInput, VersionService } from './contracts';
 
 export function createVersionService(
   repo: ProjectRepository,
-  config: AppConfig
+  config: AppConfig,
+  options: { artifactRecovery?: ArtifactRecoveryService } = {}
 ): VersionService {
+  const artifactRecovery =
+    options.artifactRecovery ??
+    createArtifactRecoveryService(config.storageDir);
   const promoteVersion = (
     projectId: string,
     versionId: string,
@@ -332,42 +340,68 @@ export function createVersionService(
     },
 
     deleteVersion(projectId, versionId, actorId) {
-      repo.mutate((data) => {
-        const project = data.projects.find((p) => p.id === projectId);
-        if (!project)
-          throw new ApiError(
-            ErrorCode.PROJECT_NOT_FOUND,
-            'Project not found',
-            404
-          );
-        const version = findProjectVersion(project, versionId);
-        if (!version)
-          throw new ApiError(
-            ErrorCode.VERSION_NOT_FOUND,
-            'Version not found',
-            404
-          );
+      const lease = artifactRecovery.stageVersionDeletion(projectId, versionId);
+      try {
+        repo.mutate((data) => {
+          const project = data.projects.find((p) => p.id === projectId);
+          if (!project)
+            throw new ApiError(
+              ErrorCode.PROJECT_NOT_FOUND,
+              'Project not found',
+              404
+            );
+          const version = findProjectVersion(project, versionId);
+          if (!version)
+            throw new ApiError(
+              ErrorCode.VERSION_NOT_FOUND,
+              'Version not found',
+              404
+            );
 
-        const wasActive = project.activeVersionId === versionId;
-        const previousActiveVersionId = project.activeVersionId;
-        const removed = project.versions.splice(
-          project.versions.indexOf(version),
-          1
-        )[0];
-        if (wasActive) project.activeVersionId = null;
-        const updatedAt = new Date().toISOString();
-        project.versions = syncProductionStatus(
-          project.versions,
-          project.activeVersionId
-        );
-        project.updatedAt = updatedAt;
-        appendHistoryEvent(data, 'version.delete', project, actorId, removed, {
-          wasActive,
-          previousActiveVersionId,
-          activeVersionId: project.activeVersionId,
+          const wasActive = project.activeVersionId === versionId;
+          const previousActiveVersionId = project.activeVersionId;
+          const removed = project.versions.splice(
+            project.versions.indexOf(version),
+            1
+          )[0];
+          if (wasActive) project.activeVersionId = null;
+          const updatedAt = new Date().toISOString();
+          project.versions = syncProductionStatus(
+            project.versions,
+            project.activeVersionId
+          );
+          project.updatedAt = updatedAt;
+          appendHistoryEvent(
+            data,
+            'version.delete',
+            project,
+            actorId,
+            removed,
+            {
+              wasActive,
+              previousActiveVersionId,
+              activeVersionId: project.activeVersionId,
+            }
+          );
         });
-      });
-      removeDir(join(config.storageDir, projectId, versionId));
+        commitRecoveryLease(lease);
+      } catch (error) {
+        lease.rollback();
+        throw error;
+      }
     },
   };
+}
+
+function commitRecoveryLease(
+  lease: ReturnType<ArtifactRecoveryService['stageVersionDeletion']>
+): void {
+  try {
+    lease.commit();
+  } catch (error) {
+    console.error(
+      '[deploykit] Metadata deletion committed but trash marker failed',
+      error
+    );
+  }
 }

@@ -31,6 +31,7 @@ HTTP 请求
 - **指定版本预览** — `/deploy/{slug}/{versionId}/`
 - **SPA fallback** — 每个项目可配置 hash/path 两种路由模式
 - **操作历史** — SQLite 追加记录创建、更新、上传、发布、回滚、删除等操作，使用稳定游标分页
+- **可恢复删除** — 项目/版本产物先原子移动到 `.recovery/trash/`；元数据失败自动还原，成功后由保留策略延迟清理
 - **认证与角色** — 可撤销的浏览器 session / 桌面 bearer 认证；`admin` 全局管理，
   `developer` 结合项目 `owner/member` 授权，`viewer` 仅可读取所属项目
 - **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
