@@ -1,6 +1,9 @@
 import { Hono } from 'hono';
+import { bodyLimit } from 'hono/body-limit';
 import { parseIdParam } from '../domain/schemas';
+import { ErrorCode } from '../errors';
 import { requireProjectRole } from '../middleware/auth';
+import type { UploadRouteLimits } from '../middleware/uploadLimits';
 import type {
   AppEnv,
   ProjectService,
@@ -10,13 +13,28 @@ import type {
 export function createVersionRoutes(deps: {
   versionService: VersionService;
   projectService: ProjectService;
+  uploadRouteLimits: UploadRouteLimits;
 }) {
-  const { versionService, projectService } = deps;
+  const { versionService, projectService, uploadRouteLimits } = deps;
 
   return new Hono<AppEnv>()
     .post(
       '/api/projects/:id/versions',
+      bodyLimit({
+        maxSize: uploadRouteLimits.maxUploadRequestSize,
+        onError: (c) =>
+          c.json(
+            {
+              error: {
+                code: ErrorCode.UPLOAD_TOO_LARGE,
+                message: 'Upload request exceeds the configured limit',
+              },
+            },
+            413
+          ),
+      }),
       requireProjectRole('member', () => projectService),
+      uploadRouteLimits.gate,
       async (c) => {
         const projectId = parseIdParam(c.req.param('id'));
         const formData = await c.req.formData();

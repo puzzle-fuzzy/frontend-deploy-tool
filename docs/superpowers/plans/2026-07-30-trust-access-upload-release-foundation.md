@@ -349,7 +349,7 @@ git commit -m "security: enforce actor-aware project authorization"
 - Produces: `createUploadGate(options): MiddlewareHandler<AppEnv>`.
 - Changes: `extractZip(zipPath, destDir, limits: ArtifactLimits): Promise<ArtifactStats>`.
 
-- [ ] **Step 1: Add failing request and concurrency tests**
+- [x] **Step 1: Add failing request and concurrency tests**
 
 ```ts
 expect(oversized.status).toBe(413);
@@ -362,13 +362,13 @@ const [first, second] = await Promise.all([
 expect([first.status, second.status].sort()).toEqual([201, 429]);
 ```
 
-- [ ] **Step 2: Add stable errors and supported HTTP statuses**
+- [x] **Step 2: Add stable errors and supported HTTP statuses**
 
 Add `UPLOAD_TOO_LARGE`, `UPLOAD_BUSY`, `ZIP_RATIO_EXCEEDED`, and
 `RELEASE_CONFLICT` to `packages/shared/src/errors.ts`. Extend `ApiError.status`
 to include `409 | 413 | 429`.
 
-- [ ] **Step 3: Enforce the multipart body limit before `formData()`**
+- [x] **Step 3: Enforce the multipart body limit before `formData()`**
 
 Use Hono's `bodyLimit` on the upload route with
 `maxUploadRequestSize = maxZipSize + 1 MiB` by default. Its error handler must
@@ -390,7 +390,7 @@ bodyLimit({
 });
 ```
 
-- [ ] **Step 4: Add a keyed upload semaphore**
+- [x] **Step 4: Add a keyed upload semaphore**
 
 The gate tracks active uploads by user id and project id, releases in `finally`,
 and returns 429 when either the configured global or per-project budget is
@@ -408,7 +408,7 @@ try {
 }
 ```
 
-- [ ] **Step 5: Write adversarial streaming ZIP tests**
+- [x] **Step 5: Write adversarial streaming ZIP tests**
 
 Generate archives that exceed each single budget:
 
@@ -426,7 +426,7 @@ await expect(
 Also cover too many entries, an overlong path, a high compression ratio,
 path traversal, a secret path, and cleanup of partial output.
 
-- [ ] **Step 6: Replace whole-archive unzip with streaming extraction**
+- [x] **Step 6: Replace whole-archive unzip with streaming extraction**
 
 Use `Unzip` and `UnzipInflate`, feed it chunks from `Bun.file(zipPath).stream()`,
 and process one file stream at a time. Before `file.start()`, validate entry
@@ -453,13 +453,13 @@ unzipper.register(UnzipInflate);
 On any failure, terminate active entries, close writers, remove partial output,
 and reject with the original `ApiError`.
 
-- [ ] **Step 7: Use streaming stats in version creation**
+- [x] **Step 7: Use streaming stats in version creation**
 
 Pass all four limits from config into `extractZip`; use its returned
 `fileCount` and `extractedBytes` as the first stats, then recalculate after
 flattening for the persisted values. Keep checksum generation after validation.
 
-- [ ] **Step 8: Run focused and full verification**
+- [x] **Step 8: Run focused and full verification**
 
 Run: `bun --filter @deploykit/server test tests/api/uploadLimits.test.ts tests/services/artifactService.test.ts`
 
@@ -468,7 +468,7 @@ Run: `bun run verify`
 Expected: all commands exit 0 and the adversarial ZIP tests do not cause an
 unbounded memory increase.
 
-- [ ] **Step 9: Commit the upload slice**
+- [x] **Step 9: Commit the upload slice**
 
 ```bash
 git add apps/server/src/config.ts apps/server/src/middleware/uploadLimits.ts apps/server/src/routes/versions.ts apps/server/src/services/artifactService.ts apps/server/src/services/versionService.ts packages/shared/src/errors.ts apps/server/tests/api/uploadLimits.test.ts apps/server/tests/services/artifactService.test.ts apps/server/tests/services/config.test.ts

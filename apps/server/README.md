@@ -91,6 +91,8 @@ bun run dev:server          # 仅后端
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@deploykit.local` / 开发环境随机生成 | 空用户库首次启动时创建管理员；生产密码必填 |
 | `REGISTRATION_ENABLED` | 开发 `true`、生产 `false` | 是否开放自助注册 |
 | `MAX_ZIP_SIZE` / `MAX_EXTRACTED_SIZE` / `MAX_FILE_COUNT` / `MAX_PATH_LENGTH` | 100MB / 100MB / 1000 / 1000 | 上传上限 |
+| `MAX_COMPRESSION_RATIO` / `MAX_UPLOAD_REQUEST_SIZE` | 200 / 101MB | ZIP 单条目压缩比与完整 multipart 上限 |
+| `MAX_CONCURRENT_UPLOADS` / `MAX_CONCURRENT_UPLOADS_PER_USER` / `MAX_CONCURRENT_UPLOADS_PER_PROJECT` | 4 / 2 / 1 | 单进程、用户、项目上传并发预算 |
 
 所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
 
@@ -111,8 +113,13 @@ bun run dev:server          # 仅后端
 
 ## 上传处理
 
-- **ZIP**：写入临时文件 → `fflate` 解压 → 删除临时 → 大小校验 → 扁平化（嵌套目录含 `index.html` 时上移一层）→ 清理 `__MACOSX`
-- **文件夹**：保留 `webkitRelativePath` 相对路径写入，再执行扁平化
+- **ZIP**：multipart 请求先限长，写入临时文件后用 `fflate.Unzip` 分块解压；
+  每个条目在写入前检查路径、数量、声明体积和压缩比，每个输出块检查实际累计
+  体积，失败清理已生成文件。
+- **文件夹**：先检查全部 `webkitRelativePath`、文件数与总大小，再保留相对
+  路径写入并执行扁平化。
+- **并发**：全局、单用户和单项目分别受 in-process semaphore 约束；容量不足
+  返回稳定错误 `UPLOAD_BUSY` 和 429。
 - **上线门禁**：上传只创建预览版本；生产版本必须通过显式 publish/rollback
 - 任一阶段失败都会清理版本目录并返回 `500 File processing failed: ...`
 

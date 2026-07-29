@@ -5,6 +5,7 @@ import { validator } from 'hono/validator';
 import { z } from 'zod';
 import { ApiError, ErrorCode } from './errors';
 import { requireAuthExceptPublic } from './middleware/auth';
+import type { UploadRouteLimits } from './middleware/uploadLimits';
 import { createHistoryRoutes } from './routes/history';
 import { createMemberRoutes } from './routes/members';
 import { createProjectRoutes } from './routes/projects';
@@ -66,6 +67,8 @@ export interface ApiDeps {
   clearSession: (c: Context) => void;
   /** Whether self-service registration is allowed on this instance. */
   registrationEnabled: boolean;
+  /** Request-size and concurrency limits for artifact uploads. */
+  uploadRouteLimits: UploadRouteLimits;
   /** Signs a bearer token string without setting a cookie (Node-backed). */
   signSessionToken: (user: SafeUser) => string;
   /** One-time code store for the desktop auth flow (Node-backed; injected). */
@@ -241,6 +244,7 @@ export function createApiApp(deps: ApiDeps) {
       createVersionRoutes({
         versionService: deps.versionService,
         projectService: deps.projectService,
+        uploadRouteLimits: deps.uploadRouteLimits,
       })
     )
     .route('/', createMemberRoutes({ projectService: deps.projectService }))

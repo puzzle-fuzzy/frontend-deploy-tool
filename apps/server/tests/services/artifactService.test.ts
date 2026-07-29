@@ -64,11 +64,17 @@ test('flattenOutput leaves a root index.html untouched when present', () => {
 
 test('writeFolderFiles preserves the relative directory structure', async () => {
   const destDir = join(tempDir, 'out');
-  const size = await writeFolderFiles(destDir, [
-    fileWithRelativePath('hello', 'a/b/c.txt'),
-  ]);
+  const stats = await writeFolderFiles(
+    destDir,
+    [fileWithRelativePath('hello', 'a/b/c.txt')],
+    {
+      maxExtractedSize: 10,
+      maxFileCount: 2,
+      maxPathLength: 100,
+    }
+  );
 
-  expect(size).toBe(5);
+  expect(stats).toEqual({ extractedBytes: 5, fileCount: 1 });
   expect(existsSync(join(destDir, 'a', 'b', 'c.txt'))).toBe(true);
   expect(existsSync(join(destDir, 'a'))).toBe(true); // real directory now
 });
@@ -85,14 +91,14 @@ test('countFiles recursively counts every file under a directory', () => {
 
 test('writeFolderFiles skips OS metadata files', async () => {
   const destDir = join(tempDir, 'out');
-  const size = await writeFolderFiles(destDir, [
+  const stats = await writeFolderFiles(destDir, [
     fileWithRelativePath('keep', 'proj/index.html'),
     fileWithRelativePath('junk', 'proj/.DS_Store'),
     fileWithRelativePath('junk', 'proj/._resource'),
     fileWithRelativePath('junk', 'proj/__MACOSX/whatever'),
   ]);
 
-  expect(size).toBe(4); // only index.html counted
+  expect(stats).toEqual({ extractedBytes: 4, fileCount: 1 });
   expect(existsSync(join(destDir, 'proj', 'index.html'))).toBe(true);
   expect(existsSync(join(destDir, 'proj', '.DS_Store'))).toBe(false);
   expect(existsSync(join(destDir, 'proj', '__MACOSX'))).toBe(false);
@@ -109,8 +115,29 @@ test('writeFolderFiles rejects a path that exceeds maxPathLength', async () => {
   const destDir = join(tempDir, 'out');
   const longName = `${'a'.repeat(50)}.txt`;
   await expect(
-    writeFolderFiles(destDir, [fileWithRelativePath('x', longName)], 10)
+    writeFolderFiles(destDir, [fileWithRelativePath('x', longName)], {
+      maxPathLength: 10,
+    })
   ).rejects.toThrow('Path too long');
+});
+
+test('writeFolderFiles rejects total size before writing partial output', async () => {
+  const destDir = join(tempDir, 'out');
+  await expect(
+    writeFolderFiles(
+      destDir,
+      [
+        fileWithRelativePath('12345', 'index.html'),
+        fileWithRelativePath('67890', 'asset.js'),
+      ],
+      {
+        maxExtractedSize: 8,
+        maxFileCount: 10,
+        maxPathLength: 100,
+      }
+    )
+  ).rejects.toMatchObject({ code: ErrorCode.FILES_TOO_LARGE });
+  expect(existsSync(join(destDir, 'index.html'))).toBe(false);
 });
 
 test('extractZip throws when the archive is invalid', async () => {
@@ -139,8 +166,9 @@ test('extractZip writes valid entries and skips OS metadata', async () => {
   });
   const destDir = join(tempDir, 'out');
 
-  await extractZip(zipPath, destDir);
+  const stats = await extractZip(zipPath, destDir);
 
+  expect(stats).toEqual({ extractedBytes: 13, fileCount: 1 });
   expect(existsSync(join(destDir, 'index.html'))).toBe(true);
   expect(existsSync(join(destDir, '.DS_Store'))).toBe(false);
 });
@@ -168,6 +196,67 @@ test('extractZip rejects dangerous entries (.env, .git/, id_rsa)', async () => {
       'disallowed entry'
     );
   }
+});
+
+test('extractZip enforces extracted size and removes partial output', async () => {
+  const zipPath = await makeZip({
+    'index.html': new TextEncoder().encode('<html></html>'),
+    'large.js': new TextEncoder().encode('x'.repeat(100)),
+  });
+  const destDir = join(tempDir, 'out');
+
+  await expect(
+    extractZip(zipPath, destDir, {
+      maxExtractedSize: 50,
+      maxFileCount: 10,
+      maxPathLength: 100,
+      maxCompressionRatio: 1000,
+    })
+  ).rejects.toMatchObject({ code: ErrorCode.EXTRACTED_TOO_LARGE });
+  expect(existsSync(join(destDir, 'index.html'))).toBe(false);
+  expect(existsSync(join(destDir, 'large.js'))).toBe(false);
+});
+
+test('extractZip enforces entry count and path length', async () => {
+  const countZip = await makeZip({
+    'index.html': new TextEncoder().encode('ok'),
+    'asset.js': new TextEncoder().encode('ok'),
+  });
+  await expect(
+    extractZip(countZip, join(tempDir, 'count'), {
+      maxExtractedSize: 100,
+      maxFileCount: 1,
+      maxPathLength: 100,
+      maxCompressionRatio: 1000,
+    })
+  ).rejects.toMatchObject({ code: ErrorCode.TOO_MANY_FILES });
+
+  const pathZip = await makeZip({
+    'very-long-name.html': new TextEncoder().encode('ok'),
+  });
+  await expect(
+    extractZip(pathZip, join(tempDir, 'path'), {
+      maxExtractedSize: 100,
+      maxFileCount: 10,
+      maxPathLength: 5,
+      maxCompressionRatio: 1000,
+    })
+  ).rejects.toMatchObject({ code: ErrorCode.PATH_TOO_LONG });
+});
+
+test('extractZip rejects suspicious compression ratios', async () => {
+  const zipPath = await makeZip({
+    'index.html': new Uint8Array(4096),
+  });
+
+  await expect(
+    extractZip(zipPath, join(tempDir, 'ratio'), {
+      maxExtractedSize: 10_000,
+      maxFileCount: 10,
+      maxPathLength: 100,
+      maxCompressionRatio: 2,
+    })
+  ).rejects.toMatchObject({ code: ErrorCode.ZIP_RATIO_EXCEEDED });
 });
 
 test('writeFolderFiles rejects dangerous entries', async () => {

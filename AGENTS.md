@@ -67,7 +67,11 @@ The server's `domain/schema.ts` adds a separate *lenient* `legacyDataSchema` + `
 - `apps/server/.voasx/storage/{projectId}/{versionId}/` — flattened artifact files. The `.voasx` name is intentional; treat it as the storage root.
 - `apps/server/public/` — management UI, populated by the packaging script (gitignored; empty in `dev:server`-only mode).
 
-These paths are overridable via env (`config.ts`): `DATA_FILE`, `STORAGE_DIR`, `PUBLIC_DIR`, `PUBLIC_BASE_URL`, plus upload limits (`MAX_ZIP_SIZE`, `MAX_EXTRACTED_SIZE`, `MAX_FILE_COUNT`, `MAX_PATH_LENGTH`). Bad/missing env values fall back to safe defaults rather than throwing.
+These paths are overridable via env (`config.ts`): `DATA_FILE`, `STORAGE_DIR`,
+`PUBLIC_DIR`, plus trust-zone URLs and upload budgets. Multipart size,
+ZIP/extracted size, entry count, path length, compression ratio, and global /
+user / project concurrency limits are all server-enforced. Invalid explicit
+values throw; safe defaults apply only when a value is omitted.
 
 ### Deploy serving
 

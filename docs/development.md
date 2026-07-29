@@ -44,7 +44,7 @@ DEPLOY_BASE_URL=https://deploy.example.net
 ```
 
 生产环境需用反向代理把两个域名转发到同一个 Bun 端口并保留原始 `Host`。
-配置解析采用 fail-fast：无效端口、上传限制、布尔值或双域 URL
+配置解析采用 fail-fast：无效端口、请求/解压/并发上传限制、布尔值或双域 URL
 会直接阻止启动，不会悄悄改用默认值。启动后可检查
 `/health/live`（进程）与 `/health/ready`（元数据仓库）。
 

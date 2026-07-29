@@ -21,6 +21,7 @@ export interface TmpDirs {
   dataFile: string;
   storageDir: string;
   publicDir: string;
+  maxUploadRequestSize?: number;
 }
 
 export function createAuthApp(dirs: TmpDirs) {

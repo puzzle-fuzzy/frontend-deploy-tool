@@ -26,6 +26,11 @@ describe('loadConfig', () => {
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,
       maxPathLength: 1000,
+      maxCompressionRatio: 200,
+      maxUploadRequestSize: 101 * 1024 * 1024,
+      maxConcurrentUploads: 4,
+      maxConcurrentUploadsPerUser: 2,
+      maxConcurrentUploadsPerProject: 1,
     });
   });
 
@@ -60,6 +65,11 @@ describe('loadConfig', () => {
       maxExtractedSize: 100 * 1024 * 1024, // 100MB
       maxFileCount: 1000,
       maxPathLength: 1000,
+      maxCompressionRatio: 200,
+      maxUploadRequestSize: 101 * 1024 * 1024,
+      maxConcurrentUploads: 4,
+      maxConcurrentUploadsPerUser: 2,
+      maxConcurrentUploadsPerProject: 1,
     });
   });
 
@@ -156,6 +166,35 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ appDir, env: { DEPLOY_BASE_URL: 'deploy.example.com' } })
     ).toThrow('Invalid DEPLOY_BASE_URL');
+    expect(() =>
+      loadConfig({ appDir, env: { MAX_COMPRESSION_RATIO: '0' } })
+    ).toThrow('Invalid MAX_COMPRESSION_RATIO');
+    expect(() =>
+      loadConfig({ appDir, env: { MAX_CONCURRENT_UPLOADS: '1.5' } })
+    ).toThrow('Invalid MAX_CONCURRENT_UPLOADS');
+  });
+
+  test('uses explicit upload resource budgets', () => {
+    const config = loadConfig({
+      appDir,
+      env: {
+        MAX_ZIP_SIZE: '1000',
+        MAX_EXTRACTED_SIZE: '2000',
+        MAX_UPLOAD_REQUEST_SIZE: '3000',
+        MAX_COMPRESSION_RATIO: '50',
+        MAX_CONCURRENT_UPLOADS: '3',
+        MAX_CONCURRENT_UPLOADS_PER_USER: '2',
+        MAX_CONCURRENT_UPLOADS_PER_PROJECT: '1',
+      },
+    });
+
+    expect(config.maxZipSize).toBe(1000);
+    expect(config.maxExtractedSize).toBe(2000);
+    expect(config.maxUploadRequestSize).toBe(3000);
+    expect(config.maxCompressionRatio).toBe(50);
+    expect(config.maxConcurrentUploads).toBe(3);
+    expect(config.maxConcurrentUploadsPerUser).toBe(2);
+    expect(config.maxConcurrentUploadsPerProject).toBe(1);
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {

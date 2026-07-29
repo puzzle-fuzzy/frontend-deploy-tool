@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { unzip } from 'fflate';
+import { Unzip, type UnzipFile, UnzipInflate } from 'fflate';
 import { ApiError, ErrorCode } from '../errors';
 import { getMimeType } from '../utils/mime';
 import { safeJoin } from '../utils/safePath';
@@ -57,6 +57,32 @@ const DANGEROUS_FILE_PATTERNS = [
   /^id_(rsa|ed25519|ecdsa|dsa)(\.pub)?$/i, // SSH private keys (+ .pub)
 ];
 
+export interface ArtifactLimits {
+  maxExtractedSize?: number;
+  maxFileCount?: number;
+  maxPathLength?: number;
+  maxCompressionRatio?: number;
+}
+
+export interface ArtifactStats {
+  extractedBytes: number;
+  fileCount: number;
+}
+
+interface ResolvedArtifactLimits {
+  maxExtractedSize: number;
+  maxFileCount: number;
+  maxPathLength: number;
+  maxCompressionRatio: number;
+}
+
+const DEFAULT_ARTIFACT_LIMITS: ResolvedArtifactLimits = {
+  maxExtractedSize: 100 * 1024 * 1024,
+  maxFileCount: 1000,
+  maxPathLength: 1000,
+  maxCompressionRatio: 200,
+};
+
 /** True for an entry whose path leaks secrets or drags in non-artifact trees. */
 function isDangerousPath(relativePath: string): boolean {
   const segments = relativePath.split('/');
@@ -90,31 +116,198 @@ export function assertIndexHtml(dir: string): void {
  */
 export async function extractZip(
   zipPath: string,
-  destDir: string
-): Promise<void> {
+  destDir: string,
+  limits: ArtifactLimits = {}
+): Promise<ArtifactStats> {
   mkdirSync(destDir, { recursive: true });
+  const resolvedLimits = resolveArtifactLimits(limits);
+  const createdFiles: string[] = [];
+  const seenPaths = new Set<string>();
+  let entryCount = 0;
+  let declaredBytes = 0;
+  let processedBytes = 0;
+  let extractedBytes = 0;
+  let fileCount = 0;
+  let failure: unknown = null;
+  let reader:
+    | ReadableStreamDefaultReader<Uint8Array<ArrayBufferLike>>
+    | undefined;
 
-  const entries = await new Promise<Record<string, Uint8Array>>(
-    (resolve, reject) => {
-      unzip(new Uint8Array(readFileSync(zipPath)), (err, data) => {
-        if (err) reject(new Error('Zip extraction failed'));
-        else resolve(data);
-      });
-    }
-  );
-
-  for (const [entryPath, bytes] of Object.entries(entries)) {
-    if (entryPath.endsWith('/') || isSystemMetadata(entryPath)) continue; // directory marker or junk
-    if (isDangerousPath(entryPath)) {
-      throw new ApiError(
-        ErrorCode.UNSAFE_ENTRY,
-        `Upload contains a disallowed entry: ${entryPath}`
+  const fail = (error: unknown) => {
+    if (!failure) failure = error;
+  };
+  const assertProcessedSize = (chunkSize: number) => {
+    processedBytes += chunkSize;
+    if (processedBytes > resolvedLimits.maxExtractedSize) {
+      fail(
+        new ApiError(
+          ErrorCode.EXTRACTED_TOO_LARGE,
+          `Extracted files exceed ${resolvedLimits.maxExtractedSize} bytes`
+        )
       );
     }
+  };
+  const drainEntry = (entry: UnzipFile) => {
+    entry.ondata = (error, chunk) => {
+      if (error) {
+        fail(new Error('Zip extraction failed'));
+        return;
+      }
+      assertProcessedSize(chunk.length);
+      if (failure) entry.terminate();
+    };
+    try {
+      entry.start();
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  const unzipper = new Unzip((entry) => {
+    if (failure) return;
+    const entryPath = entry.name.replaceAll('\\', '/');
+    entryCount += 1;
+    if (entryCount > resolvedLimits.maxFileCount) {
+      fail(
+        new ApiError(
+          ErrorCode.TOO_MANY_FILES,
+          `Archive contains more than ${resolvedLimits.maxFileCount} entries`
+        )
+      );
+      return;
+    }
+    if (entryPath.length > resolvedLimits.maxPathLength) {
+      fail(
+        new ApiError(
+          ErrorCode.PATH_TOO_LONG,
+          `Path exceeds ${resolvedLimits.maxPathLength} characters: ${entryPath}`
+        )
+      );
+      return;
+    }
+    if (entryPath.endsWith('/')) {
+      drainEntry(entry);
+      return;
+    }
+    if (isDangerousPath(entryPath)) {
+      fail(
+        new ApiError(
+          ErrorCode.UNSAFE_ENTRY,
+          `Upload contains a disallowed entry: ${entryPath}`
+        )
+      );
+      return;
+    }
     const target = safeJoin(destDir, entryPath);
-    if (!target) throw new Error(`Unsafe zip entry: ${entryPath}`);
-    mkdirSync(dirname(target), { recursive: true });
-    writeFileSync(target, bytes);
+    if (!target) {
+      fail(
+        new ApiError(ErrorCode.UNSAFE_ENTRY, `Unsafe zip entry: ${entryPath}`)
+      );
+      return;
+    }
+    if (seenPaths.has(entryPath) || existsSync(target)) {
+      fail(
+        new ApiError(
+          ErrorCode.UNSAFE_ENTRY,
+          `Archive contains a duplicate entry: ${entryPath}`
+        )
+      );
+      return;
+    }
+    seenPaths.add(entryPath);
+
+    if (entry.originalSize !== undefined) {
+      declaredBytes += entry.originalSize;
+      if (declaredBytes > resolvedLimits.maxExtractedSize) {
+        fail(
+          new ApiError(
+            ErrorCode.EXTRACTED_TOO_LARGE,
+            `Extracted files exceed ${resolvedLimits.maxExtractedSize} bytes`
+          )
+        );
+        return;
+      }
+      if (
+        entry.originalSize > 0 &&
+        (entry.size === 0 ||
+          (entry.size !== undefined &&
+            entry.originalSize / entry.size >
+              resolvedLimits.maxCompressionRatio))
+      ) {
+        fail(
+          new ApiError(
+            ErrorCode.ZIP_RATIO_EXCEEDED,
+            `Archive entry exceeds compression ratio ${resolvedLimits.maxCompressionRatio}: ${entryPath}`
+          )
+        );
+        return;
+      }
+    }
+
+    if (isSystemMetadata(entryPath)) {
+      drainEntry(entry);
+      return;
+    }
+
+    try {
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, new Uint8Array(), { flag: 'wx' });
+      createdFiles.push(target);
+      fileCount += 1;
+    } catch (error) {
+      fail(error);
+      return;
+    }
+
+    entry.ondata = (error, chunk) => {
+      if (error) {
+        fail(new Error('Zip extraction failed'));
+        return;
+      }
+      assertProcessedSize(chunk.length);
+      if (failure) {
+        entry.terminate();
+        return;
+      }
+      try {
+        writeFileSync(target, chunk, { flag: 'a' });
+        extractedBytes += chunk.length;
+      } catch (writeError) {
+        fail(writeError);
+        entry.terminate();
+      }
+    };
+    try {
+      entry.start();
+    } catch (error) {
+      fail(error);
+    }
+  });
+  unzipper.register(UnzipInflate);
+
+  try {
+    reader = Bun.file(zipPath).stream().getReader();
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      unzipper.push(value);
+      if (failure) throw failure;
+    }
+    unzipper.push(new Uint8Array(), true);
+    if (failure) throw failure;
+    if (entryCount === 0) throw new Error('Zip extraction failed');
+    return { extractedBytes, fileCount };
+  } catch (error) {
+    try {
+      await reader?.cancel();
+    } catch {
+      // The original extraction failure remains authoritative.
+    }
+    for (const createdFile of createdFiles) {
+      rmSync(createdFile, { force: true });
+    }
+    if (error instanceof ApiError) throw error;
+    throw new Error('Zip extraction failed');
   }
 }
 
@@ -216,10 +409,17 @@ export function checksumDirectory(dirPath: string): string {
 export async function writeFolderFiles(
   destDir: string,
   files: File[],
-  maxPathLength?: number
-): Promise<number> {
-  let totalSize = 0;
-
+  limits: ArtifactLimits = {}
+): Promise<ArtifactStats> {
+  const resolvedLimits = resolveArtifactLimits(limits);
+  if (files.length > resolvedLimits.maxFileCount) {
+    throw new ApiError(
+      ErrorCode.TOO_MANY_FILES,
+      `Too many files. Maximum ${resolvedLimits.maxFileCount} files allowed.`
+    );
+  }
+  const accepted: Array<{ file: File; target: string }> = [];
+  let extractedBytes = 0;
   for (const f of files) {
     const rawPath = f.webkitRelativePath || f.name;
     // Normalize to POSIX separators (handle Windows backslashes) and drop any
@@ -235,10 +435,10 @@ export async function writeFolderFiles(
       );
     }
 
-    if (maxPathLength && relativePath.length > maxPathLength) {
+    if (relativePath.length > resolvedLimits.maxPathLength) {
       throw new ApiError(
         ErrorCode.PATH_TOO_LONG,
-        `Path too long. Maximum path length is ${maxPathLength} characters.`
+        `Path too long. Maximum path length is ${resolvedLimits.maxPathLength} characters.`
       );
     }
 
@@ -249,12 +449,34 @@ export async function writeFolderFiles(
         `Upload contains an unsafe path: ${relativePath}`
       );
     }
-    mkdirSync(dirname(filePath), { recursive: true });
-    await Bun.write(filePath, f);
-    totalSize += f.size;
+    extractedBytes += f.size;
+    if (extractedBytes > resolvedLimits.maxExtractedSize) {
+      throw new ApiError(
+        ErrorCode.FILES_TOO_LARGE,
+        `Files exceed ${resolvedLimits.maxExtractedSize} bytes`
+      );
+    }
+    accepted.push({ file: f, target: filePath });
   }
 
-  return totalSize;
+  for (const { file, target } of accepted) {
+    mkdirSync(dirname(target), { recursive: true });
+    await Bun.write(target, file);
+  }
+
+  return { extractedBytes, fileCount: accepted.length };
+}
+
+function resolveArtifactLimits(limits: ArtifactLimits): ResolvedArtifactLimits {
+  return {
+    maxExtractedSize:
+      limits.maxExtractedSize ?? DEFAULT_ARTIFACT_LIMITS.maxExtractedSize,
+    maxFileCount: limits.maxFileCount ?? DEFAULT_ARTIFACT_LIMITS.maxFileCount,
+    maxPathLength:
+      limits.maxPathLength ?? DEFAULT_ARTIFACT_LIMITS.maxPathLength,
+    maxCompressionRatio:
+      limits.maxCompressionRatio ?? DEFAULT_ARTIFACT_LIMITS.maxCompressionRatio,
+  };
 }
 
 /**

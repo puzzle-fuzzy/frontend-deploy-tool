@@ -123,7 +123,12 @@ export function createVersionService(
 
           try {
             await Bun.write(zipPath, file);
-            await extractZip(zipPath, stagingDir);
+            await extractZip(zipPath, stagingDir, {
+              maxExtractedSize: config.maxExtractedSize,
+              maxFileCount: config.maxFileCount,
+              maxPathLength: config.maxPathLength,
+              maxCompressionRatio: config.maxCompressionRatio,
+            });
             rmSync(zipPath, { force: true });
             zipCleanupNeeded = false;
 
@@ -151,10 +156,14 @@ export function createVersionService(
           }
         } else if (folderFiles.length > 0) {
           sourceType = 'folder';
-          const totalSize = await writeFolderFiles(
+          const { extractedBytes: totalSize } = await writeFolderFiles(
             stagingDir,
             folderFiles,
-            config.maxPathLength
+            {
+              maxExtractedSize: config.maxExtractedSize,
+              maxFileCount: config.maxFileCount,
+              maxPathLength: config.maxPathLength,
+            }
           );
 
           // Check total size limit for folder uploads

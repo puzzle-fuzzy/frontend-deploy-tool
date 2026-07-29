@@ -138,6 +138,11 @@ deploykit/
 | `MAX_EXTRACTED_SIZE` | `104857600` (100MB) | 解压/文件夹上传总大小上限 |
 | `MAX_FILE_COUNT` | `1000` | 单次上传文件数量上限 |
 | `MAX_PATH_LENGTH` | `1000` | 单个相对路径长度上限（字符） |
+| `MAX_COMPRESSION_RATIO` | `200` | ZIP 单条目最大声明压缩比 |
+| `MAX_UPLOAD_REQUEST_SIZE` | `105906176` | 完整 multipart 请求上限；默认比产物上限多 1MB |
+| `MAX_CONCURRENT_UPLOADS` | `4` | 单进程同时处理的上传数 |
+| `MAX_CONCURRENT_UPLOADS_PER_USER` | `2` | 单用户同时上传数 |
+| `MAX_CONCURRENT_UPLOADS_PER_PROJECT` | `1` | 单项目同时上传数 |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 

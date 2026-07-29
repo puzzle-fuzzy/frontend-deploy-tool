@@ -28,6 +28,11 @@ export interface AppConfig {
   maxExtractedSize?: number;
   maxFileCount?: number;
   maxPathLength?: number;
+  maxCompressionRatio?: number;
+  maxUploadRequestSize?: number;
+  maxConcurrentUploads?: number;
+  maxConcurrentUploadsPerUser?: number;
+  maxConcurrentUploadsPerProject?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -49,6 +54,16 @@ export function loadConfig({
     env.MANAGEMENT_BASE_URL
   );
   const deployBaseURL = parseBaseURL('DEPLOY_BASE_URL', env.DEPLOY_BASE_URL);
+  const maxZipSize = parsePositiveInteger(
+    'MAX_ZIP_SIZE',
+    env.MAX_ZIP_SIZE,
+    100 * 1024 * 1024
+  );
+  const maxExtractedSize = parsePositiveInteger(
+    'MAX_EXTRACTED_SIZE',
+    env.MAX_EXTRACTED_SIZE,
+    100 * 1024 * 1024
+  );
   const config: ServerConfig = {
     environment,
     port: parsePositiveInteger('PORT', env.PORT, 4010, 65535),
@@ -70,16 +85,8 @@ export function loadConfig({
       environment !== 'production'
     ),
     // Upload limits with defaults (values in bytes/count)
-    maxZipSize: parsePositiveInteger(
-      'MAX_ZIP_SIZE',
-      env.MAX_ZIP_SIZE,
-      100 * 1024 * 1024
-    ),
-    maxExtractedSize: parsePositiveInteger(
-      'MAX_EXTRACTED_SIZE',
-      env.MAX_EXTRACTED_SIZE,
-      100 * 1024 * 1024
-    ),
+    maxZipSize,
+    maxExtractedSize,
     maxFileCount: parsePositiveInteger(
       'MAX_FILE_COUNT',
       env.MAX_FILE_COUNT,
@@ -89,6 +96,31 @@ export function loadConfig({
       'MAX_PATH_LENGTH',
       env.MAX_PATH_LENGTH,
       1000
+    ),
+    maxCompressionRatio: parsePositiveInteger(
+      'MAX_COMPRESSION_RATIO',
+      env.MAX_COMPRESSION_RATIO,
+      200
+    ),
+    maxUploadRequestSize: parsePositiveInteger(
+      'MAX_UPLOAD_REQUEST_SIZE',
+      env.MAX_UPLOAD_REQUEST_SIZE,
+      Math.max(maxZipSize, maxExtractedSize) + 1024 * 1024
+    ),
+    maxConcurrentUploads: parsePositiveInteger(
+      'MAX_CONCURRENT_UPLOADS',
+      env.MAX_CONCURRENT_UPLOADS,
+      4
+    ),
+    maxConcurrentUploadsPerUser: parsePositiveInteger(
+      'MAX_CONCURRENT_UPLOADS_PER_USER',
+      env.MAX_CONCURRENT_UPLOADS_PER_USER,
+      2
+    ),
+    maxConcurrentUploadsPerProject: parsePositiveInteger(
+      'MAX_CONCURRENT_UPLOADS_PER_PROJECT',
+      env.MAX_CONCURRENT_UPLOADS_PER_PROJECT,
+      1
     ),
   };
   validateAppConfig(config);

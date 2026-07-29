@@ -16,6 +16,7 @@ import {
   setSessionCookie,
 } from './middleware/session';
 import { createTrustBoundary } from './middleware/trustBoundary';
+import { createUploadGate } from './middleware/uploadLimits';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
@@ -102,6 +103,21 @@ export function createApp(config: AppConfig) {
       sessionSecret
     );
   const desktopAuth = createDesktopAuthCodeStore();
+  const uploadRouteLimits = {
+    maxUploadRequestSize:
+      config.maxUploadRequestSize ??
+      Math.max(
+        config.maxZipSize ?? 100 * 1024 * 1024,
+        config.maxExtractedSize ?? 100 * 1024 * 1024
+      ) +
+        1024 * 1024,
+    gate: createUploadGate({
+      maxConcurrentUploads: config.maxConcurrentUploads ?? 4,
+      maxConcurrentUploadsPerUser: config.maxConcurrentUploadsPerUser ?? 2,
+      maxConcurrentUploadsPerProject:
+        config.maxConcurrentUploadsPerProject ?? 1,
+    }),
+  };
 
   const apiApp = createApiApp({
     projectService,
@@ -116,6 +132,7 @@ export function createApp(config: AppConfig) {
     signSessionToken,
     desktopAuth,
     registrationEnabled: config.registrationEnabled,
+    uploadRouteLimits,
     removeProjectDir: (projectId) =>
       rmSync(join(config.storageDir, projectId), {
         recursive: true,
