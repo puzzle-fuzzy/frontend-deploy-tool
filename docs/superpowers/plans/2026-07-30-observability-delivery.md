@@ -110,4 +110,4 @@ then exits, with a bounded force-close fallback.
 - [x] `bun run verify` passes from a clean checkout.
 - [x] A production build is started and smoke-tested on management and deploy
       origins.
-- [ ] Changes are committed to `main` and pushed to `origin/main`.
+- [x] Changes are committed to `main` and pushed to `origin/main`.
