@@ -70,10 +70,10 @@ then exits, with a bounded force-close fallback.
 
 **Acceptance criteria:**
 
-- [ ] `SIGINT` and `SIGTERM` initiate shutdown only once.
-- [ ] The server first stops accepting new work and drains in-flight requests.
-- [ ] SQLite WAL is checkpointed after the drain.
-- [ ] A configurable timeout force-closes stuck connections and exits non-zero.
+- [x] `SIGINT` and `SIGTERM` initiate shutdown only once.
+- [x] The server first stops accepting new work and drains in-flight requests.
+- [x] SQLite WAL is checkpointed after the drain.
+- [x] A configurable timeout force-closes stuck connections and exits non-zero.
 
 ## Task 4: Security and regression CI gates
 

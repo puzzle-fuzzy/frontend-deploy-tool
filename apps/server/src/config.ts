@@ -48,6 +48,8 @@ export interface AppConfig {
   metricsEnabled?: boolean;
   /** Bearer token required by the metrics endpoint when configured. */
   metricsToken?: string;
+  /** Maximum time to drain in-flight requests before force-closing. */
+  shutdownTimeoutMs?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -168,6 +170,12 @@ export function loadConfig({
       environment !== 'production'
     ),
     metricsToken: emptyToUndefined(env.METRICS_TOKEN),
+    shutdownTimeoutMs: parsePositiveInteger(
+      'SHUTDOWN_TIMEOUT_MS',
+      env.SHUTDOWN_TIMEOUT_MS,
+      30_000,
+      10 * 60 * 1000
+    ),
   };
   validateAppConfig(config);
   return config;

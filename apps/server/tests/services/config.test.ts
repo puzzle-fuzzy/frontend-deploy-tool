@@ -38,6 +38,7 @@ describe('loadConfig', () => {
       recoveryRetentionHours: 168,
       metricsEnabled: true,
       metricsToken: undefined,
+      shutdownTimeoutMs: 30_000,
     });
   });
 
@@ -84,6 +85,7 @@ describe('loadConfig', () => {
       recoveryRetentionHours: 168,
       metricsEnabled: true,
       metricsToken: undefined,
+      shutdownTimeoutMs: 30_000,
     });
   });
 
@@ -193,6 +195,9 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ appDir, env: { STAGING_RETENTION_HOURS: '0' } })
     ).toThrow('Invalid STAGING_RETENTION_HOURS');
+    expect(() =>
+      loadConfig({ appDir, env: { SHUTDOWN_TIMEOUT_MS: '600001' } })
+    ).toThrow('Invalid SHUTDOWN_TIMEOUT_MS');
   });
 
   test('uses explicit upload resource budgets', () => {
@@ -211,6 +216,7 @@ describe('loadConfig', () => {
         MAX_STORAGE_SIZE_PER_PROJECT: '3000',
         STAGING_RETENTION_HOURS: '12',
         RECOVERY_RETENTION_HOURS: '72',
+        SHUTDOWN_TIMEOUT_MS: '45000',
       },
     });
 
@@ -226,6 +232,7 @@ describe('loadConfig', () => {
     expect(config.maxStorageSizePerProject).toBe(3000);
     expect(config.stagingRetentionHours).toBe(12);
     expect(config.recoveryRetentionHours).toBe(72);
+    expect(config.shutdownTimeoutMs).toBe(45_000);
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {
