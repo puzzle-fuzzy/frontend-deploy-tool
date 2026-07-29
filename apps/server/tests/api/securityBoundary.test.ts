@@ -37,6 +37,12 @@ test('serves trusted routes and deployed artifacts on separate origins', async (
           createdBy: 'system',
           members: [],
           settings: { spaMode: false, routingType: 'hash' },
+          auditPolicy: {
+            enforcement: 'advisory',
+            maxTotalBytes: 50 * 1024 * 1024,
+            maxFileBytes: 10 * 1024 * 1024,
+            maxFileCount: 1_000,
+          },
           versions: [
             {
               id: 'version-1',

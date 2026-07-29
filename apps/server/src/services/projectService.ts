@@ -1,4 +1,5 @@
 import type {
+  ArtifactAuditPolicy,
   CreateProjectInput,
   HistoryPage,
   Project,
@@ -10,7 +11,11 @@ import {
   hasProjectRole,
 } from '../domain/authorization';
 import { appendHistoryEvent, paginateHistory } from '../domain/history';
-import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
+import {
+  DEFAULT_PROJECT_AUDIT_POLICY,
+  DEFAULT_PROJECT_SETTINGS,
+  isSlugUnique,
+} from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -50,6 +55,7 @@ export function createProjectService(
           versions: [],
           activeVersionId: null,
           settings: { ...DEFAULT_PROJECT_SETTINGS },
+          auditPolicy: { ...DEFAULT_PROJECT_AUDIT_POLICY },
           createdBy: actorId,
           members: [
             {
@@ -133,6 +139,45 @@ export function createProjectService(
       });
     },
 
+    updateProjectAuditPolicy(
+      id: string,
+      auditPolicy: ArtifactAuditPolicy,
+      actorId: string
+    ): Project {
+      return repo.mutate((data) => {
+        const project = data.projects.find((candidate) => candidate.id === id);
+        if (!project) {
+          throw new ApiError(
+            ErrorCode.PROJECT_NOT_FOUND,
+            'Project not found',
+            404
+          );
+        }
+
+        const previousPolicy = project.auditPolicy;
+        if (
+          previousPolicy.enforcement === auditPolicy.enforcement &&
+          previousPolicy.maxTotalBytes === auditPolicy.maxTotalBytes &&
+          previousPolicy.maxFileBytes === auditPolicy.maxFileBytes &&
+          previousPolicy.maxFileCount === auditPolicy.maxFileCount
+        ) {
+          return project;
+        }
+
+        project.auditPolicy = auditPolicy;
+        project.updatedAt = new Date().toISOString();
+        appendHistoryEvent(
+          data,
+          'project.update_audit_policy',
+          project,
+          actorId,
+          undefined,
+          { previousPolicy, auditPolicy }
+        );
+        return project;
+      });
+    },
+
     updateProject(
       id: string,
       updates: { name?: string; slug?: string; description?: string },
@@ -209,6 +254,9 @@ export function createProjectService(
             );
 
           const deleted = data.projects.splice(idx, 1)[0];
+          data.artifactAudits = data.artifactAudits.filter(
+            (report) => report.projectId !== id
+          );
           appendHistoryEvent(data, 'project.delete', deleted, actorId);
           return deleted;
         });

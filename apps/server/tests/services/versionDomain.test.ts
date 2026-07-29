@@ -50,6 +50,12 @@ function makeProject(ownedVersions: Version[] = versions): Project {
     versions: ownedVersions,
     activeVersionId: ownedVersions[0]?.id ?? null,
     settings: { ...DEFAULT_PROJECT_SETTINGS },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
     createdBy: 'user-1',
     members: [
       {

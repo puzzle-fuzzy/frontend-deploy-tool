@@ -19,6 +19,7 @@ test('seeds an admin when legacy data contains users but no administrator', () =
       },
     ],
     history: [],
+    artifactAudits: [],
   };
   const repo: ProjectRepository = {
     load: () => data,

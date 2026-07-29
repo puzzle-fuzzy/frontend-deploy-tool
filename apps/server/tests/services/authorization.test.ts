@@ -27,6 +27,12 @@ const project: Project = {
   versions: [],
   activeVersionId: null,
   settings: { spaMode: false, routingType: 'hash' },
+  auditPolicy: {
+    enforcement: 'advisory',
+    maxTotalBytes: 50 * 1024 * 1024,
+    maxFileBytes: 10 * 1024 * 1024,
+    maxFileCount: 1_000,
+  },
   createdBy: 'owner',
   members: [
     {

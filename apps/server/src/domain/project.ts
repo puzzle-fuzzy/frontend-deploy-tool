@@ -1,8 +1,19 @@
-import { type Project, type Settings, settingsSchema } from '@deploykit/shared';
+import {
+  type ArtifactAuditPolicy,
+  artifactAuditPolicySchema,
+  DEFAULT_ARTIFACT_AUDIT_POLICY,
+  type Project,
+  type Settings,
+  settingsSchema,
+} from '@deploykit/shared';
 
 export const DEFAULT_PROJECT_SETTINGS: Settings = {
   spaMode: false,
   routingType: 'path',
+};
+
+export const DEFAULT_PROJECT_AUDIT_POLICY: ArtifactAuditPolicy = {
+  ...DEFAULT_ARTIFACT_AUDIT_POLICY,
 };
 
 export function isValidProjectSlug(slug: string): boolean {
@@ -21,5 +32,13 @@ export function isSlugUnique(projects: Project[], slug: string): boolean {
 /** Parses and validates a settings payload, returning `null` when invalid. */
 export function parseSettings(input: unknown): Settings | null {
   const result = settingsSchema.safeParse(input);
+  return result.success ? result.data : null;
+}
+
+/** Parses and validates a complete project artifact-audit policy. */
+export function parseArtifactAuditPolicy(
+  input: unknown
+): ArtifactAuditPolicy | null {
+  const result = artifactAuditPolicySchema.safeParse(input);
   return result.success ? result.data : null;
 }

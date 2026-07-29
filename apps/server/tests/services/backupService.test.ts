@@ -51,12 +51,19 @@ function createFixture(tempDir: string) {
         ],
         activeVersionId: 'v1',
         settings: { spaMode: false, routingType: 'path' },
+        auditPolicy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 50 * 1024 * 1024,
+          maxFileBytes: 10 * 1024 * 1024,
+          maxFileCount: 1_000,
+        },
         createdBy: 'user-1',
         members: [],
       },
     ],
     users: [],
     history: [],
+    artifactAudits: [],
   };
   const repository = createSqliteProjectRepository({ databaseFile });
   repository.save(data);

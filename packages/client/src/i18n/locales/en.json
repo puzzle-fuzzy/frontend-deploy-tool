@@ -210,6 +210,7 @@
     "project.create": "Project created",
     "project.update": "Project updated",
     "project.update_settings": "Settings updated",
+    "project.update_audit_policy": "Audit policy updated",
     "project.delete": "Project deleted",
     "version.upload": "Version uploaded",
     "version.publish": "Version published",
@@ -217,6 +218,7 @@
     "version.rollback": "Rolled back",
     "version.delete": "Version deleted",
     "version.reconcile": "Missing artifact detected",
+    "version.audit": "Artifact audit completed",
     "toProject": "to project",
     "ofProject": "of project"
   },

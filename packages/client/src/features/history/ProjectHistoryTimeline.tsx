@@ -6,8 +6,10 @@ import {
   type LucideIcon,
   Rocket,
   RotateCcw,
+  ScanSearch,
   Settings2,
   ShieldAlert,
+  SlidersHorizontal,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -36,6 +38,8 @@ const ACTION_ICONS: Record<HistoryAction, LucideIcon> = {
   'version.rollback': RotateCcw,
   'version.delete': Trash2,
   'version.reconcile': ShieldAlert,
+  'version.audit': ScanSearch,
+  'project.update_audit_policy': SlidersHorizontal,
 };
 
 export function ProjectHistoryTimeline({

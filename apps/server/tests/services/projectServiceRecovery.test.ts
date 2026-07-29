@@ -22,6 +22,7 @@ test('restores project artifacts when the metadata deletion fails', () => {
     schemaVersion: 5,
     users: [],
     history: [],
+    artifactAudits: [],
     projects: [
       {
         id: 'project-1',
@@ -33,6 +34,12 @@ test('restores project artifacts when the metadata deletion fails', () => {
         versions: [],
         activeVersionId: null,
         settings: { spaMode: false, routingType: 'path' },
+        auditPolicy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 50 * 1024 * 1024,
+          maxFileBytes: 10 * 1024 * 1024,
+          maxFileCount: 1_000,
+        },
         createdBy: 'user-1',
         members: [],
       },

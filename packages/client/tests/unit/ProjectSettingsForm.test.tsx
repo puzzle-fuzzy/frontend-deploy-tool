@@ -14,6 +14,12 @@ const project = {
   versions: [],
   activeVersionId: null,
   settings: { spaMode: false, routingType: 'path' as const },
+  auditPolicy: {
+    enforcement: 'advisory' as const,
+    maxTotalBytes: 50 * 1024 * 1024,
+    maxFileBytes: 10 * 1024 * 1024,
+    maxFileCount: 1_000,
+  },
   createdBy: 'user-1',
   members: [
     {

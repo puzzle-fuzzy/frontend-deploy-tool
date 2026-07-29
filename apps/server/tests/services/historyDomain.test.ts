@@ -12,6 +12,7 @@ function makeData(): Data {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   };
 }
 

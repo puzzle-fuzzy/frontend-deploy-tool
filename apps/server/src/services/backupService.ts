@@ -26,6 +26,7 @@ export interface BackupManifest {
     users: number;
     projects: number;
     versions: number;
+    artifactAudits: number;
     auditEvents: number;
     releases: number;
     sessions: number;
@@ -362,6 +363,7 @@ function inspectOpenDatabase(database: Database) {
       users: count('users'),
       projects: count('projects'),
       versions: count('versions'),
+      artifactAudits: count('artifact_audits'),
       auditEvents: count('audit_events'),
       releases: count('releases'),
       sessions: count('sessions'),
@@ -485,6 +487,7 @@ function parseManifest(value: unknown): BackupManifest {
     'users',
     'projects',
     'versions',
+    'artifactAudits',
     'auditEvents',
     'releases',
     'sessions',

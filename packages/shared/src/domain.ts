@@ -11,6 +11,30 @@ export const settingsSchema = z.object({
   routingType: z.enum(['hash', 'path']),
 });
 
+export const artifactAuditEnforcementSchema = z.enum(['advisory', 'blocking']);
+
+export const artifactAuditPolicySchema = z.object({
+  enforcement: artifactAuditEnforcementSchema,
+  maxTotalBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(10 * 1024 * 1024 * 1024),
+  maxFileBytes: z
+    .number()
+    .int()
+    .positive()
+    .max(2 * 1024 * 1024 * 1024),
+  maxFileCount: z.number().int().positive().max(100_000),
+});
+
+export const DEFAULT_ARTIFACT_AUDIT_POLICY = {
+  enforcement: 'advisory',
+  maxTotalBytes: 50 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+  maxFileCount: 1_000,
+} as const;
+
 /** Global role governing what a user may do. */
 export const roleSchema = z.enum(['admin', 'developer', 'viewer']);
 
@@ -91,8 +115,58 @@ export const projectSchema = z.object({
   /** The single source of truth for which version is live (null = none). */
   activeVersionId: z.string().nullable(),
   settings: settingsSchema,
+  auditPolicy: artifactAuditPolicySchema,
   createdBy: z.string(),
   members: z.array(projectMemberSchema).default([]),
+});
+
+export const artifactAuditStatusSchema = z.enum([
+  'passed',
+  'warning',
+  'failed',
+]);
+export const artifactAuditSeveritySchema = z.enum(['info', 'warning', 'error']);
+export const artifactAuditCategorySchema = z.enum(['structure', 'seo', 'size']);
+
+export const artifactAuditCheckSchema = z.object({
+  id: z.string(),
+  category: artifactAuditCategorySchema,
+  severity: artifactAuditSeveritySchema,
+  passed: z.boolean(),
+  message: z.string(),
+  actual: z.union([z.string(), z.number(), z.boolean()]).optional(),
+  expected: z.string().optional(),
+});
+
+export const artifactAuditFileSchema = z.object({
+  path: z.string(),
+  size: z.number().int().nonnegative(),
+});
+
+export const artifactAuditExtensionSchema = z.object({
+  extension: z.string(),
+  bytes: z.number().int().nonnegative(),
+  count: z.number().int().nonnegative(),
+});
+
+export const artifactAuditSummarySchema = z.object({
+  totalBytes: z.number().int().nonnegative(),
+  fileCount: z.number().int().nonnegative(),
+  largestFiles: z.array(artifactAuditFileSchema),
+  extensions: z.array(artifactAuditExtensionSchema),
+});
+
+export const artifactAuditReportSchema = z.object({
+  id: z.string(),
+  projectId: z.string(),
+  versionId: z.string(),
+  artifactChecksum: z.string(),
+  status: artifactAuditStatusSchema,
+  score: z.number().int().min(0).max(100),
+  createdAt: z.string(),
+  createdBy: z.string(),
+  summary: artifactAuditSummarySchema,
+  checks: z.array(artifactAuditCheckSchema),
 });
 
 export const historyEventSchema = z.object({
@@ -108,6 +182,8 @@ export const historyEventSchema = z.object({
     'version.rollback',
     'version.delete',
     'version.reconcile',
+    'version.audit',
+    'project.update_audit_policy',
   ]),
   projectId: z.string(),
   projectName: z.string(),
@@ -137,6 +213,7 @@ export const dataSchema = z.object({
   projects: z.array(projectSchema),
   users: z.array(userSchema),
   history: z.array(historyEventSchema),
+  artifactAudits: z.array(artifactAuditReportSchema),
 });
 
 /** Input body for creating a project (plain type, used by the service contract). */
@@ -148,6 +225,20 @@ export interface CreateProjectInput {
 
 export type ProjectMember = z.infer<typeof projectMemberSchema>;
 export type Settings = z.infer<typeof settingsSchema>;
+export type ArtifactAuditEnforcement = z.infer<
+  typeof artifactAuditEnforcementSchema
+>;
+export type ArtifactAuditPolicy = z.infer<typeof artifactAuditPolicySchema>;
+export type ArtifactAuditStatus = z.infer<typeof artifactAuditStatusSchema>;
+export type ArtifactAuditSeverity = z.infer<typeof artifactAuditSeveritySchema>;
+export type ArtifactAuditCategory = z.infer<typeof artifactAuditCategorySchema>;
+export type ArtifactAuditCheck = z.infer<typeof artifactAuditCheckSchema>;
+export type ArtifactAuditFile = z.infer<typeof artifactAuditFileSchema>;
+export type ArtifactAuditExtension = z.infer<
+  typeof artifactAuditExtensionSchema
+>;
+export type ArtifactAuditSummary = z.infer<typeof artifactAuditSummarySchema>;
+export type ArtifactAuditReport = z.infer<typeof artifactAuditReportSchema>;
 export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;
 export type SafeUser = z.infer<typeof safeUserSchema>;

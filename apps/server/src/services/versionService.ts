@@ -392,6 +392,9 @@ export function createVersionService(
             project.versions.indexOf(version),
             1
           )[0];
+          data.artifactAudits = data.artifactAudits.filter(
+            (report) => report.versionId !== versionId
+          );
           if (wasActive) project.activeVersionId = null;
           const updatedAt = new Date().toISOString();
           project.versions = syncProductionStatus(

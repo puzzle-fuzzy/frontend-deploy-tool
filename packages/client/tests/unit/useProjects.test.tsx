@@ -33,6 +33,12 @@ const project = (id: string, overrides: Partial<Project> = {}): Project => ({
   versions: [],
   activeVersionId: null,
   settings: { spaMode: false, routingType: 'path' },
+  auditPolicy: {
+    enforcement: 'advisory',
+    maxTotalBytes: 50 * 1024 * 1024,
+    maxFileBytes: 10 * 1024 * 1024,
+    maxFileCount: 1_000,
+  },
   ...overrides,
   createdBy: overrides.createdBy ?? '',
   members: overrides.members ?? [],

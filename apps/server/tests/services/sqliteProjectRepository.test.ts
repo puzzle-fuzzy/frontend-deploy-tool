@@ -42,12 +42,19 @@ function createData(projectName = 'Signal Desk'): Data {
         versions: [],
         activeVersionId: null,
         settings: { spaMode: false, routingType: 'path' },
+        auditPolicy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 50 * 1024 * 1024,
+          maxFileBytes: 10 * 1024 * 1024,
+          maxFileCount: 1_000,
+        },
         createdBy: 'user-1',
         members: [],
       },
     ],
     users: [],
     history: [],
+    artifactAudits: [],
   };
 }
 
@@ -81,6 +88,7 @@ test('creates the normalized relational schema', () => {
   database.close();
 
   expect(tables).toEqual([
+    'artifact_audits',
     'audit_events',
     'project_members',
     'projects',
@@ -92,14 +100,29 @@ test('creates the normalized relational schema', () => {
   ]);
 });
 
-test('upgrades relational v1 with persisted integrity columns and a backup', () => {
+test('upgrades relational v1 through v3 with policy, audit, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
   database.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE artifact_audits;
+    DROP TABLE projects;
     DROP TABLE versions;
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      active_version_id TEXT NULL,
+      spa_mode INTEGER NOT NULL,
+      routing_type TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
     CREATE TABLE versions (
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
@@ -128,6 +151,10 @@ test('upgrades relational v1 with persisted integrity columns and a backup', () 
     .query<{ name: string }, []>('PRAGMA table_info(versions)')
     .all()
     .map((column) => column.name);
+  const projectColumns = verify
+    .query<{ name: string }, []>('PRAGMA table_info(projects)')
+    .all()
+    .map((column) => column.name);
   const migration = verify
     .query<{ version: number }, []>(
       'SELECT MAX(version) AS version FROM schema_migrations'
@@ -137,8 +164,10 @@ test('upgrades relational v1 with persisted integrity columns and a backup', () 
 
   expect(columns).toContain('integrity_status');
   expect(columns).toContain('integrity_checked_at');
-  expect(migration?.version).toBe(2);
-  expect(existsSync(`${databaseFile}.pre-relational-v2.bak`)).toBe(true);
+  expect(projectColumns).toContain('audit_enforcement');
+  expect(projectColumns).toContain('audit_max_total_bytes');
+  expect(migration?.version).toBe(3);
+  expect(existsSync(`${databaseFile}.pre-relational-v3.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {
@@ -346,6 +375,80 @@ test('round-trips persisted version integrity state', () => {
     integrityStatus: 'corrupted',
     integrityCheckedAt: '2026-07-30T00:00:00.000Z',
   });
+});
+
+test('round-trips project audit policy and replaces a version current report', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const repository = createSqliteProjectRepository({ databaseFile });
+  const data = createData();
+  data.projects[0].auditPolicy = {
+    enforcement: 'blocking',
+    maxTotalBytes: 2_000,
+    maxFileBytes: 1_000,
+    maxFileCount: 10,
+  };
+  data.projects[0].versions.push({
+    id: 'version-1',
+    name: 'v1',
+    description: '',
+    createdAt: '2026-07-24T00:00:00.000Z',
+    size: 10,
+    fileCount: 1,
+    sourceType: 'folder',
+    status: 'preview',
+    publishedAt: null,
+    publishedBy: null,
+    checksum: 'checksum-1',
+    integrityStatus: 'verified',
+    integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+  });
+  data.artifactAudits.push({
+    id: 'audit-1',
+    projectId: 'project-1',
+    versionId: 'version-1',
+    artifactChecksum: 'checksum-1',
+    status: 'warning',
+    score: 82,
+    createdAt: '2026-07-30T00:00:00.000Z',
+    createdBy: 'user-1',
+    summary: {
+      totalBytes: 10,
+      fileCount: 1,
+      largestFiles: [{ path: 'index.html', size: 10 }],
+      extensions: [{ extension: '.html', bytes: 10, count: 1 }],
+    },
+    checks: [
+      {
+        id: 'seo.title',
+        category: 'seo',
+        severity: 'warning',
+        passed: false,
+        message: 'Title is missing',
+      },
+    ],
+  });
+
+  repository.save(data);
+  repository.mutate((next) => {
+    next.artifactAudits[0] = {
+      ...next.artifactAudits[0],
+      id: 'audit-2',
+      score: 100,
+      status: 'passed',
+      checks: [],
+    };
+  });
+
+  const loaded = repository.load();
+  expect(loaded.projects[0].auditPolicy).toEqual(data.projects[0].auditPolicy);
+  expect(loaded.artifactAudits).toEqual([
+    expect.objectContaining({
+      id: 'audit-2',
+      versionId: 'version-1',
+      score: 100,
+      status: 'passed',
+    }),
+  ]);
 });
 
 test('separate repository instances mutate the latest committed state', () => {

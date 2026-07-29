@@ -92,6 +92,13 @@ test('migrate upgrades a pre-metadata v1 payload to the current schema', () => {
   expect(version.size).toBe(0);
   expect(version.fileCount).toBe(0);
   expect(version.sourceType).toBe('unknown');
+  expect(data.projects[0].auditPolicy).toEqual({
+    enforcement: 'advisory',
+    maxTotalBytes: 50 * 1024 * 1024,
+    maxFileBytes: 10 * 1024 * 1024,
+    maxFileCount: 1_000,
+  });
+  expect(data.artifactAudits).toEqual([]);
 });
 
 test('migrate leaves already-current data unchanged', () => {
@@ -109,6 +116,7 @@ test('migrate is null-safe on an empty or malformed payload', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 });
 

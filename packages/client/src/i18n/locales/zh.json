@@ -210,6 +210,7 @@
     "project.create": "创建了项目",
     "project.update": "更新了项目",
     "project.update_settings": "更新了设置",
+    "project.update_audit_policy": "更新了产物审计策略",
     "project.delete": "删除了项目",
     "version.upload": "上传了版本",
     "version.publish": "发布了版本",
@@ -217,6 +218,7 @@
     "version.rollback": "回滚了版本",
     "version.delete": "删除了版本",
     "version.reconcile": "检测到版本产物缺失",
+    "version.audit": "完成了产物审计",
     "toProject": "到项目",
     "ofProject": "的项目"
   },

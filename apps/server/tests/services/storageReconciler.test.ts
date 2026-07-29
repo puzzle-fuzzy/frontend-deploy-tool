@@ -47,6 +47,12 @@ function project(): Project {
     ],
     activeVersionId: 'missing-active',
     settings: { spaMode: false, routingType: 'path' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
     createdBy: 'user-1',
     members: [
       {
@@ -75,6 +81,7 @@ describe('reconcileStorage', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
 
     mkdirSync(join(storageDir, '.staging', 'incomplete'), {
@@ -187,6 +194,7 @@ describe('reconcileStorage', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     mkdirSync(join(storageDir, 'p1', 'healthy-preview'), { recursive: true });
     writeFileSync(
@@ -221,6 +229,7 @@ describe('reconcileStorage', () => {
       projects: [],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     mkdirSync(stagingDir, { recursive: true });
     writeFileSync(join(stagingDir, 'index.html'), 'partial');

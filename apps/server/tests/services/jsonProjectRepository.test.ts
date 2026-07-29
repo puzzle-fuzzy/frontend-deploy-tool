@@ -30,6 +30,7 @@ test('load returns empty data when the file is missing', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 });
 
@@ -67,6 +68,7 @@ test('load returns empty data on malformed JSON instead of throwing', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 });
 
@@ -78,6 +80,7 @@ test('save persists data that load can read back', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   };
 
   repo.save(data);
@@ -95,6 +98,7 @@ test('save is atomic and leaves no temp file behind', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 
   const leftover = readdirSync(tempDir).filter((f) => f.endsWith('.tmp'));
@@ -110,6 +114,7 @@ test('save creates the parent directory when it does not exist', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 
   expect(existsSync(dataFile)).toBe(true);
@@ -145,6 +150,7 @@ test('mutate does not persist changes when the callback throws', () => {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   });
 
   expect(() =>

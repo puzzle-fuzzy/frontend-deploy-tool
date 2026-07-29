@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type {
+  ArtifactAuditReport,
   Data,
   HistoryAction,
   HistoryEvent,
@@ -59,6 +60,10 @@ interface ProjectRow {
   active_version_id: string | null;
   spa_mode: number;
   routing_type: Project['settings']['routingType'];
+  audit_enforcement: Project['auditPolicy']['enforcement'];
+  audit_max_total_bytes: number;
+  audit_max_file_bytes: number;
+  audit_max_file_count: number;
   created_by: string;
 }
 
@@ -100,6 +105,19 @@ interface AuditRow {
 
 interface SequencedAuditRow extends AuditRow {
   sequence: number;
+}
+
+interface ArtifactAuditRow {
+  id: string;
+  project_id: string;
+  version_id: string;
+  artifact_checksum: string;
+  status: ArtifactAuditReport['status'];
+  score: number;
+  created_at: string;
+  created_by: string;
+  summary_json: string;
+  checks_json: string;
 }
 
 export interface SqliteProjectRepositoryOptions {
@@ -177,8 +195,8 @@ function initializeDatabase(
 ): void {
   if (hasRelationalMigration(database)) return;
   const relationalVersion = getRelationalSchemaVersion(database);
-  if (relationalVersion === 1) {
-    createDatabaseBackup(database, databaseFile, 2);
+  if (relationalVersion > 0 && relationalVersion < RELATIONAL_SCHEMA_VERSION) {
+    createDatabaseBackup(database, databaseFile, RELATIONAL_SCHEMA_VERSION);
     const upgrade = database.transaction(() => {
       upgradeRelationalSchema(database, relationalVersion);
     });
@@ -190,6 +208,7 @@ function initializeDatabase(
     'users',
     'projects',
     'versions',
+    'artifact_audits',
     'project_members',
     'audit_events',
     'releases',
@@ -259,7 +278,9 @@ function loadRelationalData(database: Database): Data {
   const projectRows = database
     .query<ProjectRow, []>(
       `SELECT id, name, slug, description, created_at, updated_at,
-              active_version_id, spa_mode, routing_type, created_by
+              active_version_id, spa_mode, routing_type, audit_enforcement,
+              audit_max_total_bytes, audit_max_file_bytes,
+              audit_max_file_count, created_by
        FROM projects
        ORDER BY sort_order ASC`
     )
@@ -311,6 +332,12 @@ function loadRelationalData(database: Database): Data {
       spaMode: row.spa_mode === 1,
       routingType: row.routing_type,
     },
+    auditPolicy: {
+      enforcement: row.audit_enforcement,
+      maxTotalBytes: row.audit_max_total_bytes,
+      maxFileBytes: row.audit_max_file_bytes,
+      maxFileCount: row.audit_max_file_count,
+    },
     createdBy: row.created_by,
     members: membersByProject.get(row.id) ?? [],
   }));
@@ -325,12 +352,22 @@ function loadRelationalData(database: Database): Data {
     )
     .all()
     .map(rowToHistoryEvent);
+  const artifactAudits = database
+    .query<ArtifactAuditRow, []>(
+      `SELECT id, project_id, version_id, artifact_checksum, status, score,
+              created_at, created_by, summary_json, checks_json
+       FROM artifact_audits
+       ORDER BY project_id ASC, created_at DESC`
+    )
+    .all()
+    .map(rowToArtifactAuditReport);
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
     projects,
     users,
     history,
+    artifactAudits,
   };
 }
 
@@ -377,6 +414,21 @@ function rowToHistoryEvent(row: AuditRow): HistoryEvent {
     ...(row.metadata_json
       ? { metadata: JSON.parse(row.metadata_json) as Record<string, unknown> }
       : {}),
+  };
+}
+
+function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    versionId: row.version_id,
+    artifactChecksum: row.artifact_checksum,
+    status: row.status,
+    score: row.score,
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+    summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
+    checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
   };
 }
 
@@ -446,6 +498,7 @@ function replaceDomainData(database: Database, data: Data): void {
     DELETE FROM sessions;
     DELETE FROM project_members;
     UPDATE projects SET active_version_id = NULL;
+    DELETE FROM artifact_audits;
     DELETE FROM versions;
     DELETE FROM projects;
     DELETE FROM users;
@@ -455,6 +508,7 @@ function replaceDomainData(database: Database, data: Data): void {
   persistUsers(database, data.users);
   persistProjects(database, data.projects);
   persistVersions(database, data.projects);
+  persistArtifactAudits(database, data.artifactAudits);
   persistMembers(database, data.projects, new Set(data.users.map((u) => u.id)));
   for (const event of [...data.history].reverse()) {
     insertAuditEvent(database, event);
@@ -469,6 +523,7 @@ function persistDomainDiff(
   persistUsers(database, after.users);
   persistProjects(database, after.projects);
   persistVersions(database, after.projects);
+  persistArtifactAudits(database, after.artifactAudits);
   persistMembers(
     database,
     after.projects,
@@ -498,6 +553,14 @@ function persistDomainDiff(
       project.versions.map((version) => version.id)
     )
   );
+  const afterArtifactAuditIds = new Set(
+    after.artifactAudits.map((report) => report.id)
+  );
+  for (const report of before.artifactAudits) {
+    if (!afterArtifactAuditIds.has(report.id)) {
+      database.query('DELETE FROM artifact_audits WHERE id = ?').run(report.id);
+    }
+  }
   for (const version of before.projects.flatMap(
     (project) => project.versions
   )) {
@@ -558,8 +621,9 @@ function persistProjects(database: Database, projects: Project[]): void {
   const statement = database.query(
     `INSERT INTO projects (
        id, name, slug, description, created_at, updated_at, active_version_id,
-       spa_mode, routing_type, created_by, sort_order
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       spa_mode, routing_type, audit_enforcement, audit_max_total_bytes,
+       audit_max_file_bytes, audit_max_file_count, created_by, sort_order
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        slug = excluded.slug,
@@ -569,6 +633,10 @@ function persistProjects(database: Database, projects: Project[]): void {
        active_version_id = excluded.active_version_id,
        spa_mode = excluded.spa_mode,
        routing_type = excluded.routing_type,
+       audit_enforcement = excluded.audit_enforcement,
+       audit_max_total_bytes = excluded.audit_max_total_bytes,
+       audit_max_file_bytes = excluded.audit_max_file_bytes,
+       audit_max_file_count = excluded.audit_max_file_count,
        created_by = excluded.created_by,
        sort_order = excluded.sort_order`
   );
@@ -583,10 +651,50 @@ function persistProjects(database: Database, projects: Project[]): void {
       project.activeVersionId,
       project.settings.spaMode ? 1 : 0,
       project.settings.routingType,
+      project.auditPolicy.enforcement,
+      project.auditPolicy.maxTotalBytes,
+      project.auditPolicy.maxFileBytes,
+      project.auditPolicy.maxFileCount,
       project.createdBy,
       index
     );
   });
+}
+
+function persistArtifactAudits(
+  database: Database,
+  reports: ArtifactAuditReport[]
+): void {
+  const statement = database.query(
+    `INSERT INTO artifact_audits (
+       id, project_id, version_id, artifact_checksum, status, score,
+       created_at, created_by, summary_json, checks_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(version_id) DO UPDATE SET
+       id = excluded.id,
+       project_id = excluded.project_id,
+       artifact_checksum = excluded.artifact_checksum,
+       status = excluded.status,
+       score = excluded.score,
+       created_at = excluded.created_at,
+       created_by = excluded.created_by,
+       summary_json = excluded.summary_json,
+       checks_json = excluded.checks_json`
+  );
+  for (const report of reports) {
+    statement.run(
+      report.id,
+      report.projectId,
+      report.versionId,
+      report.artifactChecksum,
+      report.status,
+      report.score,
+      report.createdAt,
+      report.createdBy,
+      JSON.stringify(report.summary),
+      JSON.stringify(report.checks)
+    );
+  }
 }
 
 function persistVersions(database: Database, projects: Project[]): void {

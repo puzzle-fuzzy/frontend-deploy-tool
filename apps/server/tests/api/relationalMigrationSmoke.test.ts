@@ -26,6 +26,7 @@ test('legacy database supports login, release, restart, and session revocation a
       },
     ],
     history: [],
+    artifactAudits: [],
   };
 
   const legacyDatabase = new Database(databaseFile, { create: true });

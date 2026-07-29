@@ -37,6 +37,12 @@ function makeProject(overrides: Partial<Project> = {}): Project {
     versions: [version(versionA, 'a'), version(versionB, 'b')],
     activeVersionId: versionA,
     settings: { spaMode: false, routingType: 'path' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
     createdBy: 'user-1',
     members: [],
     ...overrides,
@@ -107,6 +113,12 @@ describe('resolveDeployTarget', () => {
   test('sets a fallback index path in SPA mode', () => {
     const project = makeProject({
       settings: { spaMode: true, routingType: 'path' },
+      auditPolicy: {
+        enforcement: 'advisory',
+        maxTotalBytes: 50 * 1024 * 1024,
+        maxFileBytes: 10 * 1024 * 1024,
+        maxFileCount: 1_000,
+      },
     });
     const target = resolveDeployTarget(storageDir, project, ['p', 'about']);
     expect(target).toEqual({

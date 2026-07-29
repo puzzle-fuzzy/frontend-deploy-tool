@@ -45,6 +45,12 @@ function project(): Project {
     versions: [version('v1'), version('v2')],
     activeVersionId: 'v1',
     settings: { spaMode: false, routingType: 'hash' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
     createdBy: 'user-1',
     members: [{ userId: 'user-1', role: 'owner', invitedAt: '' }],
   };
@@ -86,6 +92,7 @@ describe('createVersionService', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -131,6 +138,7 @@ describe('createVersionService', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -178,6 +186,7 @@ describe('createVersionService', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -234,6 +243,7 @@ describe('createVersionService', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     let saved = false;
     const repo: ProjectRepository = {
@@ -279,6 +289,7 @@ describe('createVersionService', () => {
       projects: [project()],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -322,6 +333,7 @@ describe('createVersionService', () => {
       projects: [project()],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     let absentDuringMutation = false;
     const repo: ProjectRepository = {
@@ -359,6 +371,7 @@ describe('createVersionService', () => {
       projects: [demoProject],
       users: [],
       history: [],
+      artifactAudits: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -403,6 +416,7 @@ describe('createVersionService', () => {
         projects: [demoProject],
         users: [],
         history: [],
+        artifactAudits: [],
       };
       const repo: ProjectRepository = {
         load: () => data,
@@ -446,6 +460,7 @@ describe('createVersionService', () => {
         projects: [demoProject],
         users: [],
         history: [],
+        artifactAudits: [],
       };
       const repo: ProjectRepository = {
         load: () => data,

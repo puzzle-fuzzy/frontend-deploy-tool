@@ -1,4 +1,6 @@
 import {
+  artifactAuditPolicySchema,
+  artifactAuditReportSchema,
   type Data,
   historyEventSchema,
   integrityStatusSchema,
@@ -9,7 +11,10 @@ import {
   versionStatusSchema,
 } from '@deploykit/shared';
 import { z } from 'zod';
-import { DEFAULT_PROJECT_SETTINGS } from './project';
+import {
+  DEFAULT_PROJECT_AUDIT_POLICY,
+  DEFAULT_PROJECT_SETTINGS,
+} from './project';
 import { syncProductionStatus } from './version';
 
 /**
@@ -25,8 +30,9 @@ import { syncProductionStatus } from './version';
  *   `publishedBy`, `checksum`); status is derived from `activeVersionId`.
  * - v5: projects carry explicit membership and creator ownership metadata.
  * - v6: versions persist explicit artifact integrity status and check time.
+ * - v7: projects carry artifact-audit policy and current per-version reports.
  */
-export const CURRENT_SCHEMA_VERSION = 6;
+export const CURRENT_SCHEMA_VERSION = 7;
 
 export interface MigrationResult {
   data: Data;
@@ -73,6 +79,7 @@ const legacyDataSchema = z.object({
         .default([]),
       activeVersionId: z.string().nullable().optional(),
       settings: settingsSchema.optional(),
+      auditPolicy: artifactAuditPolicySchema.optional(),
       createdBy: z.string().optional(),
       members: z
         .array(
@@ -89,6 +96,7 @@ const legacyDataSchema = z.object({
   history: z
     .array(historyEventSchema.extend({ actorId: z.string().default('system') }))
     .default([]),
+  artifactAudits: z.array(artifactAuditReportSchema).default([]),
 });
 
 export function createEmptyData(): Data {
@@ -97,6 +105,7 @@ export function createEmptyData(): Data {
     projects: [],
     users: [],
     history: [],
+    artifactAudits: [],
   };
 }
 
@@ -148,6 +157,7 @@ export function migrate(raw: unknown): MigrationResult {
       versions,
       activeVersionId,
       settings: p.settings ?? { ...DEFAULT_PROJECT_SETTINGS },
+      auditPolicy: p.auditPolicy ?? { ...DEFAULT_PROJECT_AUDIT_POLICY },
       createdBy: (p as { createdBy?: string }).createdBy ?? firstAdminId,
       members: (
         p as {
@@ -177,6 +187,13 @@ export function migrate(raw: unknown): MigrationResult {
       projects,
       users: input.users,
       history: input.history,
+      artifactAudits: input.artifactAudits.filter((report) =>
+        projects.some(
+          (project) =>
+            project.id === report.projectId &&
+            project.versions.some((version) => version.id === report.versionId)
+        )
+      ),
     },
     migrated: version !== inputVersion,
   };

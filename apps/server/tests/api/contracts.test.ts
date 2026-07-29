@@ -172,6 +172,12 @@ test('creates a project with default settings and lists it', async () => {
     slug: 'demo-app',
     versions: [],
     settings: { spaMode: false, routingType: 'path' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
   });
   expect(project.id).toBeTruthy();
 

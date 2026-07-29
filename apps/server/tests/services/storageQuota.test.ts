@@ -41,6 +41,12 @@ function project(id: string, createdBy: string, sizes: number[]): Project {
     versions: sizes.map((size, index) => version(`${id}-${index}`, size)),
     activeVersionId: null,
     settings: { spaMode: false, routingType: 'hash' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
     createdBy,
     members: [{ userId: createdBy, role: 'owner', invitedAt: '' }],
   };
@@ -56,6 +62,7 @@ function data(): Data {
     ],
     users: [],
     history: [],
+    artifactAudits: [],
   };
 }
 

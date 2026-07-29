@@ -1,4 +1,5 @@
 import type {
+  ArtifactAuditPolicy,
   CreateProjectInput,
   HistoryPage,
   Project,
@@ -58,6 +59,11 @@ export interface ProjectService {
   updateProjectSettings(
     id: string,
     settings: Settings,
+    actorId: string
+  ): Project;
+  updateProjectAuditPolicy(
+    id: string,
+    auditPolicy: ArtifactAuditPolicy,
     actorId: string
   ): Project;
   deleteProject(id: string, actorId: string): Project;

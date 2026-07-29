@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 2;
+export const RELATIONAL_SCHEMA_VERSION = 3;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -29,6 +29,18 @@ const RELATIONAL_SCHEMA_SQL = `
     active_version_id TEXT NULL,
     spa_mode INTEGER NOT NULL CHECK (spa_mode IN (0, 1)),
     routing_type TEXT NOT NULL CHECK (routing_type IN ('hash', 'path')),
+    audit_enforcement TEXT NOT NULL DEFAULT 'advisory' CHECK (
+      audit_enforcement IN ('advisory', 'blocking')
+    ),
+    audit_max_total_bytes INTEGER NOT NULL DEFAULT 52428800 CHECK (
+      audit_max_total_bytes > 0
+    ),
+    audit_max_file_bytes INTEGER NOT NULL DEFAULT 10485760 CHECK (
+      audit_max_file_bytes > 0
+    ),
+    audit_max_file_count INTEGER NOT NULL DEFAULT 1000 CHECK (
+      audit_max_file_count > 0
+    ),
     created_by TEXT NOT NULL,
     sort_order INTEGER NOT NULL,
     FOREIGN KEY (active_version_id) REFERENCES versions(id)
@@ -61,6 +73,24 @@ const RELATIONAL_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS versions_project_order_idx
     ON versions(project_id, sort_order);
+
+  CREATE TABLE IF NOT EXISTS artifact_audits (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    version_id TEXT NOT NULL UNIQUE,
+    artifact_checksum TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('passed', 'warning', 'failed')),
+    score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    summary_json TEXT NOT NULL,
+    checks_json TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS artifact_audits_project_created_idx
+    ON artifact_audits(project_id, created_at DESC);
 
   CREATE TABLE IF NOT EXISTS project_members (
     project_id TEXT NOT NULL,
@@ -180,6 +210,48 @@ export function upgradeRelationalSchema(
       .query(
         `INSERT INTO schema_migrations (version, applied_at)
          VALUES (2, ?)`
+      )
+      .run(new Date().toISOString());
+  }
+  if (fromVersion < 3) {
+    database.exec(`
+      ALTER TABLE projects
+        ADD COLUMN audit_enforcement TEXT NOT NULL DEFAULT 'advisory'
+        CHECK (audit_enforcement IN ('advisory', 'blocking'));
+      ALTER TABLE projects
+        ADD COLUMN audit_max_total_bytes INTEGER NOT NULL DEFAULT 52428800
+        CHECK (audit_max_total_bytes > 0);
+      ALTER TABLE projects
+        ADD COLUMN audit_max_file_bytes INTEGER NOT NULL DEFAULT 10485760
+        CHECK (audit_max_file_bytes > 0);
+      ALTER TABLE projects
+        ADD COLUMN audit_max_file_count INTEGER NOT NULL DEFAULT 1000
+        CHECK (audit_max_file_count > 0);
+
+      CREATE TABLE artifact_audits (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        version_id TEXT NOT NULL UNIQUE,
+        artifact_checksum TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+          status IN ('passed', 'warning', 'failed')
+        ),
+        score INTEGER NOT NULL CHECK (score >= 0 AND score <= 100),
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        summary_json TEXT NOT NULL,
+        checks_json TEXT NOT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX artifact_audits_project_created_idx
+        ON artifact_audits(project_id, created_at DESC);
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (3, ?)`
       )
       .run(new Date().toISOString());
   }
