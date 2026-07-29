@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -133,11 +134,13 @@ test('readiness fails when the metadata repository cannot be opened', async () =
   expect(response.headers.get('X-Request-Id')).toBeTruthy();
 });
 
-test('cleans interrupted staging uploads while composing the app', () => {
+test('cleans expired interrupted staging uploads while composing the app', () => {
   const recoveryRoot = mkdtempSync(join(tmpdir(), 'deploykit-recovery-'));
   const stagingDir = join(recoveryRoot, 'storage', '.staging', 'interrupted');
   mkdirSync(stagingDir, { recursive: true });
   writeFileSync(join(stagingDir, 'index.html'), 'partial');
+  const expired = new Date(Date.now() - 25 * 60 * 60 * 1000);
+  utimesSync(stagingDir, expired, expired);
 
   try {
     createAuthApp({

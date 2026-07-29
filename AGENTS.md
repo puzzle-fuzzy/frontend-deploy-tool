@@ -4,7 +4,7 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## What this is
 
-DeployKit — a frontend-artifact deployment manager. Users upload a ZIP or a folder of built static files; the server extracts/flattens them, tracks versions, and serves the active version at `/deploy/{slug}/`. Requires only the Bun runtime — no database (JSON metadata + filesystem storage).
+DeployKit — a self-hosted frontend-artifact deployment manager. Users upload a ZIP or folder, preview versions, explicitly publish, and manually roll back. It requires Bun but no external database service: relational SQLite stores metadata/audit/releases/sessions and the local filesystem stores artifacts.
 
 Bun workspace: `apps/server` (Hono + Bun backend), `apps/web` (React management panel), `packages/shared` (cross-app zod schemas + types).
 
@@ -15,8 +15,9 @@ All commands run from the repo root.
 | Command | What it does |
 |---|---|
 | `bun install` | Install workspace deps (Bun catalogs resolve versions) |
-| `bun run dev` / `dev:server` | Backend only (API + deploy serving) on `:3000` |
-| `bun run dev:web` | Frontend Vite dev server on `:5018`; `/api` proxies to `:3000` |
+| `bun run dev` / `dev:server` | Backend only (API + deploy serving) on `:4010` |
+| `bun run dev:web` | Frontend Vite dev server on `:5018`; `/api` proxies to `:4010` |
+| `bun run ops -- ...` | Backup, verify, restore, GC, and artifact-integrity operations |
 | `bun run build` | Build all workspaces, then `scripts/package-web.ts` mirrors `apps/web/dist` → `apps/server/public` |
 | `bun run package` | Re-run just the web→server packaging step |
 | `bun run test` | Run tests across all workspaces |
@@ -40,9 +41,9 @@ CI (`.github/workflows/ci.yml`) runs typecheck → lint → biome check → test
 Request flow: **routes → services → domain → repositories**. Keep these layers separate — each has a single concern and the boundaries are load-bearing (see the "Bun-free type boundary" note below).
 
 - `routes/` — Hono route handlers. Thin: parse/validate input, call a service, return JSON. Validation lives in `domain/schemas.ts` (zod, throws `ApiError`).
-- `services/` — use cases (`projectService`, `versionService`, `artifactService`, `deployResolver`). Orchestrate domain rules + persistence + filesystem. The service *interfaces* live in `services/contracts.ts`.
+- `services/` — use cases (`projectService`, `versionService`, artifact recovery/integrity, storage reconciliation/GC, backup/restore, deploy resolution). Orchestrate domain rules + persistence + filesystem. The API-facing service *interfaces* live in `services/contracts.ts`.
 - `domain/` — pure rules + schemas, no I/O. `project.ts` / `version.ts` / `history.ts` are pure functions; `schema.ts` does data migration; `schemas.ts` does request validation.
-- `repositories/` — persistence. `projectRepository.ts` is the interface; `jsonProjectRepository.ts` is the only implementation (atomic write via temp-file + `rename`, migrates + backs up on load).
+- `repositories/` — persistence. `sqliteProjectRepository.ts` is the default relational WAL implementation with `BEGIN IMMEDIATE`; `jsonProjectRepository.ts` remains only for legacy import and isolated tests.
 - `utils/` — `id` (nanoid), `mime`, `safePath` (`safeJoin` enforces path traversal containment).
 
 `app.ts` composes everything and layers the response pipeline: typed `/api` → deploy route → `onError` (maps `ApiError` → `{ error: { code, message } }`) → security headers (management UI only) → static serving → SPA fallback. `index.ts` only calls `loadConfig()` + `Bun.serve(createApp(config).fetch)`. **`createApp()` is deliberately split from `Bun.serve`** so tests call `app.request(path)` without binding a port.
@@ -63,15 +64,22 @@ The server's `domain/schema.ts` adds a separate *lenient* `legacyDataSchema` + `
 
 ### Storage model
 
-- `apps/server/data.json` — all metadata (projects, versions, history). Runtime/gitignored. Written atomically; migrated on load.
-- `apps/server/.voasx/storage/{projectId}/{versionId}/` — flattened artifact files. The `.voasx` name is intentional; treat it as the storage root.
+- `apps/server/deploykit.sqlite` — users, projects, members, versions, audit events, releases, and revocable sessions.
+- `apps/server/data.json` — legacy import source only; imported once into an empty SQLite database.
+- `apps/server/.voasx/storage/{projectId}/{versionId}/` — flattened artifact files, plus owned `.staging` and `.recovery` subtrees.
 - `apps/server/public/` — management UI, populated by the packaging script (gitignored; empty in `dev:server`-only mode).
 
-These paths are overridable via env (`config.ts`): `DATA_FILE`, `STORAGE_DIR`,
-`PUBLIC_DIR`, plus trust-zone URLs and upload budgets. Multipart size,
+These paths are overridable via env (`config.ts`): `DATABASE_FILE`, `DATA_FILE`,
+`STORAGE_DIR`, `PUBLIC_DIR`, plus trust-zone URLs, upload budgets, storage
+quotas, and retention windows. Multipart size,
 ZIP/extracted size, entry count, path length, compression ratio, and global /
 user / project concurrency limits are all server-enforced. Invalid explicit
 values throw; safe defaults apply only when a value is omitted.
+
+Deletion is two-phase: artifacts move into `.recovery/trash` before metadata
+commits and are restored if the transaction fails. Only expired committed trash
+is garbage-collected. Restore requires a verified backup and `--force`, and the
+server must be stopped first.
 
 ### Deploy serving
 

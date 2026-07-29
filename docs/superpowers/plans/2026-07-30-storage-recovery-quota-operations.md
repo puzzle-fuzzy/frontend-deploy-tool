@@ -164,12 +164,12 @@ background queue, incremental backup, billing, or artifact SEO analysis.
 
 ## Task 6: Phase gate and remote checkpoint
 
-- [ ] Run `bun run verify`.
-- [ ] Run a backup → mutate → restore drill and compare projects, versions,
+- [x] Run `bun run verify`.
+- [x] Run a backup → mutate → restore drill and compare projects, versions,
   active release, audit events, and sessions.
-- [ ] Run `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, artifact
+- [x] Run `PRAGMA integrity_check`, `PRAGMA foreign_key_check`, artifact
   integrity inspection, and GC dry-run/real-run fixtures.
-- [ ] Update `docs/backend-hardening-roadmap.md`, `AGENTS.md`, `CLAUDE.md`, and
+- [x] Update `docs/backend-hardening-roadmap.md`, `AGENTS.md`, `CLAUDE.md`, and
   environment documentation.
 - [ ] Commit independently verified slices, push `main`, and confirm
   `origin/main` matches.
