@@ -46,7 +46,11 @@ export function createApp(config: AppConfig) {
         legacyDataFile: config.dataFile,
       })
     : createJsonProjectRepository(config.dataFile);
-  const reconciliation = reconcileStorage(repo, config.storageDir);
+  const reconciliation = reconcileStorage(repo, config.storageDir, {
+    stagingRetentionMs: (config.stagingRetentionHours ?? 24) * 60 * 60 * 1000,
+    recoveryRetentionMs:
+      (config.recoveryRetentionHours ?? 168) * 60 * 60 * 1000,
+  });
   if (Object.values(reconciliation).some((count) => count > 0)) {
     console.warn(
       `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`

@@ -40,6 +40,10 @@ export interface AppConfig {
   maxStorageSizePerUser?: number;
   /** Maximum persisted bytes in one project. */
   maxStorageSizePerProject?: number;
+  /** Retain incomplete upload staging for at least this many hours. */
+  stagingRetentionHours?: number;
+  /** Retain committed trash and orphan quarantine for at least this many hours. */
+  recoveryRetentionHours?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -143,6 +147,16 @@ export function loadConfig({
       'MAX_STORAGE_SIZE_PER_PROJECT',
       env.MAX_STORAGE_SIZE_PER_PROJECT,
       DEFAULT_STORAGE_QUOTA_LIMITS.perProject
+    ),
+    stagingRetentionHours: parsePositiveInteger(
+      'STAGING_RETENTION_HOURS',
+      env.STAGING_RETENTION_HOURS,
+      24
+    ),
+    recoveryRetentionHours: parsePositiveInteger(
+      'RECOVERY_RETENTION_HOURS',
+      env.RECOVERY_RETENTION_HOURS,
+      168
     ),
   };
   validateAppConfig(config);

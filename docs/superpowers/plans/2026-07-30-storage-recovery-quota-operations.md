@@ -103,15 +103,15 @@ background queue, incremental backup, billing, or artifact SEO analysis.
 - Create: `apps/server/tests/services/storageGarbageCollector.test.ts`
 - Modify: `apps/server/tests/services/storageReconciler.test.ts`
 
-- [ ] Add configurable `STAGING_RETENTION_HOURS` (default 24) and
+- [x] Add configurable `STAGING_RETENTION_HOURS` (default 24) and
   `RECOVERY_RETENTION_HOURS` (default 168).
-- [ ] Add timestamp-controlled tests proving fresh entries survive, expired
+- [x] Add timestamp-controlled tests proving fresh entries survive, expired
   staging is removed, only committed expired trash is removed, and orphan
   quarantine observes recovery retention.
-- [ ] Replace unconditional startup staging deletion with the conservative
+- [x] Replace unconditional startup staging deletion with the conservative
   collector and include its counts in reconciliation reporting.
-- [ ] Leave uncommitted trash untouched for operator inspection/recovery.
-- [ ] Run:
+- [x] Leave uncommitted trash untouched for operator inspection/recovery.
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/storageGarbageCollector.test.ts tests/services/storageReconciler.test.ts tests/services/config.test.ts`
 
 ## Task 4: Explicit artifact integrity inspection

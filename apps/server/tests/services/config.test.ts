@@ -34,6 +34,8 @@ describe('loadConfig', () => {
       maxStorageSize: 20 * 1024 * 1024 * 1024,
       maxStorageSizePerUser: 10 * 1024 * 1024 * 1024,
       maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
+      stagingRetentionHours: 24,
+      recoveryRetentionHours: 168,
     });
   });
 
@@ -76,6 +78,8 @@ describe('loadConfig', () => {
       maxStorageSize: 20 * 1024 * 1024 * 1024,
       maxStorageSizePerUser: 10 * 1024 * 1024 * 1024,
       maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
+      stagingRetentionHours: 24,
+      recoveryRetentionHours: 168,
     });
   });
 
@@ -181,6 +185,9 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ appDir, env: { MAX_STORAGE_SIZE_PER_PROJECT: '0' } })
     ).toThrow('Invalid MAX_STORAGE_SIZE_PER_PROJECT');
+    expect(() =>
+      loadConfig({ appDir, env: { STAGING_RETENTION_HOURS: '0' } })
+    ).toThrow('Invalid STAGING_RETENTION_HOURS');
   });
 
   test('uses explicit upload resource budgets', () => {
@@ -197,6 +204,8 @@ describe('loadConfig', () => {
         MAX_STORAGE_SIZE: '9000',
         MAX_STORAGE_SIZE_PER_USER: '6000',
         MAX_STORAGE_SIZE_PER_PROJECT: '3000',
+        STAGING_RETENTION_HOURS: '12',
+        RECOVERY_RETENTION_HOURS: '72',
       },
     });
 
@@ -210,6 +219,8 @@ describe('loadConfig', () => {
     expect(config.maxStorageSize).toBe(9000);
     expect(config.maxStorageSizePerUser).toBe(6000);
     expect(config.maxStorageSizePerProject).toBe(3000);
+    expect(config.stagingRetentionHours).toBe(12);
+    expect(config.recoveryRetentionHours).toBe(72);
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {

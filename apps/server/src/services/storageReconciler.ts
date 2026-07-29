@@ -3,14 +3,20 @@ import {
   mkdirSync,
   readdirSync,
   renameSync,
-  rmSync,
+  utimesSync,
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { appendHistoryEvent } from '../domain/history';
 import type { ProjectRepository } from '../repositories/projectRepository';
+import {
+  collectStorageGarbage,
+  type StorageGarbageCollectionOptions,
+} from './storageGarbageCollector';
 
 export interface StorageReconciliationReport {
   removedStagingEntries: number;
+  removedCommittedTrashEntries: number;
+  removedOrphanEntries: number;
   quarantinedOrphanVersions: number;
   markedFailedVersions: number;
   deactivatedProjects: number;
@@ -18,6 +24,8 @@ export interface StorageReconciliationReport {
 
 const EMPTY_REPORT: StorageReconciliationReport = {
   removedStagingEntries: 0,
+  removedCommittedTrashEntries: 0,
+  removedOrphanEntries: 0,
   quarantinedOrphanVersions: 0,
   markedFailedVersions: 0,
   deactivatedProjects: 0,
@@ -34,17 +42,13 @@ const EMPTY_REPORT: StorageReconciliationReport = {
  */
 export function reconcileStorage(
   repo: ProjectRepository,
-  storageDir: string
+  storageDir: string,
+  options: StorageGarbageCollectionOptions = {}
 ): StorageReconciliationReport {
   mkdirSync(storageDir, { recursive: true });
-  const report = { ...EMPTY_REPORT };
-  const stagingRoot = join(storageDir, '.staging');
+  const garbageCollection = collectStorageGarbage(storageDir, options);
+  const report = { ...EMPTY_REPORT, ...garbageCollection };
   const orphanRecoveryRoot = join(storageDir, '.recovery', 'orphans');
-
-  if (existsSync(stagingRoot)) {
-    report.removedStagingEntries = readdirSync(stagingRoot).length;
-    rmSync(stagingRoot, { recursive: true, force: true });
-  }
 
   const snapshot = repo.load();
   const projectsById = new Map(
@@ -55,11 +59,6 @@ export function reconcileStorage(
     if (entry.name.startsWith('.')) continue;
     const entryPath = join(storageDir, entry.name);
 
-    if (entry.isFile() && entry.name.endsWith('.zip')) {
-      rmSync(entryPath, { force: true });
-      report.removedStagingEntries += 1;
-      continue;
-    }
     if (!entry.isDirectory()) continue;
 
     const project = projectsById.get(entry.name);
@@ -145,4 +144,6 @@ function quarantinePath(source: string, preferredTarget: string): void {
     suffix += 1;
   }
   renameSync(source, target);
+  const quarantinedAt = new Date();
+  utimesSync(target, quarantinedAt, quarantinedAt);
 }

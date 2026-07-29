@@ -146,6 +146,8 @@ deploykit/
 | `MAX_STORAGE_SIZE` | `21474836480` (20GB) | 当前实例全部已保存解压产物的容量上限 |
 | `MAX_STORAGE_SIZE_PER_USER` | `10737418240` (10GB) | 按项目创建者归属计算的用户容量上限 |
 | `MAX_STORAGE_SIZE_PER_PROJECT` | `5368709120` (5GB) | 单项目已保存解压产物的容量上限 |
+| `STAGING_RETENTION_HOURS` | `24` | 未完成上传暂存区的最短保留时间 |
+| `RECOVERY_RETENTION_HOURS` | `168` | 已提交删除和孤儿隔离区的最短保留时间 |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 

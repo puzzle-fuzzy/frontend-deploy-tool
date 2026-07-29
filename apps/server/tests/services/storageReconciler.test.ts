@@ -4,12 +4,14 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data, Project, Version } from '@deploykit/shared';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
+import { collectStorageGarbage } from '../../src/services/storageGarbageCollector';
 import { reconcileStorage } from '../../src/services/storageReconciler';
 
 function version(id: string, status: Version['status'] = 'preview'): Version {
@@ -80,6 +82,8 @@ describe('reconcileStorage', () => {
       join(storageDir, '.staging', 'incomplete', 'index.html'),
       'partial'
     );
+    const stale = new Date(Date.now() - 25 * 60 * 60 * 1000);
+    utimesSync(join(storageDir, '.staging', 'incomplete'), stale, stale);
     mkdirSync(join(storageDir, 'p1', 'healthy-preview'), { recursive: true });
     writeFileSync(
       join(storageDir, 'p1', 'healthy-preview', 'index.html'),
@@ -97,12 +101,16 @@ describe('reconcileStorage', () => {
       join(storageDir, 'orphan-project', 'orphan-version', 'index.html'),
       'orphan'
     );
+    const ancient = new Date('2000-01-01T00:00:00.000Z');
+    utimesSync(join(storageDir, 'orphan-project'), ancient, ancient);
 
     try {
       const report = reconcileStorage(repository(data), storageDir);
 
       expect(report).toEqual({
         removedStagingEntries: 1,
+        removedCommittedTrashEntries: 0,
+        removedOrphanEntries: 0,
         quarantinedOrphanVersions: 2,
         markedFailedVersions: 2,
         deactivatedProjects: 1,
@@ -117,6 +125,23 @@ describe('reconcileStorage', () => {
             '.recovery',
             'orphans',
             'p1',
+            'orphan-version',
+            'index.html'
+          )
+        )
+      ).toBe(true);
+      expect(
+        collectStorageGarbage(storageDir, {
+          now: new Date(Date.now() + 60 * 60 * 1000),
+        }).removedOrphanEntries
+      ).toBe(0);
+      expect(
+        existsSync(
+          join(
+            storageDir,
+            '.recovery',
+            'orphans',
+            'orphan-project',
             'orphan-version',
             'index.html'
           )
@@ -174,11 +199,35 @@ describe('reconcileStorage', () => {
 
       expect(reconcileStorage(repo, storageDir)).toEqual({
         removedStagingEntries: 0,
+        removedCommittedTrashEntries: 0,
+        removedOrphanEntries: 0,
         quarantinedOrphanVersions: 0,
         markedFailedVersions: 0,
         deactivatedProjects: 0,
       });
       expect(data.history).toHaveLength(historyLength);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves fresh staging work during startup reconciliation', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const stagingDir = join(storageDir, '.staging', 'active-upload');
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [],
+      users: [],
+      history: [],
+    };
+    mkdirSync(stagingDir, { recursive: true });
+    writeFileSync(join(stagingDir, 'index.html'), 'partial');
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        removedStagingEntries: 0,
+      });
+      expect(existsSync(stagingDir)).toBe(true);
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }
