@@ -148,18 +148,18 @@ background queue, incremental backup, billing, or artifact SEO analysis.
 - Modify: `apps/server/README.md`
 - Modify: `docs/architecture.md`
 
-- [ ] Define a versioned backup manifest with creation time, schema version,
+- [x] Define a versioned backup manifest with creation time, schema version,
   database filename, storage directory, and metadata/artifact counts.
-- [ ] Use `VACUUM INTO` for a transactionally consistent SQLite snapshot and
+- [x] Use `VACUUM INTO` for a transactionally consistent SQLite snapshot and
   copy artifacts into a temporary backup directory before atomic rename.
-- [ ] Verify `integrity_check`, `foreign_key_check`, manifest shape, expected
+- [x] Verify `integrity_check`, `foreign_key_check`, manifest shape, expected
   paths, version entrypoints, and checksums.
-- [ ] Restore only with an explicit `--force`; validate the backup first, move
+- [x] Restore only with an explicit `--force`; validate the backup first, move
   the current database/storage to a timestamped rollback directory, then move
   restored files into place.
-- [ ] Inject restore failure and prove the rollback state remains available.
-- [ ] Add `bun run ops -- backup|verify|restore|gc|inspect`.
-- [ ] Run:
+- [x] Inject restore failure and prove the rollback state remains available.
+- [x] Add `bun run ops -- backup|verify|restore|gc|inspect`.
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/backupService.test.ts`
 
 ## Task 6: Phase gate and remote checkpoint

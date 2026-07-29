@@ -139,6 +139,22 @@ bun run dev:server          # 仅后端
 
 所有响应包含 `X-Request-Id`。调用方可传入合法的 `X-Request-Id` 以串联代理、服务端日志和客户端报错。
 
+## 运维命令
+
+```bash
+bun run ops -- backup [目标目录]
+bun run ops -- verify <备份目录>
+bun run ops -- inspect [projectId versionId]
+bun run ops -- gc [--dry-run]
+bun run ops -- restore <备份目录> --force
+```
+
+备份同时包含 `VACUUM INTO` 生成的 SQLite 快照、完整产物树和版本化清单。
+`verify` 校验数据库完整性/外键、清单计数、入口文件与 checksum。`inspect`
+会持久化完整性结果；`gc` 默认遵守配置的保留期。执行 `restore` 前必须停止
+服务；当前状态会先进入 `.deploykit-rollback/`，安装失败时自动恢复且保留该
+目录供人工处理。
+
 ## 测试
 
 ```bash

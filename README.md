@@ -232,6 +232,34 @@ deploykit/
 
 详细指导见 [docs/vite-deployment.md](docs/vite-deployment.md)。
 
+## 备份、恢复与存储运维
+
+所有命令从仓库根目录运行，默认读取与服务相同的环境变量：
+
+```bash
+bun run ops -- backup [目标目录]
+bun run ops -- verify <备份目录>
+bun run ops -- gc --dry-run
+bun run ops -- gc
+bun run ops -- inspect [projectId versionId]
+bun run ops -- restore <备份目录> --force
+```
+
+- `backup` 通过 SQLite `VACUUM INTO` 创建事务一致快照，同时复制完整
+  `STORAGE_DIR`，写入包含 schema、元数据计数和产物计数的 `manifest.json`；
+  默认保存到 `apps/server/.voasx/backups/`。
+- `verify` 检查 SQLite `integrity_check`、外键、清单计数、符号链接、每个正常
+  版本的 `index.html` 和 checksum。已明确标记为损坏/缺失的 failed 版本作为
+  warning 报告，不会伪装成健康状态。
+- `inspect` 会显式重算版本 checksum 并写入完整性状态与审计历史；如果线上
+  版本缺失或被篡改，它会下线该版本但不会自动选择替代版本。
+- `gc --dry-run` 只报告过期项；不带 `--dry-run` 才会删除过期 staging、已提交
+  trash 和 orphan。未提交 trash 不会自动删除。
+- `restore` 是破坏性运维，必须先停止 DeployKit 服务并显式传入 `--force`。
+  安装备份前，当前数据库、WAL sidecar 和产物会保存到
+  `apps/server/.deploykit-rollback/`；安装失败会自动恢复当前状态，同时保留
+  rollback 目录。
+
 ## 测试
 
 ```bash

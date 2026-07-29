@@ -71,6 +71,7 @@
     "dev:desktop": "bun --filter @deploykit/desktop dev",
     "build": "turbo run build && bun run package",
     "package": "bun run scripts/package-web.ts",
+    "ops": "bun run apps/server/src/cli/ops.ts",
     "test": "turbo run test",
     "lint": "turbo run lint",
     "typecheck": "turbo run typecheck",

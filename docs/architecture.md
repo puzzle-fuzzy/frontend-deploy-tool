@@ -40,7 +40,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置）、`version.ts`（显式发布状态）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`storageReconciler`（启动时元数据/产物对账）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
 | `app.ts` | 组合根 | `createApp(config)`：配置校验、信任域路由、服务装配、`/health/*`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
@@ -82,9 +82,9 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 前端 `tsc`（`types: ["vite/client"]`，无 `bun-types`）会沿 `import type { ApiApp }` 追踪到后端源文件；任何 `Bun.*` 或 `node:fs` 引用都会让前端类型检查失败。因此：
 - 服务接口集中在 `services/contracts.ts`（类型 + `File`，无 Bun/Node）。
-- `routes/{projects,versions,history}` 不直接 import `node:fs`。项目目录清理以
-  DI 回调（`removeProjectDir`）注入，实现在 `app.ts` 中；版本目录清理由
-  `versionService` 负责，和版本生命周期保持在同一用例边界。
+- `routes/{projects,versions,history}` 不直接 import `node:fs`。项目和版本
+  删除由服务层通过 `artifactRecovery` 编排，使文件两阶段移动与元数据事务
+  保持在同一用例边界。
 - 部署路由依赖 `artifactService`（用 `Bun.file`），故不在 `api.ts` 图中。
 
 ### 浏览器信任边界
@@ -129,7 +129,10 @@ apps/server/
 ├── data.json                              # 旧版本数据，仅在 SQLite 为空时导入一次
 ├── public/                                # 管理面板（打包脚本同步自 apps/web/dist）
 └── .voasx/storage/
-    ├── .staging/                          # 上传处理中间目录（启动时清理）
+    ├── .staging/                          # 上传处理中间目录（默认保留 24h）
+    ├── .recovery/
+    │   ├── trash/{operationId}/           # 已删除但保留期内可恢复的产物
+    │   └── orphans/                       # 无元数据引用的隔离产物
     └── {projectId}/
         └── {versionId}/                   # 该版本的扁平化静态文件
             └── index.html, assets/, ...
@@ -144,7 +147,10 @@ apps/server/
   `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
   启动不会再次覆盖关系数据。
-- 产物目录：删除项目/版本时联动清理；`flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除 `__MACOSX`。
+- 删除项目/版本先把产物在同卷原子移动到 `.recovery/trash/{operationId}`；
+  元数据事务失败时恢复原路径，成功时写 `COMMITTED` 标记并等待保留期 GC。
+  `flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除
+  `__MACOSX`。
 - 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
   checksum 校验后，通过 `rename` 原子移动到正式版本目录，再提交 SQLite 元数据。
   元数据提交失败会删除正式目录。
@@ -153,11 +159,29 @@ apps/server/
   不一致返回 `409 RELEASE_CONFLICT`。切换前会验证版本生命周期、
   `index.html` 和目录 checksum。删除线上版本只会将项目下线，不会隐式发布
   另一个版本。
-- 应用开始服务前执行一次对账：清理中断 staging 与旧 ZIP 临时文件；没有元数据
-  引用的正式产物移动到 `.recovery/orphans/`，不做不可恢复删除。元数据存在但
+- 应用开始服务前执行一次对账：只清理超过 staging 保留期的中断上传和旧 ZIP；
+  没有元数据引用的正式产物移动到 `.recovery/orphans/`，并从隔离时刻重新计算
+  恢复保留期。只有过期且带 `COMMITTED` 的 trash 会自动删除，未提交 trash
+  永久留给人工检查。元数据存在但
   缺少 `index.html` 的版本标记为 `failed` 并记录 `version.reconcile`。若缺失
   版本原本在线，只会清空 `activeVersionId`，不会自动发布另一个版本。
+- 全局、项目创建者和单项目容量在上传最终 `IMMEDIATE` 元数据事务内重新计算；
+  超额时删除本次已落盘产物并返回 `STORAGE_QUOTA_EXCEEDED`。
+- 完整性检查是显式操作，不在每次启动对全树哈希。结果持久化为
+  `unknown/verified/missing/corrupted`；缺失或损坏的线上版本只会下线。
 - 路径均可通过环境变量重定位（`DATABASE_FILE` / `DATA_FILE` / `STORAGE_DIR` / `PUBLIC_DIR`）。
+
+### 备份与恢复
+
+`bun run ops -- backup` 使用 `VACUUM INTO` 生成一致 SQLite 快照，复制完整
+存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、元数据计数和
+产物计数。`verify` 在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、
+版本入口和 checksum。
+
+恢复必须在服务停止后使用 `--force`。备份会先复制到数据库和存储各自同卷的
+临时路径；验证通过后，当前数据库、WAL sidecar 与存储移动到
+`.deploykit-rollback/{operationId}`，再原子安装新状态。任一安装步骤失败都会
+从 rollback 副本恢复运行路径，同时保留 rollback 内容供人工审计。
 
 ## 前端结构（packages/client/src）
 
@@ -170,7 +194,7 @@ apps/server/
 
 ```ts
 Settings  { spaMode: boolean; routingType: 'hash' | 'path' }
-Version   { id; name; description; createdAt; size; fileCount; sourceType; status; publishedAt; publishedBy; checksum }
+Version   { id; name; description; createdAt; size; fileCount; sourceType; status; publishedAt; publishedBy; checksum; integrityStatus; integrityCheckedAt }
 Project   { id; name; slug; description; createdAt; updatedAt; versions: Version[]; activeVersionId: string | null; settings: Settings }
 HistoryEvent { id; action; projectId; projectName; versionId; versionName; timestamp; actorId; metadata? }
 User      { id; name; email; passwordHash; role; createdAt; updatedAt }

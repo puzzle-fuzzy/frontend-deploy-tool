@@ -10,6 +10,7 @@ apps/server/deploykit.sqlite-shm
 apps/server/deploykit.sqlite-wal
 apps/server/data.json.sqlite-migration.bak
 apps/server/.voasx/
+apps/server/.deploykit-rollback/
 apps/web/dist/
 
 *.tsbuildinfo
