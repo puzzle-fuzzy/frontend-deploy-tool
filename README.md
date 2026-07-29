@@ -132,7 +132,8 @@ deploykit/
 | `DATA_FILE` | `apps/server/data.json` | 旧 JSON 数据路径，仅用于首次迁移 |
 | `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物存储目录 |
 | `PUBLIC_DIR` | `apps/server/public` | 管理面板静态文件目录 |
-| `PUBLIC_BASE_URL` | （同源） | 部署链接的公开基础 URL |
+| `MANAGEMENT_BASE_URL` | 开发环境可不设 | 管理面板与 API 的可信源；生产必填 |
+| `DEPLOY_BASE_URL` | 开发环境可不设 | 不可信部署产物的独立源；生产必填且必须与管理源不同 |
 | `MAX_ZIP_SIZE` | `104857600` (100MB) | 单个 ZIP 上传上限（字节） |
 | `MAX_EXTRACTED_SIZE` | `104857600` (100MB) | 解压/文件夹上传总大小上限 |
 | `MAX_FILE_COUNT` | `1000` | 单次上传文件数量上限 |
@@ -142,15 +143,22 @@ deploykit/
 
 | 变量 | 说明 |
 |------|------|
-| `VITE_PUBLIC_BASE_URL` | 部署链接的公开基础 URL；不设则使用前端当前源（同源） |
+| `VITE_DEPLOY_BASE_URL` | 部署产物的独立公开基础 URL |
+| `VITE_PUBLIC_BASE_URL` | 旧变量兼容入口；新配置应使用 `VITE_DEPLOY_BASE_URL` |
 
 ## API 接口
 
-所有接口前缀为 `/api`。除登录/登出外，API 需要 session cookie；权限分为
+所有接口前缀为 `/api`。除登录/登出外，API 需要 HttpOnly session cookie；
+浏览器不会把 bearer token 写入 localStorage。权限分为
 `admin` / `developer` / `viewer`。错误响应格式：
 `{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见
 `apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经
 `hono/client` 自动获得类型。
+
+生产部署必须把同一个 Bun 进程反向代理到两个不同的浏览器源，并保留原始
+`Host`：`MANAGEMENT_BASE_URL` 只提供管理面板、API 和健康检查，
+`DEPLOY_BASE_URL` 只提供 `/deploy/*` 和健康检查。这样上传产物中的脚本无法
+读取管理域的 Cookie、localStorage 或 API 响应。
 
 ### 认证
 

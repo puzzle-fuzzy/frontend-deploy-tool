@@ -8,8 +8,9 @@
 const trimTrailingSlashes = (url: string): string => url.replace(/\/+$/, '');
 
 export const getPublicBaseURL = (): string => {
-  // Check if there's an environment variable set (import.meta.env for Vite)
-  const envPublicURL = import.meta.env.VITE_PUBLIC_BASE_URL;
+  const envPublicURL =
+    import.meta.env.VITE_DEPLOY_BASE_URL ??
+    import.meta.env.VITE_PUBLIC_BASE_URL;
   if (envPublicURL) {
     return trimTrailingSlashes(envPublicURL);
   }

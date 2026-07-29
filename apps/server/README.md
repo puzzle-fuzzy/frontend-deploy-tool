@@ -84,13 +84,17 @@ bun run dev:server          # 仅后端
 | `DATA_FILE` | `apps/server/data.json` | 旧 JSON 数据；仅在 SQLite 为空时导入一次并备份 |
 | `STORAGE_DIR` | `apps/server/.voasx/storage` | 部署产物目录 |
 | `PUBLIC_DIR` | `apps/server/public` | 管理面板静态目录 |
-| `PUBLIC_BASE_URL` | — | 公开基础 URL；以 `https://` 开头时 session cookie 标记为 Secure |
+| `MANAGEMENT_BASE_URL` | 开发可不设 | 管理 UI/API 可信源；生产必填，`https://` 时 Cookie 标记 Secure |
+| `DEPLOY_BASE_URL` | 开发可不设 | 部署产物不可信源；生产必填且必须与管理源不同 |
 | `SESSION_SECRET` | 开发环境临时生成 | 生产必填且至少 32 个字符 |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | `admin@deploykit.local` / 开发环境随机生成 | 空用户库首次启动时创建管理员；生产密码必填 |
 | `REGISTRATION_ENABLED` | 开发 `true`、生产 `false` | 是否开放自助注册 |
 | `MAX_ZIP_SIZE` / `MAX_EXTRACTED_SIZE` / `MAX_FILE_COUNT` / `MAX_PATH_LENGTH` | 100MB / 100MB / 1000 / 1000 | 上传上限 |
 
 所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
+
+生产环境由反向代理把两个不同域名转发到同一服务端口并保留原始 `Host`。
+管理源拒绝 `/deploy/*`，部署源拒绝 UI 和 `/api/*`。
 
 ## 部署路由
 

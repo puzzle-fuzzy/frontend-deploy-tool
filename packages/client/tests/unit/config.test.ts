@@ -11,4 +11,11 @@ describe('getPublicBaseURL', () => {
 
     expect(getPublicBaseURL()).toBe('https://deploy.example.com');
   });
+
+  it('prefers the dedicated deploy base URL', () => {
+    vi.stubEnv('VITE_DEPLOY_BASE_URL', 'https://assets.example.net///');
+    vi.stubEnv('VITE_PUBLIC_BASE_URL', 'https://legacy.example.com');
+
+    expect(getPublicBaseURL()).toBe('https://assets.example.net');
+  });
 });

@@ -69,7 +69,7 @@ describe('createFetchApiClient', () => {
     }
   });
 
-  it('rehydrates a stored bearer token for protected requests', async () => {
+  it('discards a legacy bearer token and relies on the session cookie', async () => {
     window.localStorage.setItem('deploykit.auth.token', 'persisted-token');
     mockGetMe.mockResolvedValue(
       new Response(JSON.stringify({ id: 'u1', name: 'Ada' }), {
@@ -85,14 +85,8 @@ describe('createFetchApiClient', () => {
     const user = await client.getMe();
 
     expect(user).toMatchObject({ id: 'u1', name: 'Ada' });
-    expect(mockGetMe).toHaveBeenCalledWith(
-      undefined,
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: 'Bearer persisted-token',
-        }),
-      })
-    );
+    expect(window.localStorage.getItem('deploykit.auth.token')).toBeNull();
+    expect(mockGetMe).toHaveBeenCalledWith();
   });
 
   it('loads project history with the requested limit and opaque cursor', async () => {
@@ -113,12 +107,9 @@ describe('createFetchApiClient', () => {
       cursor: 'cursor/one',
     });
 
-    expect(mockListProjectHistory).toHaveBeenCalledWith(
-      {
-        param: { id: 'project-1' },
-        query: { limit: '25', cursor: 'cursor/one' },
-      },
-      expect.objectContaining({ headers: undefined })
-    );
+    expect(mockListProjectHistory).toHaveBeenCalledWith({
+      param: { id: 'project-1' },
+      query: { limit: '25', cursor: 'cursor/one' },
+    });
   });
 });

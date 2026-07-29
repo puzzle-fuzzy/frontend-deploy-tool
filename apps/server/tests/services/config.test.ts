@@ -15,7 +15,8 @@ describe('loadConfig', () => {
       dataFile: join(appDir, 'data.json'),
       storageDir: join(appDir, '.voasx', 'storage'),
       publicDir: join(appDir, 'public'),
-      publicBaseURL: undefined,
+      managementBaseURL: undefined,
+      deployBaseURL: undefined,
       sessionSecret: undefined,
       adminEmail: 'admin@deploykit.local',
       adminPassword: '',
@@ -48,7 +49,8 @@ describe('loadConfig', () => {
       dataFile: join('tmp', 'data.json'),
       storageDir: join('tmp', 'storage'),
       publicDir: join('tmp', 'public'),
-      publicBaseURL: undefined,
+      managementBaseURL: undefined,
+      deployBaseURL: undefined,
       sessionSecret: undefined,
       adminEmail: 'admin@deploykit.local',
       adminPassword: '',
@@ -88,6 +90,8 @@ describe('loadConfig', () => {
         NODE_ENV: 'production',
         SESSION_SECRET: 's'.repeat(32),
         ADMIN_PASSWORD: 'production-password',
+        MANAGEMENT_BASE_URL: 'https://console.example.com',
+        DEPLOY_BASE_URL: 'https://deploy.example.net',
       },
     });
 
@@ -102,6 +106,8 @@ describe('loadConfig', () => {
         env: {
           NODE_ENV: 'production',
           ADMIN_PASSWORD: 'production-password',
+          MANAGEMENT_BASE_URL: 'https://console.example.com',
+          DEPLOY_BASE_URL: 'https://deploy.example.net',
         },
       })
     ).toThrow('SESSION_SECRET');
@@ -113,6 +119,8 @@ describe('loadConfig', () => {
           NODE_ENV: 'production',
           SESSION_SECRET: 'too-short',
           ADMIN_PASSWORD: 'production-password',
+          MANAGEMENT_BASE_URL: 'https://console.example.com',
+          DEPLOY_BASE_URL: 'https://deploy.example.net',
         },
       })
     ).toThrow('at least 32 characters');
@@ -125,12 +133,14 @@ describe('loadConfig', () => {
         env: {
           NODE_ENV: 'production',
           SESSION_SECRET: 's'.repeat(32),
+          MANAGEMENT_BASE_URL: 'https://console.example.com',
+          DEPLOY_BASE_URL: 'https://deploy.example.net',
         },
       })
     ).toThrow('ADMIN_PASSWORD');
   });
 
-  test('rejects malformed numeric, flag, and public URL values', () => {
+  test('rejects malformed numeric, flag, and origin URL values', () => {
     expect(() => loadConfig({ appDir, env: { MAX_FILE_COUNT: '-2' } })).toThrow(
       'Invalid MAX_FILE_COUNT'
     );
@@ -138,7 +148,57 @@ describe('loadConfig', () => {
       loadConfig({ appDir, env: { REGISTRATION_ENABLED: 'flase' } })
     ).toThrow('Invalid REGISTRATION_ENABLED');
     expect(() =>
-      loadConfig({ appDir, env: { PUBLIC_BASE_URL: 'deploy.example.com' } })
-    ).toThrow('Invalid PUBLIC_BASE_URL');
+      loadConfig({
+        appDir,
+        env: { MANAGEMENT_BASE_URL: 'console.example.com' },
+      })
+    ).toThrow('Invalid MANAGEMENT_BASE_URL');
+    expect(() =>
+      loadConfig({ appDir, env: { DEPLOY_BASE_URL: 'deploy.example.com' } })
+    ).toThrow('Invalid DEPLOY_BASE_URL');
+  });
+
+  test('normalizes configured origins and derives secure cookies from management', () => {
+    const config = loadConfig({
+      appDir,
+      env: {
+        MANAGEMENT_BASE_URL: 'https://console.example.com/path/',
+        DEPLOY_BASE_URL: 'https://deploy.example.net/releases/',
+      },
+    });
+
+    expect(config.managementBaseURL).toBe('https://console.example.com');
+    expect(config.deployBaseURL).toBe('https://deploy.example.net');
+    expect(config.secureCookies).toBe(true);
+  });
+
+  test('requires distinct management and deploy origins in production', () => {
+    const baseEnv = {
+      DEPLOYKIT_ENV: 'production',
+      SESSION_SECRET: 's'.repeat(32),
+      ADMIN_PASSWORD: 'production-password',
+    };
+
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: baseEnv,
+      })
+    ).toThrow(
+      'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL are required in production'
+    );
+
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: {
+          ...baseEnv,
+          MANAGEMENT_BASE_URL: 'https://console.example.com',
+          DEPLOY_BASE_URL: 'https://console.example.com/deploy',
+        },
+      })
+    ).toThrow(
+      'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL must use different origins'
+    );
   });
 });

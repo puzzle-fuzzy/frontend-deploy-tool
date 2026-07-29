@@ -2,7 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type { SafeUser } from '@deploykit/shared';
-import type { Context } from 'hono';
+import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { createApiApp } from './api';
 import { type AppConfig, validateAppConfig } from './config';
@@ -15,6 +15,7 @@ import {
   SESSION_MAX_AGE_SECONDS,
   setSessionCookie,
 } from './middleware/session';
+import { createTrustBoundary } from './middleware/trustBoundary';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
@@ -102,7 +103,7 @@ export function createApp(config: AppConfig) {
     );
   const desktopAuth = createDesktopAuthCodeStore();
 
-  return createApiApp({
+  const apiApp = createApiApp({
     projectService,
     versionService,
     userService,
@@ -120,7 +121,11 @@ export function createApp(config: AppConfig) {
         recursive: true,
         force: true,
       }),
-  })
+  });
+
+  return new Hono()
+    .use('*', createTrustBoundary(config))
+    .route('/', apiApp)
     .get('/health/live', (c) => c.body(null, 204))
     .get('/health/ready', (c) => {
       repo.load();

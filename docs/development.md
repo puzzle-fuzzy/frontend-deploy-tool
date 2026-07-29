@@ -39,9 +39,12 @@ DEPLOYKIT_ENV=production
 SESSION_SECRET=<至少 32 个随机字符>
 ADMIN_PASSWORD=<首次管理员密码>
 REGISTRATION_ENABLED=false
+MANAGEMENT_BASE_URL=https://console.example.com
+DEPLOY_BASE_URL=https://deploy.example.net
 ```
 
-配置解析采用 fail-fast：无效端口、上传限制、布尔值或 `PUBLIC_BASE_URL`
+生产环境需用反向代理把两个域名转发到同一个 Bun 端口并保留原始 `Host`。
+配置解析采用 fail-fast：无效端口、上传限制、布尔值或双域 URL
 会直接阻止启动，不会悄悄改用默认值。启动后可检查
 `/health/live`（进程）与 `/health/ready`（元数据仓库）。
 
@@ -77,9 +80,10 @@ bun run test          # Vitest + React Testing Library
    - **文件夹**：选择构建产物目录（`webkitdirectory`，保留相对路径）。
    - 服务端先写入 `.voasx/storage/.staging/`，全部校验通过后再原子移动到正式版本目录。
    - 上传后保持预览态；必须显式发布后才成为正式版本。
-4. 预览：
+4. 预览（未配置双域的本地兼容模式）：
    - 正式版本：`http://localhost:4010/deploy/{slug}/`
    - 指定版本：`http://localhost:4010/deploy/{slug}/{versionId}/`
+   配置双域时，把 `localhost:4010` 替换为 `DEPLOY_BASE_URL`。
 5. 路径路由应用请先在项目设置开启 SPA 模式，详见 [vite-deployment.md](vite-deployment.md)。
 
 服务启动时会以 SQLite 元数据为真源对账产物目录。中断 staging 会清理，孤儿

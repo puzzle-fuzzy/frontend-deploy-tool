@@ -14,7 +14,7 @@
 ```
 
 1. 开发时 Vite 代理 `/api` 到后端 `localhost:4010`
-2. 生产构建输出到 `apps/web/dist/`；根目录 `bun run build` 会将其打包到 `apps/server/public/`，由后端同源托管
+2. 生产构建输出到 `apps/web/dist/`；根目录 `bun run build` 会将其打包到 `apps/server/public/`，由后端在可信管理源托管
 3. 页面路由使用 URL hash（`#/projects/{id}`），纯客户端状态
 4. API 客户端使用 `hono/client`，类型由后端 `ApiApp` 推导
 
@@ -90,7 +90,7 @@ src/
 
 ## API 客户端
 
-[shared/api.ts](src/shared/api.ts) 通过 `hono/client` 暴露类型化方法（`login`、`getMe`、`listProjects`、`createProject`、`updateProject`、`updateSettings`、`publishVersion`、`rollbackVersion`、`deleteVersion`、`deleteProject`）；响应类型由后端路由推导。`uploadVersion` 保留 `XMLHttpRequest` 实现，用于 `upload.onprogress` 进度事件。所有调用同源（`hc('')`），错误时抛出服务端响应体。
+[shared/api.ts](src/shared/api.ts) 通过 `hono/client` 暴露类型化方法（`login`、`getMe`、`listProjects`、`createProject`、`updateProject`、`updateSettings`、`publishVersion`、`rollbackVersion`、`deleteVersion`、`deleteProject`）；响应类型由后端路由推导。`uploadVersion` 保留 `XMLHttpRequest` 实现，用于 `upload.onprogress` 进度事件。管理 UI 与 API 同源并只使用 HttpOnly Cookie；部署链接由 `VITE_DEPLOY_BASE_URL` 指向独立的不可信源。
 
 ## 脚本
 

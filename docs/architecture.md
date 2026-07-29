@@ -1,14 +1,17 @@
 # 架构文档
 
-DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hono 进程同时提供管理 API、管理面板（React SPA）和已部署站点的静态托管。元数据存储在内嵌 SQLite，部署产物保存在本地文件系统，无需外部数据库服务。
+DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hono 进程同时
+提供管理 API、管理面板（React SPA）和已部署站点的静态托管。生产环境通过
+两个不同的浏览器源划分信任边界：可信管理源只提供 UI/API，不可信部署源只
+提供上传产物。元数据存储在内嵌 SQLite，部署产物保存在本地文件系统。
 
 ## 系统总览
 
 ```
                  ┌─────────────────────────── apps/server (Bun + Hono) ───────────────────────────┐
-  浏览器 ───────► │  /api/*      → routes/{projects,versions,history} → services → repositories   │
-                 │  /deploy/*   → routes/deploy → deployResolver + artifactService                 │
+  管理源 ───────► │  /api/*      → routes/{projects,versions,history} → services → repositories   │
                  │  /*          → 管理面板（apps/server/public，由打包脚本同步自 apps/web/dist）    │
+  部署源 ───────► │  /deploy/*   → routes/deploy → deployResolver + artifactService                 │
                  │                                                                             │
                  │  deploykit.sqlite（WAL）          .voasx/storage/{projectId}/{versionId}/（产物） │
                  └─────────────────────────────────────────────────────────────────────────────┘
@@ -22,7 +25,9 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
                  └────────────────────────────────────────────────────────┘
 ```
 
-三个职责共用一个进程、一个端口：管理 API、管理面板静态托管、部署站点静态托管。这是"本地优先"设计的核心——无需反向代理或独立静态服务器即可工作。
+三个职责仍共用一个进程、一个端口。开发环境未配置双域时保留同源兼容模式；
+生产环境必须由反向代理将两个域名转发到该端口并保留原始 `Host`。双域是安全
+边界而不是服务拆分，因此不会增加数据库或应用进程数量。
 
 ## 后端模块边界（apps/server/src）
 
@@ -30,14 +35,14 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 | 层 | 职责 | 关键文件 |
 |----|------|----------|
-| `config.ts` | 环境变量解析与生产启动门禁（secret/password/URL/数值严格校验） | `config.ts` |
+| `config.ts` | 环境变量解析与生产启动门禁（secret/password/双域/数值严格校验） | `config.ts` |
 | `errors.ts` | 服务端 `ApiError`；稳定错误码定义在 `@deploykit/shared/errors.ts` | `errors.ts` |
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug 校验、`parseSettings`）、`version.ts`（激活、替换活跃版本）、`history.ts`（追加事件，上限 200） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
 | `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`storageReconciler`（启动时元数据/产物对账）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
-| `app.ts` | 组合根 | `createApp(config)`：配置校验、服务装配、`/health/*`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
+| `app.ts` | 组合根 | `createApp(config)`：配置校验、信任域路由、服务装配、`/health/*`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
 | `index.ts` | 运行入口 | `Bun.serve({ fetch: createApp(config).fetch })` |
 
@@ -74,6 +79,15 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
   DI 回调（`removeProjectDir`）注入，实现在 `app.ts` 中；版本目录清理由
   `versionService` 负责，和版本生命周期保持在同一用例边界。
 - 部署路由依赖 `artifactService`（用 `Bun.file`），故不在 `api.ts` 图中。
+
+### 浏览器信任边界
+
+- `MANAGEMENT_BASE_URL`：管理 UI、`/api/*`、`/health/*`。
+- `DEPLOY_BASE_URL`：`/deploy/*`、`/health/*`。
+- 其他 Host、部署源上的 API、管理源上的产物路由都返回 404。
+- 浏览器 API 客户端只使用 HttpOnly session Cookie，不持久化 bearer token。
+- Electron 仍通过一次性授权码换取进程内 bearer token；持久化可撤销设备会话
+  在身份阶段接入。
 
 ## API 契约
 
@@ -135,6 +149,8 @@ Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryE
 
 - `development`（默认）：允许临时会话密钥与随机首个管理员密码，默认开放注册。
 - `test`：与开发默认一致，但显式标识测试运行。
-- `production`：`SESSION_SECRET`（至少 32 字符）和 `ADMIN_PASSWORD` 必填，注册默认关闭；任何非法端口、大小、数量、布尔或 URL 配置都会中止启动。
+- `production`：`SESSION_SECRET`（至少 32 字符）、`ADMIN_PASSWORD`、
+  `MANAGEMENT_BASE_URL` 和 `DEPLOY_BASE_URL` 必填，两个 URL 必须不同源，
+  注册默认关闭；任何非法端口、大小、数量、布尔或 URL 配置都会中止启动。
 - `GET /health/live`：`204`，仅表示 HTTP 进程存活。
 - `GET /health/ready`：实际读取元数据仓库，成功返回 `{ "status": "ok" }`。

@@ -11,7 +11,10 @@ export interface AppConfig {
   dataFile: string;
   storageDir: string;
   publicDir: string;
-  publicBaseURL?: string;
+  /** Trusted browser origin serving the management UI and API. */
+  managementBaseURL?: string;
+  /** Untrusted browser origin serving uploaded deployment artifacts. */
+  deployBaseURL?: string;
   // Auth
   sessionSecret?: string;
   adminEmail: string;
@@ -41,7 +44,11 @@ export function loadConfig({
   env = process.env,
 }: LoadConfigOptions): ServerConfig {
   const environment = parseEnvironment(env.DEPLOYKIT_ENV ?? env.NODE_ENV);
-  const publicBaseURL = parsePublicBaseURL(env.PUBLIC_BASE_URL);
+  const managementBaseURL = parseBaseURL(
+    'MANAGEMENT_BASE_URL',
+    env.MANAGEMENT_BASE_URL
+  );
+  const deployBaseURL = parseBaseURL('DEPLOY_BASE_URL', env.DEPLOY_BASE_URL);
   const config: ServerConfig = {
     environment,
     port: parsePositiveInteger('PORT', env.PORT, 4010, 65535),
@@ -49,12 +56,13 @@ export function loadConfig({
     dataFile: env.DATA_FILE ?? join(appDir, 'data.json'),
     storageDir: env.STORAGE_DIR ?? join(appDir, '.voasx', 'storage'),
     publicDir: env.PUBLIC_DIR ?? join(appDir, 'public'),
-    publicBaseURL,
+    managementBaseURL,
+    deployBaseURL,
     // Auth
     sessionSecret: emptyToUndefined(env.SESSION_SECRET),
     adminEmail: env.ADMIN_EMAIL ?? 'admin@deploykit.local',
     adminPassword: env.ADMIN_PASSWORD ?? '',
-    secureCookies: publicBaseURL?.startsWith('https://') ?? false,
+    secureCookies: managementBaseURL?.startsWith('https://') ?? false,
     // Local development stays convenient; production fails closed by default.
     registrationEnabled: parseFlag(
       'REGISTRATION_ENABLED',
@@ -93,7 +101,12 @@ export function loadConfig({
  */
 export function validateAppConfig(config: AppConfig): void {
   const environment = config.environment ?? 'development';
-  if (config.publicBaseURL) parsePublicBaseURL(config.publicBaseURL);
+  if (config.managementBaseURL) {
+    parseBaseURL('MANAGEMENT_BASE_URL', config.managementBaseURL);
+  }
+  if (config.deployBaseURL) {
+    parseBaseURL('DEPLOY_BASE_URL', config.deployBaseURL);
+  }
   if (environment !== 'production') return;
 
   if (!config.sessionSecret) {
@@ -109,6 +122,19 @@ export function validateAppConfig(config: AppConfig): void {
   if (!config.adminPassword) {
     throw new Error(
       'ADMIN_PASSWORD is required in production to prevent logging a generated credential'
+    );
+  }
+  if (!config.managementBaseURL || !config.deployBaseURL) {
+    throw new Error(
+      'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL are required in production'
+    );
+  }
+  if (
+    new URL(config.managementBaseURL).origin ===
+    new URL(config.deployBaseURL).origin
+  ) {
+    throw new Error(
+      'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL must use different origins'
     );
   }
 }
@@ -164,7 +190,10 @@ function emptyToUndefined(value: string | undefined): string | undefined {
   return trimmed ? trimmed : undefined;
 }
 
-function parsePublicBaseURL(value: string | undefined): string | undefined {
+function parseBaseURL(
+  name: 'MANAGEMENT_BASE_URL' | 'DEPLOY_BASE_URL',
+  value: string | undefined
+): string | undefined {
   const normalized = emptyToUndefined(value);
   if (!normalized) return undefined;
   let url: URL;
@@ -172,7 +201,7 @@ function parsePublicBaseURL(value: string | undefined): string | undefined {
     url = new URL(normalized);
   } catch {
     throw new Error(
-      `Invalid PUBLIC_BASE_URL: expected an absolute http(s) URL; received "${value}"`
+      `Invalid ${name}: expected an absolute http(s) URL; received "${value}"`
     );
   }
   if (
@@ -181,8 +210,8 @@ function parsePublicBaseURL(value: string | undefined): string | undefined {
     url.password
   ) {
     throw new Error(
-      `Invalid PUBLIC_BASE_URL: expected an absolute http(s) URL without credentials; received "${value}"`
+      `Invalid ${name}: expected an absolute http(s) URL without credentials; received "${value}"`
     );
   }
-  return normalized.replace(/\/+$/, '');
+  return url.origin;
 }

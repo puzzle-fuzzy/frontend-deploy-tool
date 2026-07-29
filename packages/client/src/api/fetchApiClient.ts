@@ -12,51 +12,19 @@ import { checkOk, createApiClientError } from './errors';
 
 // Same-origin API; the Vite dev server proxies `/api` to the backend in dev.
 const client = hc<ApiApp>('');
-const STORAGE_KEY = 'deploykit.auth.token';
+const LEGACY_TOKEN_STORAGE_KEY = 'deploykit.auth.token';
 
-let authToken: string | null = null;
-
-function readStoredToken(): string | null {
-  if (typeof window === 'undefined') return null;
-  return window.localStorage.getItem(STORAGE_KEY);
+// Remove bearer tokens persisted by releases before browser auth became
+// cookie-only. The value is deliberately never read into application memory.
+if (typeof window !== 'undefined') {
+  window.localStorage.removeItem(LEGACY_TOKEN_STORAGE_KEY);
 }
-
-function persistAuthToken(token: string | null): void {
-  if (typeof window === 'undefined') return;
-  if (token) {
-    window.localStorage.setItem(STORAGE_KEY, token);
-  } else {
-    window.localStorage.removeItem(STORAGE_KEY);
-  }
-}
-
-function setAuthToken(token: string | null): void {
-  authToken = token;
-  persistAuthToken(token);
-}
-
-function hydrateAuthToken(): void {
-  if (authToken) return;
-  authToken = readStoredToken();
-}
-
-function getAuthHeaders(): Record<string, string> | undefined {
-  const token = authToken ?? readStoredToken();
-  if (!token) return undefined;
-  authToken = token;
-  return { Authorization: `Bearer ${token}` };
-}
-
-hydrateAuthToken();
 
 export function createFetchApiClient(): ApiClient {
   return {
     async getMe(): Promise<SafeUser | null> {
-      const res = await client.api.me.$get(undefined, {
-        headers: getAuthHeaders(),
-      });
+      const res = await client.api.me.$get();
       if (res.status === 401) {
-        setAuthToken(null);
         return null;
       }
       await checkOk(res);
@@ -68,19 +36,13 @@ export function createFetchApiClient(): ApiClient {
         json: { email, password },
       });
       await checkOk(res);
-      const body = (await res.json()) as { user: SafeUser; token?: string };
-      if (body.token) {
-        setAuthToken(body.token);
-      }
+      const body = (await res.json()) as { user: SafeUser };
       return body.user;
     },
 
     async logout(): Promise<void> {
-      const res = await client.api.auth.logout.$post(undefined, {
-        headers: getAuthHeaders(),
-      });
+      const res = await client.api.auth.logout.$post();
       await checkOk(res);
-      setAuthToken(null);
     },
 
     async register(input: {
@@ -90,17 +52,12 @@ export function createFetchApiClient(): ApiClient {
     }): Promise<SafeUser> {
       const res = await client.api.auth.register.$post({ json: input });
       await checkOk(res);
-      const body = (await res.json()) as { user: SafeUser; token?: string };
-      if (body.token) {
-        setAuthToken(body.token);
-      }
+      const body = (await res.json()) as { user: SafeUser };
       return body.user;
     },
 
     async listProjects(): Promise<Project[]> {
-      const res = await client.api.projects.$get(undefined, {
-        headers: getAuthHeaders(),
-      });
+      const res = await client.api.projects.$get();
       await checkOk(res);
       return (await res.json()) as Project[];
     },
@@ -110,10 +67,7 @@ export function createFetchApiClient(): ApiClient {
       slug: string;
       description: string;
     }): Promise<Project> {
-      const res = await client.api.projects.$post(
-        { json: input },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects.$post({ json: input });
       await checkOk(res);
       return (await res.json()) as Project;
     },
@@ -122,28 +76,27 @@ export function createFetchApiClient(): ApiClient {
       id: string,
       updates: { name?: string; slug?: string; description?: string }
     ): Promise<Project> {
-      const res = await client.api.projects[':id'].$patch(
-        { param: { id }, json: updates },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].$patch({
+        param: { id },
+        json: updates,
+      });
       await checkOk(res);
       return (await res.json()) as Project;
     },
 
     async deleteProject(id: string): Promise<{ ok: boolean }> {
-      const res = await client.api.projects[':id'].$delete(
-        { param: { id } },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].$delete({
+        param: { id },
+      });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
 
     async updateSettings(id: string, settings: Settings): Promise<Project> {
-      const res = await client.api.projects[':id'].settings.$patch(
-        { param: { id }, json: settings },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].settings.$patch({
+        param: { id },
+        json: settings,
+      });
       await checkOk(res);
       return (await res.json()) as Project;
     },
@@ -171,10 +124,7 @@ export function createFetchApiClient(): ApiClient {
 
         const xhr = new XMLHttpRequest();
         xhr.open('POST', `/api/projects/${projectId}/versions`);
-        const token = authToken ?? readStoredToken();
-        if (token) {
-          xhr.setRequestHeader('Authorization', `Bearer ${token}`);
-        }
+        xhr.withCredentials = true;
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable && onProgress) {
             onProgress(Math.round((e.loaded / e.total) * 100));
@@ -205,10 +155,7 @@ export function createFetchApiClient(): ApiClient {
     ): Promise<{ ok: boolean }> {
       const res = await client.api.projects[':id'].versions[
         ':versionId'
-      ].publish.$post(
-        { param: { id: projectId, versionId } },
-        { headers: getAuthHeaders() }
-      );
+      ].publish.$post({ param: { id: projectId, versionId } });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
@@ -219,10 +166,7 @@ export function createFetchApiClient(): ApiClient {
     ): Promise<{ ok: boolean }> {
       const res = await client.api.projects[':id'].versions[
         ':versionId'
-      ].rollback.$post(
-        { param: { id: projectId, versionId } },
-        { headers: getAuthHeaders() }
-      );
+      ].rollback.$post({ param: { id: projectId, versionId } });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
@@ -233,10 +177,7 @@ export function createFetchApiClient(): ApiClient {
     ): Promise<{ ok: boolean }> {
       const res = await client.api.projects[':id'].versions[
         ':versionId'
-      ].$delete(
-        { param: { id: projectId, versionId } },
-        { headers: getAuthHeaders() }
-      );
+      ].$delete({ param: { id: projectId, versionId } });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
@@ -249,22 +190,18 @@ export function createFetchApiClient(): ApiClient {
         limit: String(query.limit ?? 50),
         cursor: query.cursor,
       };
-      const res = await client.api.projects[':id'].history.$get(
-        {
-          param: { id: projectId },
-          query: requestQuery,
-        },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].history.$get({
+        param: { id: projectId },
+        query: requestQuery,
+      });
       await checkOk(res);
       return (await res.json()) as HistoryPage;
     },
 
     async searchUsers(query: string): Promise<SafeUser[]> {
-      const res = await client.api.users.search.$get(
-        { query: { q: query } },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.users.search.$get({
+        query: { q: query },
+      });
       await checkOk(res);
       return (await res.json()) as SafeUser[];
     },
@@ -274,13 +211,10 @@ export function createFetchApiClient(): ApiClient {
       email: string,
       role: string
     ): Promise<{ project: Project }> {
-      const res = await client.api.projects[':id'].members.$post(
-        {
-          param: { id: projectId },
-          json: { email, role: role as 'member' | 'owner' },
-        },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].members.$post({
+        param: { id: projectId },
+        json: { email, role: role as 'member' | 'owner' },
+      });
       await checkOk(res);
       return (await res.json()) as { project: Project };
     },
@@ -289,10 +223,9 @@ export function createFetchApiClient(): ApiClient {
       projectId: string,
       userId: string
     ): Promise<{ ok: boolean }> {
-      const res = await client.api.projects[':id'].members[':userId'].$delete(
-        { param: { id: projectId, userId } },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].members[':userId'].$delete({
+        param: { id: projectId, userId },
+      });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
@@ -301,10 +234,10 @@ export function createFetchApiClient(): ApiClient {
       projectId: string,
       targetUserId: string
     ): Promise<{ project: Project }> {
-      const res = await client.api.projects[':id'].transfer.$post(
-        { param: { id: projectId }, json: { targetUserId } },
-        { headers: getAuthHeaders() }
-      );
+      const res = await client.api.projects[':id'].transfer.$post({
+        param: { id: projectId },
+        json: { targetUserId },
+      });
       await checkOk(res);
       return (await res.json()) as { project: Project };
     },
