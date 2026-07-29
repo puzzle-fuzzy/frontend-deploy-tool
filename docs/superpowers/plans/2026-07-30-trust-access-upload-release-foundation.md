@@ -625,14 +625,14 @@ git commit -m "feat: enforce explicit conflict-safe releases"
 - Consumes: all invariants and tests produced by Tasks 1 through 4.
 - Produces: a verified security/release baseline for the relational SQLite plan.
 
-- [ ] **Step 1: Run the repository baseline**
+- [x] **Step 1: Run the repository baseline**
 
 Run: `bun run verify`
 
 Expected: Biome, all workspace typechecks, all server/client/desktop tests, and
 the production build exit 0.
 
-- [ ] **Step 2: Run the production fail-closed smoke test**
+- [x] **Step 2: Run the production fail-closed smoke test**
 
 Run:
 
@@ -643,7 +643,7 @@ DEPLOYKIT_ENV=production SESSION_SECRET="$(printf 's%.0s' {1..32})" ADMIN_PASSWO
 Expected: process exits non-zero and names missing
 `MANAGEMENT_BASE_URL`/`DEPLOY_BASE_URL`.
 
-- [ ] **Step 3: Run the two-origin local smoke test**
+- [x] **Step 3: Run the two-origin local smoke test**
 
 Run the server with:
 
@@ -662,7 +662,7 @@ curl -i http://console.localhost:4010/deploy/example/
 Expected: health is 204; the API request on the deploy origin is 404; the
 deploy request on the management origin is 404.
 
-- [ ] **Step 4: Self-review the phase diff**
+- [x] **Step 4: Self-review the phase diff**
 
 Run:
 
@@ -675,7 +675,7 @@ git log --oneline origin/main..HEAD
 Expected: no whitespace errors, only scoped files are modified, and each slice
 has its own reviewed commit.
 
-- [ ] **Step 5: Mark completed checkboxes and push main**
+- [x] **Step 5: Mark completed checkboxes and push main**
 
 ```bash
 git add docs/backend-hardening-roadmap.md docs/superpowers/plans/2026-07-30-trust-access-upload-release-foundation.md
