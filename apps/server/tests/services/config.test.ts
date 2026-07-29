@@ -36,6 +36,8 @@ describe('loadConfig', () => {
       maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
       stagingRetentionHours: 24,
       recoveryRetentionHours: 168,
+      metricsEnabled: true,
+      metricsToken: undefined,
     });
   });
 
@@ -80,6 +82,8 @@ describe('loadConfig', () => {
       maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
       stagingRetentionHours: 24,
       recoveryRetentionHours: 168,
+      metricsEnabled: true,
+      metricsToken: undefined,
     });
   });
 
@@ -117,6 +121,7 @@ describe('loadConfig', () => {
 
     expect(config.environment).toBe('production');
     expect(config.registrationEnabled).toBe(false);
+    expect(config.metricsEnabled).toBe(false);
   });
 
   test('requires a durable session secret in production', () => {
@@ -265,5 +270,31 @@ describe('loadConfig', () => {
     ).toThrow(
       'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL must use different origins'
     );
+  });
+
+  test('requires a strong metrics token when production metrics are enabled', () => {
+    const baseEnv = {
+      DEPLOYKIT_ENV: 'production',
+      SESSION_SECRET: 's'.repeat(32),
+      ADMIN_PASSWORD: 'production-password',
+      MANAGEMENT_BASE_URL: 'https://console.example.com',
+      DEPLOY_BASE_URL: 'https://deploy.example.net',
+      METRICS_ENABLED: 'true',
+    };
+
+    expect(() => loadConfig({ appDir, env: baseEnv })).toThrow('METRICS_TOKEN');
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: { ...baseEnv, METRICS_TOKEN: 'too-short' },
+      })
+    ).toThrow('at least 32 characters');
+
+    const config = loadConfig({
+      appDir,
+      env: { ...baseEnv, METRICS_TOKEN: 'm'.repeat(32) },
+    });
+    expect(config.metricsEnabled).toBe(true);
+    expect(config.metricsToken).toBe('m'.repeat(32));
   });
 });

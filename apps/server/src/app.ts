@@ -1,12 +1,18 @@
-import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { existsSync, mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
+import { requestId } from 'hono/request-id';
 import { createApiApp } from './api';
 import { type AppConfig, validateAppConfig } from './config';
 import { createDesktopAuthCodeStore } from './desktopAuth';
 import { ApiError, ErrorCode } from './errors';
+import {
+  createObservabilityMiddleware,
+  defaultStructuredLogger,
+  type StructuredLogger,
+} from './middleware/observability';
 import {
   clearSessionCookie,
   createSessionMiddleware,
@@ -22,11 +28,21 @@ import {
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import { createArtifactRecoveryService } from './services/artifactRecovery';
+import type { AppEnv } from './services/contracts';
+import {
+  createMetricsRegistry,
+  type MetricsRegistry,
+} from './services/metrics';
 import { createProjectService } from './services/projectService';
 import { createSessionService } from './services/sessionService';
 import { reconcileStorage } from './services/storageReconciler';
 import { createUserService } from './services/userService';
 import { createVersionService } from './services/versionService';
+
+export interface CreateAppOptions {
+  logger?: StructuredLogger;
+  metrics?: MetricsRegistry;
+}
 
 /**
  * Composes the Hono application: wires the configured repository into the project,
@@ -36,7 +52,7 @@ import { createVersionService } from './services/versionService';
  * headers, static asset serving, and the SPA fallback. App creation is separated
  * from `Bun.serve` so tests can exercise `createApp()` without opening a port.
  */
-export function createApp(config: AppConfig) {
+export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
   validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
 
@@ -119,6 +135,27 @@ export function createApp(config: AppConfig) {
         config.maxConcurrentUploadsPerProject ?? 1,
     }),
   };
+  const metrics =
+    options.metrics ??
+    createMetricsRegistry({
+      artifactStorageBytes: () =>
+        repo
+          .load()
+          .projects.flatMap((project) => project.versions)
+          .reduce((total, version) => total + version.size, 0),
+      sqliteStorageBytes: () =>
+        config.databaseFile
+          ? [
+              config.databaseFile,
+              `${config.databaseFile}-wal`,
+              `${config.databaseFile}-shm`,
+            ].reduce(
+              (total, path) =>
+                total + (existsSync(path) ? statSync(path).size : 0),
+              0
+            )
+          : 0,
+    });
 
   const apiApp = createApiApp({
     projectService,
@@ -136,13 +173,47 @@ export function createApp(config: AppConfig) {
     uploadRouteLimits,
   });
 
-  return new Hono()
+  return new Hono<AppEnv>()
+    .use('*', requestId())
+    .use(
+      '*',
+      createObservabilityMiddleware({
+        metrics,
+        logger:
+          options.logger ??
+          (config.environment === 'test' ? () => {} : defaultStructuredLogger),
+      })
+    )
     .use('*', createTrustBoundary(config))
     .route('/', apiApp)
     .get('/health/live', (c) => c.body(null, 204))
     .get('/health/ready', (c) => {
       repo.load();
       return c.json({ status: 'ok' as const });
+    })
+    .get('/metrics', (c) => {
+      const metricsEnabled =
+        config.metricsEnabled ?? config.environment !== 'production';
+      if (!metricsEnabled) return c.notFound();
+      if (
+        config.metricsToken &&
+        !hasValidBearerToken(c.req.header('Authorization'), config.metricsToken)
+      ) {
+        c.header('WWW-Authenticate', 'Bearer realm="deploykit-metrics"');
+        return c.json(
+          {
+            error: {
+              code: ErrorCode.UNAUTHORIZED,
+              message: 'Metrics authentication required',
+            },
+          },
+          401
+        );
+      }
+      return c.text(metrics.render(), 200, {
+        'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+        'Cache-Control': 'no-store',
+      });
     })
     .route(
       '/',
@@ -196,4 +267,17 @@ export function createApp(config: AppConfig) {
       }
       return c.notFound();
     });
+}
+
+function hasValidBearerToken(
+  authorization: string | undefined,
+  expectedToken: string
+): boolean {
+  if (!authorization?.startsWith('Bearer ')) return false;
+  const receivedToken = authorization.slice('Bearer '.length);
+  const received = Buffer.from(receivedToken);
+  const expected = Buffer.from(expectedToken);
+  return (
+    received.length === expected.length && timingSafeEqual(received, expected)
+  );
 }

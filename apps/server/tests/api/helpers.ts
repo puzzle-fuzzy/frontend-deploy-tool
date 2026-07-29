@@ -27,6 +27,7 @@ export interface TmpDirs {
 export function createAuthApp(dirs: TmpDirs) {
   return createApp({
     ...dirs,
+    environment: 'test',
     adminEmail: ADMIN_EMAIL,
     adminPassword: ADMIN_PASSWORD,
     sessionSecret: SESSION_SECRET,

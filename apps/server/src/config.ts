@@ -44,6 +44,10 @@ export interface AppConfig {
   stagingRetentionHours?: number;
   /** Retain committed trash and orphan quarantine for at least this many hours. */
   recoveryRetentionHours?: number;
+  /** Expose Prometheus metrics on the trusted management origin. */
+  metricsEnabled?: boolean;
+  /** Bearer token required by the metrics endpoint when configured. */
+  metricsToken?: string;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -158,6 +162,12 @@ export function loadConfig({
       env.RECOVERY_RETENTION_HOURS,
       168
     ),
+    metricsEnabled: parseFlag(
+      'METRICS_ENABLED',
+      env.METRICS_ENABLED,
+      environment !== 'production'
+    ),
+    metricsToken: emptyToUndefined(env.METRICS_TOKEN),
   };
   validateAppConfig(config);
   return config;
@@ -203,6 +213,14 @@ export function validateAppConfig(config: AppConfig): void {
   ) {
     throw new Error(
       'MANAGEMENT_BASE_URL and DEPLOY_BASE_URL must use different origins'
+    );
+  }
+  if (
+    config.metricsEnabled &&
+    (!config.metricsToken || config.metricsToken.length < 32)
+  ) {
+    throw new Error(
+      'METRICS_TOKEN must be at least 32 characters when metrics are enabled in production'
     );
   }
 }

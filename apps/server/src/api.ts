@@ -1,5 +1,4 @@
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
-import { requestId } from 'hono/request-id';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
 import { parseIdParam } from './domain/schemas';
@@ -93,7 +92,6 @@ export interface ApiDeps {
  */
 export function createApiApp(deps: ApiDeps) {
   return new Hono<AppEnv>()
-    .use('*', requestId())
     .use('/api/*', deps.sessionMiddleware)
     .use('/api/*', requireAuthExceptPublic)
     .post(
