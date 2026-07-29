@@ -164,6 +164,57 @@ describe('createVersionService', () => {
     }
   });
 
+  test('rejects a transactionally over-quota upload and removes its artifact', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.versions = [];
+    demoProject.activeVersionId = null;
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+    };
+
+    try {
+      await expect(
+        createVersionService(repo, {
+          ...config(storageDir),
+          maxStorageSize: 1_000,
+          maxStorageSizePerUser: 1_000,
+          maxStorageSizePerProject: 1,
+        }).uploadVersion(
+          'p1',
+          {
+            versionDesc: 'over quota',
+            file: null,
+            folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+          },
+          'user-1'
+        )
+      ).rejects.toMatchObject({
+        code: ErrorCode.STORAGE_QUOTA_EXCEEDED,
+        status: 413,
+      });
+
+      expect(data.projects[0].versions).toEqual([]);
+      expect(data.history).toEqual([]);
+      const projectRoot = join(storageDir, 'p1');
+      expect(existsSync(projectRoot) ? readdirSync(projectRoot) : []).toEqual(
+        []
+      );
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('does not record history when promoting the already active version', () => {
     const storageDir = mkdtempSync(
       join(tmpdir(), 'deploykit-version-service-')

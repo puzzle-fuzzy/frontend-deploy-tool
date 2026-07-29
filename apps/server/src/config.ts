@@ -1,4 +1,5 @@
 import { join } from 'node:path';
+import { DEFAULT_STORAGE_QUOTA_LIMITS } from './domain/storageQuota';
 
 export type RuntimeEnvironment = 'development' | 'test' | 'production';
 
@@ -33,6 +34,12 @@ export interface AppConfig {
   maxConcurrentUploads?: number;
   maxConcurrentUploadsPerUser?: number;
   maxConcurrentUploadsPerProject?: number;
+  /** Maximum persisted extracted artifact bytes across this installation. */
+  maxStorageSize?: number;
+  /** Maximum persisted bytes charged to one project's creator. */
+  maxStorageSizePerUser?: number;
+  /** Maximum persisted bytes in one project. */
+  maxStorageSizePerProject?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -121,6 +128,21 @@ export function loadConfig({
       'MAX_CONCURRENT_UPLOADS_PER_PROJECT',
       env.MAX_CONCURRENT_UPLOADS_PER_PROJECT,
       1
+    ),
+    maxStorageSize: parsePositiveInteger(
+      'MAX_STORAGE_SIZE',
+      env.MAX_STORAGE_SIZE,
+      DEFAULT_STORAGE_QUOTA_LIMITS.global
+    ),
+    maxStorageSizePerUser: parsePositiveInteger(
+      'MAX_STORAGE_SIZE_PER_USER',
+      env.MAX_STORAGE_SIZE_PER_USER,
+      DEFAULT_STORAGE_QUOTA_LIMITS.perUser
+    ),
+    maxStorageSizePerProject: parsePositiveInteger(
+      'MAX_STORAGE_SIZE_PER_PROJECT',
+      env.MAX_STORAGE_SIZE_PER_PROJECT,
+      DEFAULT_STORAGE_QUOTA_LIMITS.perProject
     ),
   };
   validateAppConfig(config);

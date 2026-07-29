@@ -94,8 +94,10 @@ bun run dev:server          # 仅后端
 | `MAX_ZIP_SIZE` / `MAX_EXTRACTED_SIZE` / `MAX_FILE_COUNT` / `MAX_PATH_LENGTH` | 100MB / 100MB / 1000 / 1000 | 上传上限 |
 | `MAX_COMPRESSION_RATIO` / `MAX_UPLOAD_REQUEST_SIZE` | 200 / 101MB | ZIP 单条目压缩比与完整 multipart 上限 |
 | `MAX_CONCURRENT_UPLOADS` / `MAX_CONCURRENT_UPLOADS_PER_USER` / `MAX_CONCURRENT_UPLOADS_PER_PROJECT` | 4 / 2 / 1 | 单进程、用户、项目上传并发预算 |
+| `MAX_STORAGE_SIZE` / `MAX_STORAGE_SIZE_PER_USER` / `MAX_STORAGE_SIZE_PER_PROJECT` | 20GB / 10GB / 5GB | 持久化产物全局、项目创建者、项目容量上限 |
 
 所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
+当前阶段用户容量明确归属到 `project.createdBy`；协作者上传不会被重复计算。未来若支持计费/归属转移，将提供显式迁移操作，而不会随成员变化静默转移。
 
 生产环境由反向代理把两个不同域名转发到同一服务端口并保留原始 `Host`。
 管理源拒绝 `/deploy/*`，部署源拒绝 UI 和 `/api/*`。

@@ -143,6 +143,9 @@ deploykit/
 | `MAX_CONCURRENT_UPLOADS` | `4` | 单进程同时处理的上传数 |
 | `MAX_CONCURRENT_UPLOADS_PER_USER` | `2` | 单用户同时上传数 |
 | `MAX_CONCURRENT_UPLOADS_PER_PROJECT` | `1` | 单项目同时上传数 |
+| `MAX_STORAGE_SIZE` | `21474836480` (20GB) | 当前实例全部已保存解压产物的容量上限 |
+| `MAX_STORAGE_SIZE_PER_USER` | `10737418240` (10GB) | 按项目创建者归属计算的用户容量上限 |
+| `MAX_STORAGE_SIZE_PER_PROJECT` | `5368709120` (5GB) | 单项目已保存解压产物的容量上限 |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 

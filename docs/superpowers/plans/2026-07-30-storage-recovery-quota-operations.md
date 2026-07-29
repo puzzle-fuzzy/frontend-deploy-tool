@@ -78,19 +78,19 @@ background queue, incremental backup, billing, or artifact SEO analysis.
 - Create: `apps/server/tests/services/storageQuota.test.ts`
 - Modify: `apps/server/tests/services/versionService.test.ts`
 
-- [ ] Add configuration defaults and validation for
+- [x] Add configuration defaults and validation for
   `MAX_STORAGE_SIZE`, `MAX_STORAGE_SIZE_PER_USER`, and
   `MAX_STORAGE_SIZE_PER_PROJECT`.
-- [ ] Define the accountable user as `project.createdBy` for this phase and
+- [x] Define the accountable user as `project.createdBy` for this phase and
   document that ownership/billing reassignment is a future explicit operation;
   do not double-count collaborators.
-- [ ] Add pure usage calculation and exact-boundary tests.
-- [ ] Inside the final repository mutation of upload, re-read current usage and
+- [x] Add pure usage calculation and exact-boundary tests.
+- [x] Inside the final repository mutation of upload, re-read current usage and
   reject the pending version with `STORAGE_QUOTA_EXCEEDED` (413) before
   appending metadata/history.
-- [ ] Confirm rejection removes the already-staged final artifact and does not
+- [x] Confirm rejection removes the already-staged final artifact and does not
   create a version/history row.
-- [ ] Run:
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/storageQuota.test.ts tests/services/versionService.test.ts tests/services/config.test.ts`
 
 ## Task 3: Retention-aware staging/recovery garbage collection

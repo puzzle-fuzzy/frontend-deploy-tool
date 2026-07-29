@@ -31,6 +31,9 @@ describe('loadConfig', () => {
       maxConcurrentUploads: 4,
       maxConcurrentUploadsPerUser: 2,
       maxConcurrentUploadsPerProject: 1,
+      maxStorageSize: 20 * 1024 * 1024 * 1024,
+      maxStorageSizePerUser: 10 * 1024 * 1024 * 1024,
+      maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
     });
   });
 
@@ -70,6 +73,9 @@ describe('loadConfig', () => {
       maxConcurrentUploads: 4,
       maxConcurrentUploadsPerUser: 2,
       maxConcurrentUploadsPerProject: 1,
+      maxStorageSize: 20 * 1024 * 1024 * 1024,
+      maxStorageSizePerUser: 10 * 1024 * 1024 * 1024,
+      maxStorageSizePerProject: 5 * 1024 * 1024 * 1024,
     });
   });
 
@@ -172,6 +178,9 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ appDir, env: { MAX_CONCURRENT_UPLOADS: '1.5' } })
     ).toThrow('Invalid MAX_CONCURRENT_UPLOADS');
+    expect(() =>
+      loadConfig({ appDir, env: { MAX_STORAGE_SIZE_PER_PROJECT: '0' } })
+    ).toThrow('Invalid MAX_STORAGE_SIZE_PER_PROJECT');
   });
 
   test('uses explicit upload resource budgets', () => {
@@ -185,6 +194,9 @@ describe('loadConfig', () => {
         MAX_CONCURRENT_UPLOADS: '3',
         MAX_CONCURRENT_UPLOADS_PER_USER: '2',
         MAX_CONCURRENT_UPLOADS_PER_PROJECT: '1',
+        MAX_STORAGE_SIZE: '9000',
+        MAX_STORAGE_SIZE_PER_USER: '6000',
+        MAX_STORAGE_SIZE_PER_PROJECT: '3000',
       },
     });
 
@@ -195,6 +207,9 @@ describe('loadConfig', () => {
     expect(config.maxConcurrentUploads).toBe(3);
     expect(config.maxConcurrentUploadsPerUser).toBe(2);
     expect(config.maxConcurrentUploadsPerProject).toBe(1);
+    expect(config.maxStorageSize).toBe(9000);
+    expect(config.maxStorageSizePerUser).toBe(6000);
+    expect(config.maxStorageSizePerProject).toBe(3000);
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {

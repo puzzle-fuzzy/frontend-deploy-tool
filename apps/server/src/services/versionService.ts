@@ -7,6 +7,10 @@ import type {
 } from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
+import {
+  DEFAULT_STORAGE_QUOTA_LIMITS,
+  findStorageQuotaViolation,
+} from '../domain/storageQuota';
 import type { ReleaseCommand } from '../domain/version';
 import { findProjectVersion, syncProductionStatus } from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
@@ -38,6 +42,14 @@ export function createVersionService(
   const artifactRecovery =
     options.artifactRecovery ??
     createArtifactRecoveryService(config.storageDir);
+  const storageQuotaLimits = {
+    global: config.maxStorageSize ?? DEFAULT_STORAGE_QUOTA_LIMITS.global,
+    perUser:
+      config.maxStorageSizePerUser ?? DEFAULT_STORAGE_QUOTA_LIMITS.perUser,
+    perProject:
+      config.maxStorageSizePerProject ??
+      DEFAULT_STORAGE_QUOTA_LIMITS.perProject,
+  };
   const promoteVersion = (
     projectId: string,
     versionId: string,
@@ -292,6 +304,20 @@ export function createVersionService(
               'Project not found',
               404
             );
+
+          const quotaViolation = findStorageQuotaViolation(
+            data,
+            projectId,
+            version.size,
+            storageQuotaLimits
+          );
+          if (quotaViolation) {
+            throw new ApiError(
+              ErrorCode.STORAGE_QUOTA_EXCEEDED,
+              `${quotaViolation.scope} storage quota exceeded`,
+              413
+            );
+          }
 
           project.versions.push(version);
           project.updatedAt = new Date().toISOString();
