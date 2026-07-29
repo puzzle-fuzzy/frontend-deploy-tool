@@ -7,7 +7,7 @@
 ```
 HTTP 请求
    |
-   +-- /api/* ──────────> API 路由（auth / projects / versions / history）
+   +-- /api/* ──────────> API 路由（auth / projects / versions / audits / history）
    |                         |-- domain/ 纯规则
    |                         |-- services/ 用例
    |                         |-- repositories/ SQLite 持久化（WAL + 原子 mutate）
@@ -33,6 +33,7 @@ HTTP 请求
 - **操作历史** — SQLite 追加记录创建、更新、上传、发布、回滚、删除等操作，使用稳定游标分页
 - **可恢复删除** — 项目/版本产物先原子移动到 `.recovery/trash/`；元数据失败自动还原，成功后由保留策略延迟清理
 - **完整性检查** — 显式校验 `index.html` 与产物树校验和，持久化结果；缺失/损坏的线上版本只下线、不自动替换
+- **产物审计** — 持久化文件体积/数量/扩展名与静态 SEO 报告；项目可选择仅提示或发布阻断
 - **认证与角色** — 可撤销的浏览器 session / 桌面 bearer 认证；`admin` 全局管理，
   `developer` 结合项目 `owner/member` 授权，`viewer` 仅可读取所属项目
 - **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
@@ -50,16 +51,18 @@ src/
 ├── api.ts                    # createApiApp + 导出 type ApiApp（Bun/Node 无关）
 ├── config.ts                 # 环境变量解析（AppConfig / ServerConfig）
 ├── errors.ts                 # ApiError（onError 转为 { error } 响应）
-├── domain/                   # 纯领域规则（project / version / history）
+├── domain/                   # 纯领域规则（project / version / artifactAudit / history）
 ├── middleware/               # 认证、session、角色授权
 ├── repositories/             # ProjectRepository + SQLite WAL/JSON 实现
 ├── services/                 # 用例 + 契约（contracts.ts：Bun 无关的服务接口）
 │   ├── projectService.ts     # 项目用例
 │   ├── versionService.ts     # 版本上传/发布/回滚/删除
 │   ├── artifactService.ts    # 解压/扁平化/大小/服务文件
+│   ├── artifactAuditEngine.ts # 本地文件清单与静态 HTML/SEO 检查
+│   ├── artifactAuditService.ts # 报告持久化与版本审计用例
 │   └── deployResolver.ts     # /deploy/* 路径解析（纯函数）
 ├── routes/                   # HTTP 路由（chained Hono sub-apps）
-│   ├── projects.ts  versions.ts  history.ts   # /api（Bun 无关）
+│   ├── projects.ts versions.ts artifactAudits.ts history.ts # /api（Bun 无关）
 │   └── deploy.ts                                       # /deploy
 └── utils/                    # id（nanoid）、mime、safePath
 ```
@@ -132,6 +135,8 @@ bun run dev:server          # 仅后端
 - **并发**：全局、单用户和单项目分别受 in-process semaphore 约束；容量不足
   返回稳定错误 `UPLOAD_BUSY` 和 429。
 - **上线门禁**：上传只创建预览版本；生产版本必须通过显式 publish/rollback
+- **审计门禁**：默认仅提示；项目 owner 显式开启 `blocking` 后，发布/回退要求
+  checksum、引擎版本和体积预算均为当前的非失败报告
 - 任一阶段失败都会清理版本目录并返回 `500 File processing failed: ...`
 
 ## API
@@ -150,7 +155,8 @@ JSON；`route` 是 Hono 路由模板，不包含用户、项目、slug 或文件
 
 `GET /metrics` 只在管理源提供。开发默认开启且可无 token；生产默认关闭，
 若开启则 `METRICS_TOKEN` 必须至少 32 字符，并要求 bearer 认证。指标覆盖
-HTTP 数量/延迟/失败、上传结果、发布操作结果、产物字节数和 SQLite/WAL 字节数。
+HTTP 数量/延迟/失败、上传结果、发布操作结果、产物审计状态、产物字节数和
+SQLite/WAL 字节数。
 部署源访问 `/metrics` 始终得到 404。
 
 收到 SIGTERM/SIGINT 时，运行时只执行一次关机流程：先 drain Bun server，

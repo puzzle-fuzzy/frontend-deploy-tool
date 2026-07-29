@@ -201,6 +201,7 @@ deploykit/
 | POST | `/api/projects` | 创建项目（developer/admin） | `{ name, slug, description }` |
 | PATCH | `/api/projects/:id` | 更新项目信息（项目 owner/admin） | `{ name?, slug?, description? }` |
 | PATCH | `/api/projects/:id/settings` | 更新项目设置（项目 owner/admin） | `{ spaMode, routingType }` |
+| PATCH | `/api/projects/:id/audit-policy` | 更新产物审计及发布门禁策略（项目 owner/admin） | `{ enforcement, maxTotalBytes, maxFileBytes, maxFileCount }` |
 | DELETE | `/api/projects/:id` | 删除项目；产物先进入可恢复区（项目 owner/admin） | — |
 | GET | `/api/projects/:id/versions` | 获取项目（项目成员/admin） | — |
 | GET | `/api/projects/:id/users/search` | 搜索成员候选人（项目 owner/admin） | `?q=email` |
@@ -214,11 +215,40 @@ deploykit/
 | POST | `/api/projects/:id/versions/:vid/rollback` | 手动回滚到指定版本（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
 | PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
 | DELETE | `/api/projects/:id/versions/:vid` | 删除版本；产物先进入可恢复区，删除线上版本会下线项目，不自动选择替代版本 | — |
+| POST | `/api/projects/:id/versions/:vid/audit` | 运行静态产物审计（developer 项目成员/admin） | — |
+| GET | `/api/projects/:id/versions/:vid/audit` | 获取该版本当前审计报告（可读取该项目的用户/admin） | — |
 
 发布与回滚采用乐观并发控制：服务端只在
 `expectedActiveVersionId` 与当前线上版本一致时执行；否则返回
 `409 RELEASE_CONFLICT`，调用方应刷新项目后由用户重新确认。发布前还会检查版本
 状态、根 `index.html` 与目录 checksum，避免把缺失或已被修改的产物切到线上。
+
+### 产物审计与发布策略
+
+审计完全在本地读取已解压产物，不执行上传的 JavaScript，也不访问外网。报告
+包含文件总大小、文件数、最大文件、扩展名分布，以及 `index.html` 的 title、
+description、canonical、robots、viewport、语言、H1、Open Graph、JSON-LD、
+`robots.txt` 和 `sitemap.xml` 检查。单个 `index.html` 最多解析 2MB，避免成员
+通过异常页面占用过多解析资源；这是一份静态检查报告，不等同于 Lighthouse、
+真实爬虫或运行时渲染结果。
+
+每个版本只保留当前详细报告，每次运行仍会追加 `version.audit` 历史摘要。报告
+同时绑定产物 checksum、审计引擎版本和当次体积预算；任一条件变化都会使旧报告
+过期。项目策略默认：
+
+```json
+{
+  "enforcement": "advisory",
+  "maxTotalBytes": 52428800,
+  "maxFileBytes": 10485760,
+  "maxFileCount": 1000
+}
+```
+
+`advisory` 不改变现有发布行为；`blocking` 要求发布、兼容 activate 和手动回退
+都具备当前报告。缺失或过期返回 `409 AUDIT_REQUIRED`，包含 error 级发现返回
+`409 AUDIT_BLOCKED`；SEO 优化项是 warning，不会单独阻断。上传始终先成功进入
+预览，不会因审计失败被删除或自动发布。
 
 ### 历史
 
@@ -299,8 +329,9 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" \
   "$MANAGEMENT_BASE_URL/metrics"
 ```
 
-主要指标包括请求量与延迟、4xx/5xx 失败、上传与发布结果、元数据记录的产物
-字节数以及 SQLite/WAL 文件字节数。建议至少配置以下告警：
+主要指标包括请求量与延迟、4xx/5xx 失败、上传、发布与产物审计结果、元数据
+记录的产物字节数以及 SQLite/WAL 文件字节数。审计指标只使用有限的报告状态
+label，不包含项目、版本或文件名。建议至少配置以下告警：
 
 - `/health/ready` 连续失败，或 5xx 在 5 分钟窗口持续出现；
 - 上传/发布 `failure` 比例升高；

@@ -1,6 +1,6 @@
 # Artifact audit and release-policy implementation plan
 
-> Status: active
+> Status: completed on 2026-07-30
 > Scope: backend contracts, persistence, audit execution, API, release gating,
 > backup/restore, documentation, and verification. A management UI for these
 > endpoints is intentionally deferred while backend behavior is stabilized.
@@ -143,3 +143,19 @@ and CodeQL success.
   URLs.
 - Stop and redesign if report persistence would make upload/release metadata
   non-atomic or if a migration cannot produce a verified backup.
+
+## Completion evidence
+
+- Document schema v7 and relational SQLite v3 migrate from deployed v2 with a
+  one-time `.pre-relational-v3.bak`; policy/report round trips and backup restore
+  are covered.
+- The static engine inventories the tree, rejects symlinks, binds checksum,
+  caps parsed HTML at 2MB, and emits stable structure/size/SEO checks.
+- API authorization, repeated current-report replacement, timeline history,
+  policy validation, advisory compatibility, missing/stale/failed blocking, and
+  warning-report release are covered by integration tests.
+- `bun run verify` passed with server 266, client 40, and desktop 23 tests plus
+  typecheck, Biome, secret scan, and production build.
+- An isolated production process using distinct management/deploy origins
+  completed upload, audit gate rejection, two publishes, manual rollback,
+  Prometheus audit metrics, two graceful shutdowns, and restart persistence.
