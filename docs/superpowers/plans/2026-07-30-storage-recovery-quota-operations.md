@@ -171,5 +171,5 @@ background queue, incremental backup, billing, or artifact SEO analysis.
   integrity inspection, and GC dry-run/real-run fixtures.
 - [x] Update `docs/backend-hardening-roadmap.md`, `AGENTS.md`, `CLAUDE.md`, and
   environment documentation.
-- [ ] Commit independently verified slices, push `main`, and confirm
+- [x] Commit independently verified slices, push `main`, and confirm
   `origin/main` matches.
