@@ -55,7 +55,8 @@ export function createIpcApiClient(): ApiClient {
       unwrapIpcResult(bridge.api.deleteVersion(projectId, versionId)),
     listProjectHistory: (projectId, query) =>
       unwrapIpcResult(bridge.api.listProjectHistory(projectId, query)),
-    searchUsers: (query) => unwrapIpcResult(bridge.api.searchUsers(query)),
+    searchUsers: (projectId, query) =>
+      unwrapIpcResult(bridge.api.searchUsers(projectId, query)),
     addMember: (projectId, email, role) =>
       unwrapIpcResult(bridge.api.addMember(projectId, email, role)),
     removeMember: (projectId, userId) =>

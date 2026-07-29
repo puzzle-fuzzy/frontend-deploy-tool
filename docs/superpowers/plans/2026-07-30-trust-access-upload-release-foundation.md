@@ -223,7 +223,7 @@ git commit -m "security: isolate deployed artifacts from management"
 - Produces: `hasProjectRole(actor: Actor, project: Project, role: 'member' | 'owner'): boolean`.
 - Changes: project read/history service methods receive an `Actor`.
 
-- [ ] **Step 1: Write failing pure policy tests**
+- [x] **Step 1: Write failing pure policy tests**
 
 ```ts
 expect(canReadProject(admin, project)).toBe(true);
@@ -234,13 +234,13 @@ expect(canCreateProject(viewer)).toBe(false);
 expect(hasProjectRole(admin, project, 'owner')).toBe(true);
 ```
 
-- [ ] **Step 2: Run the policy tests**
+- [x] **Step 2: Run the policy tests**
 
 Run: `bun --filter @deploykit/server test tests/services/authorization.test.ts`
 
 Expected: FAIL because `domain/authorization.ts` does not exist.
 
-- [ ] **Step 3: Implement the pure policy**
+- [x] **Step 3: Implement the pure policy**
 
 ```ts
 export function canReadProject(actor: Actor, project: Project): boolean {
@@ -270,7 +270,7 @@ export function hasProjectRole(
 }
 ```
 
-- [ ] **Step 4: Write failing API matrix tests**
+- [x] **Step 4: Write failing API matrix tests**
 
 Cover these exact outcomes:
 
@@ -288,7 +288,7 @@ expect((await searchUsersAs(memberCookie)).status).toBe(403);
 expect((await searchUsersAs(ownerCookie)).status).toBe(200);
 ```
 
-- [ ] **Step 5: Move read scoping into the service contract**
+- [x] **Step 5: Move read scoping into the service contract**
 
 Use actor-aware signatures so a new route cannot accidentally bypass policy.
 
@@ -306,7 +306,7 @@ listProjectHistory(
 
 Keep `getProject(id)` for internal deploy lookup and route guards only.
 
-- [ ] **Step 6: Apply the policy to every route**
+- [x] **Step 6: Apply the policy to every route**
 
 Require `developer` for project creation. Pass the authenticated user to list,
 version-list, and history methods. Restrict user search to admins or an owner of
@@ -316,7 +316,7 @@ For ownership transfer, pass the complete actor to the service and let
 `hasProjectRole` provide the admin bypass consistently; do not recheck only the
 actor's membership.
 
-- [ ] **Step 7: Run focused and full verification**
+- [x] **Step 7: Run focused and full verification**
 
 Run: `bun --filter @deploykit/server test tests/services/authorization.test.ts tests/api/permissions.test.ts`
 
@@ -324,7 +324,7 @@ Run: `bun run verify`
 
 Expected: all commands exit 0.
 
-- [ ] **Step 8: Commit the authorization slice**
+- [x] **Step 8: Commit the authorization slice**
 
 ```bash
 git add apps/server/src/domain/authorization.ts apps/server/src/middleware/auth.ts apps/server/src/services/contracts.ts apps/server/src/services/projectService.ts apps/server/src/routes/projects.ts apps/server/src/routes/history.ts apps/server/src/routes/userSearch.ts apps/server/src/routes/members.ts apps/server/src/api.ts apps/server/tests/api/permissions.test.ts apps/server/tests/services/authorization.test.ts

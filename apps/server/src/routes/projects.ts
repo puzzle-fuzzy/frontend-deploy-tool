@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
+import { canCreateProject } from '../domain/authorization';
 import { parseSettings } from '../domain/project';
 import {
   parseCreateProject,
@@ -18,11 +19,34 @@ export function createProjectRoutes(deps: {
   const { projectService, removeProjectDir } = deps;
 
   return new Hono<AppEnv>()
-    .get('/api/projects', (c) => c.json(projectService.listProjects()))
+    .get('/api/projects', (c) => {
+      const actor = c.get('user');
+      if (!actor)
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      return c.json(projectService.listProjects(actor));
+    })
     .post('/api/projects', validator('json', parseCreateProject), (c) => {
+      const actor = c.get('user');
+      if (!actor)
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      if (!canCreateProject(actor)) {
+        throw new ApiError(
+          ErrorCode.FORBIDDEN,
+          'Project creation requires developer access',
+          403
+        );
+      }
       const project = projectService.createProject(
         c.req.valid('json'),
-        c.get('user')?.id ?? 'system'
+        actor.id
       );
       return c.json(project, 201);
     })
@@ -77,6 +101,13 @@ export function createProjectRoutes(deps: {
     )
     .get('/api/projects/:id/versions', (c) => {
       const id = parseIdParam(c.req.param('id'));
-      return c.json(projectService.getProject(id));
+      const actor = c.get('user');
+      if (!actor)
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      return c.json(projectService.getProjectForActor(id, actor));
     });
 }

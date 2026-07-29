@@ -7,6 +7,7 @@ import type {
   Settings,
   User,
 } from '@deploykit/shared';
+import type { Actor } from '../domain/authorization';
 
 /**
  * Service contracts (interfaces only). This module is deliberately Bun-free so
@@ -27,9 +28,10 @@ export type AppEnv = {
 };
 
 export interface ProjectService {
-  listProjects(): Project[];
+  listProjects(actor: Actor): Project[];
   createProject(input: CreateProjectInput, actorId: string): Project;
   getProject(id: string): Project;
+  getProjectForActor(id: string, actor: Actor): Project;
   findBySlug(slug: string): Project | undefined;
   updateProject(
     id: string,
@@ -52,11 +54,12 @@ export interface ProjectService {
   transferOwnership(
     projectId: string,
     targetUserId: string,
-    actorId: string
+    actor: Actor
   ): Project;
-  listHistory(limit?: string, cursor?: string): HistoryPage;
+  listHistory(actor: Actor, limit?: string, cursor?: string): HistoryPage;
   listProjectHistory(
     projectId: string,
+    actor: Actor,
     limit?: string,
     cursor?: string
   ): HistoryPage;

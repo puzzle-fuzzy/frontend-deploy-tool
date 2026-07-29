@@ -86,9 +86,11 @@ A project has zero or one active version, tracked by `project.activeVersionId` (
 - **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. `status` is `400 | 401 | 403 | 404 | 500`. Add new codes to the `ErrorCode` const object in `errors.ts`.
 - **Request validation**: prefer zod schemas in `domain/schemas.ts` that throw `ApiError`, wired through Hono `validator('json', ...)` or a `parse*` helper. Routes should receive already-typed values — no `as` casts.
 - **History**: every mutating service call appends an event via `appendHistoryEvent` (capped at 200). New actions must be added to the `historyEventSchema` action enum in `shared`.
-- **Auth + roles**: `/api` requires a session except login/logout. `admin`
-  can create/delete projects; `developer` can upload, publish/rollback/delete
-  versions, and edit project settings; `viewer` is read-only.
+- **Auth + roles**: `/api` requires a session except login/register/logout and
+  desktop exchange. `admin` can read/manage every project; `developer` can
+  create projects and can write only projects where it has the required
+  `owner/member` role; `viewer` is read-only and sees only its memberships.
+  Keep read scoping in `ProjectService`, not only in route middleware.
 - **Formatting** (Biome, enforced in CI): single quotes, 2-space indent, LF, line width 80, ES5 trailing commas, semicolons always. Biome also lints (`noExplicitAny` warn, `noUnusedVariables` error, `noNonNullAssertion` warn). Run `bun run check:fix` before committing.
 - **Tests**: server API tests in `apps/server/tests/api` drive the full app via `app.request()` with per-test temp dirs; service/domain unit tests in `apps/server/tests/services`. Web component/hook tests in `apps/web/tests/unit` (Vitest + RTL + jsdom). Don't colocate `*.test.ts` in `src/`.
 - **Web stack**: React 19 + React Compiler, shadcn/ui (Radix) + Tailwind v4, react-router, i18next (zh/en under `src/i18n/locales`). `@` alias → `apps/web/src`. Uploads use a hand-written XHR in `shared/api.ts` (for progress events); all other calls use the typed `hono/client`.

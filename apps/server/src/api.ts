@@ -148,7 +148,7 @@ export function createApiApp(deps: ApiDeps) {
           name,
           email: normalizedEmail,
           password,
-          role: 'viewer',
+          role: 'developer',
         });
         const token = deps.signSessionToken(user);
         deps.issueSession(c, user);
@@ -244,7 +244,13 @@ export function createApiApp(deps: ApiDeps) {
       })
     )
     .route('/', createMemberRoutes({ projectService: deps.projectService }))
-    .route('/', createUserSearchRoutes({ userService: deps.userService }))
+    .route(
+      '/',
+      createUserSearchRoutes({
+        userService: deps.userService,
+        projectService: deps.projectService,
+      })
+    )
     .route('/', createHistoryRoutes({ projectService: deps.projectService }));
 }
 

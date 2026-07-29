@@ -1,5 +1,7 @@
 import type { Role, SafeUser } from '@deploykit/shared';
 import type { MiddlewareHandler } from 'hono';
+import { hasProjectRole } from '../domain/authorization';
+import { parseIdParam } from '../domain/schemas';
 import { ApiError, ErrorCode } from '../errors';
 import type { AppEnv, ProjectService } from '../services/contracts';
 
@@ -105,19 +107,23 @@ export function requireProjectRole(
         'Authentication required',
         401
       );
+    const rawProjectId = c.req.param('id');
+    const projectId = rawProjectId ? parseIdParam(rawProjectId) : null;
+    if (!projectId)
+      throw new ApiError(ErrorCode.INVALID_PARAMS, 'Project id required', 400);
     if (user.role === 'admin') {
       await next();
       return;
     }
-    const projectId = c.req.param('id');
-    if (!projectId)
-      throw new ApiError(ErrorCode.INVALID_PARAMS, 'Project id required', 400);
     const project = getProjectService().getProject(projectId);
-    const member = project.members.find((m) => m.userId === user.id);
-    if (!member)
-      throw new ApiError(ErrorCode.FORBIDDEN, 'Not a project member', 403);
-    if (minRole === 'owner' && member.role !== 'owner') {
-      throw new ApiError(ErrorCode.FORBIDDEN, 'Owner access required', 403);
+    if (!hasProjectRole(user, project, minRole)) {
+      throw new ApiError(
+        ErrorCode.FORBIDDEN,
+        minRole === 'owner'
+          ? 'Owner access required'
+          : 'Project write access required',
+        403
+      );
     }
     await next();
   };

@@ -70,7 +70,7 @@ export interface ApiClient {
     projectId: string,
     query?: HistoryPageQuery
   ): Promise<HistoryPage>;
-  searchUsers(query: string): Promise<SafeUser[]>;
+  searchUsers(projectId: string, query: string): Promise<SafeUser[]>;
   addMember(
     projectId: string,
     email: string,

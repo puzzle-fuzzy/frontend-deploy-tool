@@ -198,8 +198,9 @@ export function createFetchApiClient(): ApiClient {
       return (await res.json()) as HistoryPage;
     },
 
-    async searchUsers(query: string): Promise<SafeUser[]> {
-      const res = await client.api.users.search.$get({
+    async searchUsers(projectId: string, query: string): Promise<SafeUser[]> {
+      const res = await client.api.projects[':id'].users.search.$get({
+        param: { id: projectId },
         query: { q: query },
       });
       await checkOk(res);

@@ -31,7 +31,8 @@ HTTP 请求
 - **指定版本预览** — `/deploy/{slug}/{versionId}/`
 - **SPA fallback** — 每个项目可配置 hash/path 两种路由模式
 - **操作历史** — 记录创建、更新、上传、发布、回滚、删除等操作（上限 200）
-- **认证与角色** — bearer/session 认证；`admin` / `developer` / `viewer` 分级授权
+- **认证与角色** — 浏览器 session / 桌面 bearer 认证；`admin` 全局管理，
+  `developer` 结合项目 `owner/member` 授权，`viewer` 仅可读取所属项目
 - **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
 - **请求追踪** — 每个响应携带 `X-Request-Id`，也会接受并回传有效的上游请求编号
 - **路径安全** — `safeJoin` 拦截路径遍历；上传有大小/数量/路径长度上限

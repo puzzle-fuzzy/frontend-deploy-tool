@@ -4,6 +4,11 @@ import type {
   Project,
   Settings,
 } from '@deploykit/shared';
+import {
+  type Actor,
+  canReadProject,
+  hasProjectRole,
+} from '../domain/authorization';
 import { appendHistoryEvent, paginateHistory } from '../domain/history';
 import { DEFAULT_PROJECT_SETTINGS, isSlugUnique } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
@@ -15,8 +20,10 @@ export type { ProjectService } from './contracts';
 
 export function createProjectService(repo: ProjectRepository): ProjectService {
   return {
-    listProjects(): Project[] {
-      return repo.load().projects;
+    listProjects(actor: Actor): Project[] {
+      return repo
+        .load()
+        .projects.filter((project) => canReadProject(actor, project));
     },
 
     createProject(input: CreateProjectInput, actorId: string): Project {
@@ -62,6 +69,22 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
           'Project not found',
           404
         );
+      return project;
+    },
+
+    getProjectForActor(id: string, actor: Actor): Project {
+      const project = repo
+        .load()
+        .projects.find((candidate) => candidate.id === id);
+      if (!project)
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
+      if (!canReadProject(actor, project)) {
+        throw new ApiError(ErrorCode.FORBIDDEN, 'Project access required', 403);
+      }
       return project;
     },
 
@@ -263,7 +286,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
     transferOwnership(
       projectId: string,
       targetUserId: string,
-      actorId: string
+      actor: Actor
     ): Project {
       return repo.mutate((data) => {
         const project = data.projects.find((p) => p.id === projectId);
@@ -280,19 +303,35 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
             'Target user is not a member',
             404
           );
-        const actor = project.members.find((m) => m.userId === actorId);
-        if (actor?.role !== 'owner')
+        if (!hasProjectRole(actor, project, 'owner'))
           throw new ApiError(ErrorCode.FORBIDDEN, 'Owner access required', 403);
         target.role = 'owner';
-        actor.role = 'member';
+        const actorMembership = project.members.find(
+          (member) => member.userId === actor.id
+        );
+        if (actorMembership && actorMembership.userId !== targetUserId) {
+          actorMembership.role = 'member';
+        }
         project.updatedAt = new Date().toISOString();
-        appendHistoryEvent(data, 'project.update', project, actorId);
+        appendHistoryEvent(data, 'project.update', project, actor.id);
         return project;
       });
     },
 
-    listHistory(limit?: string, cursor?: string): HistoryPage {
-      const page = paginateHistory(repo.load().history, limit, cursor);
+    listHistory(actor: Actor, limit?: string, cursor?: string): HistoryPage {
+      const data = repo.load();
+      const visibleProjectIds =
+        actor.role === 'admin'
+          ? null
+          : new Set(
+              data.projects
+                .filter((project) => canReadProject(actor, project))
+                .map((project) => project.id)
+            );
+      const visibleHistory = visibleProjectIds
+        ? data.history.filter((event) => visibleProjectIds.has(event.projectId))
+        : data.history;
+      const page = paginateHistory(visibleHistory, limit, cursor);
       if (!page) {
         throw new ApiError(
           ErrorCode.INVALID_HISTORY_CURSOR,
@@ -304,6 +343,7 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
 
     listProjectHistory(
       projectId: string,
+      actor: Actor,
       limit?: string,
       cursor?: string
     ): HistoryPage {
@@ -315,6 +355,9 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
           'Project not found',
           404
         );
+      if (!canReadProject(actor, project)) {
+        throw new ApiError(ErrorCode.FORBIDDEN, 'Project access required', 403);
+      }
       const page = paginateHistory(
         data.history.filter((event) => event.projectId === projectId),
         limit,

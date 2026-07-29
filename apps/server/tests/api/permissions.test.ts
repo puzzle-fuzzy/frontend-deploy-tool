@@ -85,11 +85,20 @@ async function createProjectAs(cookie: string, slug = 'demo-app') {
   );
 }
 
-test('any authenticated user can create a project', async () => {
+test('a developer can create a project and becomes its owner', async () => {
   const res = await createProjectAs(devCookie);
   expect(res.status).toBe(201);
   const project = await res.json();
   expect(project.id).toBeDefined();
+  expect(project.members).toContainEqual(
+    expect.objectContaining({ userId: 'dev-id', role: 'owner' })
+  );
+});
+
+test('a viewer cannot create a project', async () => {
+  const res = await createProjectAs(viewerCookie);
+  expect(res.status).toBe(403);
+  expect((await res.json()).error.code).toBe('FORBIDDEN');
 });
 
 test('an admin creates a project and a developer can upload after being added as a member', async () => {
@@ -130,14 +139,79 @@ test('a developer cannot delete a project', async () => {
   expect(res.status).toBe(403);
 });
 
-test('a viewer can read projects but cannot mutate them', async () => {
+test('project reads are scoped to members while admins can read all', async () => {
   const project = await (await createProjectAs(adminCookie)).json();
 
-  const listRes = await app.request(
+  const addRes = await app.request(
+    `/api/projects/${project.id}/members`,
+    withCookie(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'dev@test.local', role: 'member' }),
+      },
+      adminCookie
+    )
+  );
+  expect(addRes.status).toBe(200);
+
+  const adminList = await app.request(
+    '/api/projects',
+    withCookie({ method: 'GET' }, adminCookie)
+  );
+  expect(
+    (await adminList.json()).map((item: { id: string }) => item.id)
+  ).toEqual([project.id]);
+
+  const memberList = await app.request(
+    '/api/projects',
+    withCookie({ method: 'GET' }, devCookie)
+  );
+  expect(
+    (await memberList.json()).map((item: { id: string }) => item.id)
+  ).toEqual([project.id]);
+
+  const viewerList = await app.request(
     '/api/projects',
     withCookie({ method: 'GET' }, viewerCookie)
   );
-  expect(listRes.status).toBe(200);
+  expect(viewerList.status).toBe(200);
+  expect(await viewerList.json()).toEqual([]);
+
+  const versionsRes = await app.request(
+    `/api/projects/${project.id}/versions`,
+    withCookie({ method: 'GET' }, viewerCookie)
+  );
+  expect(versionsRes.status).toBe(403);
+
+  const historyRes = await app.request(
+    `/api/projects/${project.id}/history`,
+    withCookie({ method: 'GET' }, viewerCookie)
+  );
+  expect(historyRes.status).toBe(403);
+
+  const globalHistoryRes = await app.request(
+    '/api/history',
+    withCookie({ method: 'GET' }, viewerCookie)
+  );
+  expect(globalHistoryRes.status).toBe(200);
+  expect((await globalHistoryRes.json()).items).toEqual([]);
+});
+
+test('a global viewer remains read-only even when added as a project member', async () => {
+  const project = await (await createProjectAs(adminCookie)).json();
+  const addRes = await app.request(
+    `/api/projects/${project.id}/members`,
+    withCookie(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'viewer@test.local', role: 'member' }),
+      },
+      adminCookie
+    )
+  );
+  expect(addRes.status).toBe(200);
 
   const updateRes = await app.request(
     `/api/projects/${project.id}`,
@@ -160,4 +234,39 @@ test('a viewer can read projects but cannot mutate them', async () => {
     withCookie({ method: 'POST', body: form }, viewerCookie)
   );
   expect(uploadRes.status).toBe(403);
+});
+
+test('only project owners and admins can search member candidates', async () => {
+  const project = await (await createProjectAs(adminCookie)).json();
+  const addRes = await app.request(
+    `/api/projects/${project.id}/members`,
+    withCookie(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: 'dev@test.local', role: 'member' }),
+      },
+      adminCookie
+    )
+  );
+  expect(addRes.status).toBe(200);
+
+  const ownerSearch = await app.request(
+    `/api/projects/${project.id}/users/search?q=viewer`,
+    withCookie({ method: 'GET' }, adminCookie)
+  );
+  expect(ownerSearch.status).toBe(200);
+  expect((await ownerSearch.json())[0].email).toBe('viewer@test.local');
+
+  const memberSearch = await app.request(
+    `/api/projects/${project.id}/users/search?q=viewer`,
+    withCookie({ method: 'GET' }, devCookie)
+  );
+  expect(memberSearch.status).toBe(403);
+
+  const legacySearch = await app.request(
+    '/api/users/search?q=viewer',
+    withCookie({ method: 'GET' }, adminCookie)
+  );
+  expect(legacySearch.status).toBe(404);
 });

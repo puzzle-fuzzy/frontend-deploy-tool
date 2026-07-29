@@ -155,6 +155,10 @@ deploykit/
 `apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经
 `hono/client` 自动获得类型。
 
+`admin` 可读取和管理全部项目；`developer` 可创建项目，但只能读取自己
+所属的项目，并按项目内 `owner/member` 角色写入；`viewer` 只能读取自己
+所属的项目。开放注册创建的是可自主管理项目的 `developer`，生产默认关闭注册。
+
 生产部署必须把同一个 Bun 进程反向代理到两个不同的浏览器源，并保留原始
 `Host`：`MANAGEMENT_BASE_URL` 只提供管理面板、API 和健康检查，
 `DEPLOY_BASE_URL` 只提供 `/deploy/*` 和健康检查。这样上传产物中的脚本无法
@@ -173,21 +177,22 @@ deploykit/
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
 | GET | `/api/projects` | 获取项目列表 | — |
-| POST | `/api/projects` | 创建项目（admin） | `{ name, slug, description }` |
-| PATCH | `/api/projects/:id` | 更新项目信息（developer+） | `{ name?, slug?, description? }` |
-| PATCH | `/api/projects/:id/settings` | 更新项目设置（developer+） | `{ spaMode, routingType }` |
-| DELETE | `/api/projects/:id` | 删除项目及其文件（admin） | — |
-| GET | `/api/projects/:id/versions` | 获取项目（含版本列表） | — |
+| POST | `/api/projects` | 创建项目（developer/admin） | `{ name, slug, description }` |
+| PATCH | `/api/projects/:id` | 更新项目信息（项目 owner/admin） | `{ name?, slug?, description? }` |
+| PATCH | `/api/projects/:id/settings` | 更新项目设置（项目 owner/admin） | `{ spaMode, routingType }` |
+| DELETE | `/api/projects/:id` | 删除项目及其文件（项目 owner/admin） | — |
+| GET | `/api/projects/:id/versions` | 获取项目（项目成员/admin） | — |
+| GET | `/api/projects/:id/users/search` | 搜索成员候选人（项目 owner/admin） | `?q=email` |
 
 ### 版本
 
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
-| POST | `/api/projects/:id/versions` | 上传新版本（developer+，预览态） | `FormData`（`file` 或 `folderFiles[]`） |
-| POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer+） | — |
-| POST | `/api/projects/:id/versions/:vid/rollback` | 回滚到指定版本（developer+） | — |
-| PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer+） | — |
-| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件（developer+） | — |
+| POST | `/api/projects/:id/versions` | 上传新版本（developer 项目成员/admin，预览态） | `FormData`（`file` 或 `folderFiles[]`） |
+| POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer 项目成员/admin） | — |
+| POST | `/api/projects/:id/versions/:vid/rollback` | 回滚到指定版本（developer 项目成员/admin） | — |
+| PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer 项目成员/admin） | — |
+| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件（developer 项目成员/admin） | — |
 
 ### 历史
 

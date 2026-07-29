@@ -35,13 +35,13 @@ const GOOD = {
   password: 'password123',
 };
 
-test('registers a new viewer account and issues a bearer token', async () => {
+test('registers a self-managing developer account and issues a bearer token', async () => {
   const res = await app.request('/api/auth/register', jsonPost(GOOD));
   expect(res.status).toBe(200);
 
   const body = await res.json();
   expect(body.user.email).toBe('alice@example.com');
-  expect(body.user.role).toBe('viewer');
+  expect(body.user.role).toBe('developer');
   expect(body.user.name).toBe('Alice');
   expect(body.user).not.toHaveProperty('passwordHash');
   expect(body.token).toBeTruthy();

@@ -89,6 +89,18 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 - Electron 仍通过一次性授权码换取进程内 bearer token；持久化可撤销设备会话
   在身份阶段接入。
 
+### 授权边界
+
+`domain/authorization.ts` 是全局角色与项目角色组合规则的唯一真源：
+
+- `admin` 可读取和管理全部项目。
+- `developer` 可创建项目；项目写操作还要求 `owner/member` 身份。
+- `viewer` 只能读取自己所属的项目，即使被加入为 member 也不能写入。
+- 项目列表、版本读取和历史读取在 `ProjectService` 接收 actor 并过滤，避免
+  新路由忘记挂中间件而泄露数据。
+- 用户搜索必须位于 `/api/projects/:id/users/search`，只允许该项目 owner
+  或 admin 使用，避免全局账号枚举。
+
 ## API 契约
 
 请求/响应类型由路由处理器的 `c.json(...)` 与 `hono/validator` 推导；前端经 `hono/client` 自动获得类型，无需手写。完整端点表见根 [README](../README.md#api-接口)。错误统一为 `{ "error": { "code": ErrorCode, "message": string } }`。上传端点使用 `multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。

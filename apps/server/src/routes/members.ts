@@ -1,3 +1,4 @@
+import type { SafeUser } from '@deploykit/shared';
 import { type Context, Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
@@ -5,12 +6,16 @@ import { ApiError, ErrorCode } from '../errors';
 import { requireProjectRole } from '../middleware/auth';
 import type { AppEnv, ProjectService } from '../services/contracts';
 
-function requireActorId(c: Context<AppEnv>): string {
+function requireActor(c: Context<AppEnv>): SafeUser {
   const user = c.get('user');
   if (!user) {
     throw new ApiError(ErrorCode.UNAUTHORIZED, 'Authentication required', 401);
   }
-  return user.id;
+  return user;
+}
+
+function requireActorId(c: Context<AppEnv>): string {
+  return requireActor(c).id;
 }
 
 export function createMemberRoutes(deps: { projectService: ProjectService }) {
@@ -76,7 +81,7 @@ export function createMemberRoutes(deps: { projectService: ProjectService }) {
         const project = projectService.transferOwnership(
           c.req.param('id'),
           targetUserId,
-          requireActorId(c)
+          requireActor(c)
         );
         return c.json({ project });
       }

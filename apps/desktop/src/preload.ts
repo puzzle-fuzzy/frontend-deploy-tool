@@ -44,8 +44,8 @@ contextBridge.exposeInMainWorld('deploykit', {
       projectId: string,
       query?: import('@deploykit/shared').HistoryPageQuery
     ) => ipcRenderer.invoke('api:listProjectHistory', projectId, query),
-    searchUsers: (query: string) =>
-      ipcRenderer.invoke('api:searchUsers', query),
+    searchUsers: (projectId: string, query: string) =>
+      ipcRenderer.invoke('api:searchUsers', projectId, query),
     addMember: (projectId: string, email: string, role: string) =>
       ipcRenderer.invoke('api:addMember', projectId, email, role),
     removeMember: (projectId: string, userId: string) =>

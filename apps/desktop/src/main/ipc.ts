@@ -168,14 +168,16 @@ export function registerIpc(deps: {
         return r.data;
       })
   );
-  ipcMain.handle('api:searchUsers', async (_e, query: string) =>
-    toIpcResult(async () => {
-      const r = await serverRequest(session, getOrigin(), {
-        method: 'GET',
-        path: `/api/users/search?q=${encodeURIComponent(query)}`,
-      });
-      return r.data;
-    })
+  ipcMain.handle(
+    'api:searchUsers',
+    async (_e, projectId: string, query: string) =>
+      toIpcResult(async () => {
+        const r = await serverRequest(session, getOrigin(), {
+          method: 'GET',
+          path: `/api/projects/${projectId}/users/search?q=${encodeURIComponent(query)}`,
+        });
+        return r.data;
+      })
   );
   ipcMain.handle(
     'api:addMember',
