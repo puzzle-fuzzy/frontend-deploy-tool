@@ -194,10 +194,15 @@ deploykit/
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
 | POST | `/api/projects/:id/versions` | 上传新版本（developer 项目成员/admin，预览态） | `FormData`（`file` 或 `folderFiles[]`） |
-| POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer 项目成员/admin） | — |
-| POST | `/api/projects/:id/versions/:vid/rollback` | 回滚到指定版本（developer 项目成员/admin） | — |
-| PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer 项目成员/admin） | — |
-| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件（developer 项目成员/admin） | — |
+| POST | `/api/projects/:id/versions/:vid/publish` | 发布为生产版本（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
+| POST | `/api/projects/:id/versions/:vid/rollback` | 手动回滚到指定版本（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
+| PUT | `/api/projects/:id/versions/:vid/activate` | 兼容旧激活语义（developer 项目成员/admin） | `{ expectedActiveVersionId: string \| null }` |
+| DELETE | `/api/projects/:id/versions/:vid` | 删除版本及文件；删除线上版本会下线项目，不自动选择替代版本 | — |
+
+发布与回滚采用乐观并发控制：服务端只在
+`expectedActiveVersionId` 与当前线上版本一致时执行；否则返回
+`409 RELEASE_CONFLICT`，调用方应刷新项目后由用户重新确认。发布前还会检查版本
+状态、根 `index.html` 与目录 checksum，避免把缺失或已被修改的产物切到线上。
 
 ### 历史
 

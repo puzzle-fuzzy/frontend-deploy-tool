@@ -122,22 +122,34 @@ export function registerIpc(deps: {
   );
   ipcMain.handle(
     'api:publishVersion',
-    async (_e, projectId: string, versionId: string) =>
+    async (
+      _e,
+      projectId: string,
+      versionId: string,
+      expectedActiveVersionId: string | null
+    ) =>
       toIpcResult(async () => {
         const r = await serverRequest(session, getOrigin(), {
           method: 'POST',
           path: `/api/projects/${projectId}/versions/${versionId}/publish`,
+          body: { expectedActiveVersionId },
         });
         return r.data;
       })
   );
   ipcMain.handle(
     'api:rollbackVersion',
-    async (_e, projectId: string, versionId: string) =>
+    async (
+      _e,
+      projectId: string,
+      versionId: string,
+      expectedActiveVersionId: string | null
+    ) =>
       toIpcResult(async () => {
         const r = await serverRequest(session, getOrigin(), {
           method: 'POST',
           path: `/api/projects/${projectId}/versions/${versionId}/rollback`,
+          body: { expectedActiveVersionId },
         });
         return r.data;
       })

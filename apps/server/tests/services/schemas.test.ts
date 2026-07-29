@@ -3,6 +3,7 @@ import {
   createProjectSchema,
   parseCreateProject,
   parseIdParam,
+  parseReleaseCommand,
 } from '../../src/domain/schemas';
 import { ApiError, ErrorCode } from '../../src/errors';
 
@@ -105,5 +106,30 @@ describe('parseIdParam', () => {
     expect(() => parseIdParam('has space')).toThrow(ApiError);
     expect(() => parseIdParam('../escape')).toThrow(ApiError);
     expect(() => parseIdParam(`${'a'.repeat(65)}`)).toThrow(ApiError);
+  });
+});
+
+describe('parseReleaseCommand', () => {
+  test('accepts an observed active version or an explicitly empty release', () => {
+    expect(
+      parseReleaseCommand({ expectedActiveVersionId: 'version-1' })
+    ).toEqual({ expectedActiveVersionId: 'version-1' });
+    expect(parseReleaseCommand({ expectedActiveVersionId: null })).toEqual({
+      expectedActiveVersionId: null,
+    });
+  });
+
+  test('requires the precondition and rejects malformed ids or extra fields', () => {
+    for (const input of [
+      {},
+      { expectedActiveVersionId: '../escape' },
+      { expectedActiveVersionId: null, force: true },
+    ]) {
+      expectApiError(
+        () => parseReleaseCommand(input),
+        ErrorCode.INVALID_REQUEST,
+        'A valid expectedActiveVersionId is required'
+      );
+    }
   });
 });

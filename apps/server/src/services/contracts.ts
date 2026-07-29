@@ -8,6 +8,7 @@ import type {
   User,
 } from '@deploykit/shared';
 import type { Actor } from '../domain/authorization';
+import type { ReleaseCommand } from '../domain/version';
 
 /**
  * Service contracts (interfaces only). This module is deliberately Bun-free so
@@ -77,9 +78,24 @@ export interface VersionService {
     input: UploadVersionInput,
     actorId: string
   ): Promise<{ version: { id: string; name: string } }>;
-  publishVersion(projectId: string, versionId: string, actorId: string): void;
-  activateVersion(projectId: string, versionId: string, actorId: string): void;
-  rollbackVersion(projectId: string, versionId: string, actorId: string): void;
+  publishVersion(
+    projectId: string,
+    versionId: string,
+    actorId: string,
+    command: ReleaseCommand
+  ): void;
+  activateVersion(
+    projectId: string,
+    versionId: string,
+    actorId: string,
+    command: ReleaseCommand
+  ): void;
+  rollbackVersion(
+    projectId: string,
+    versionId: string,
+    actorId: string,
+    command: ReleaseCommand
+  ): void;
   deleteVersion(projectId: string, versionId: string, actorId: string): void;
 }
 

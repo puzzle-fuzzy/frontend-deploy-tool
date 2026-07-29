@@ -2,6 +2,7 @@ import type { CreateProjectInput } from '@deploykit/shared';
 import { z } from 'zod';
 import { ApiError, ErrorCode } from '../errors';
 import { isValidProjectSlug } from './project';
+import type { ReleaseCommand } from './version';
 
 /**
  * Zod-based request validators. Each `parse*` helper runs a schema and throws an
@@ -146,6 +147,24 @@ export function parseUpdateProject(value: unknown): {
       message: 'Invalid request body',
     };
     throw new ApiError(mapped.code, mapped.message);
+  }
+  return result.data;
+}
+
+export const releaseCommandSchema = z
+  .object({
+    expectedActiveVersionId: idParamSchema.nullable(),
+  })
+  .strict();
+
+/** Validates the optimistic concurrency precondition for release commands. */
+export function parseReleaseCommand(value: unknown): ReleaseCommand {
+  const result = releaseCommandSchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiError(
+      ErrorCode.INVALID_REQUEST,
+      'A valid expectedActiveVersionId is required'
+    );
   }
   return result.data;
 }

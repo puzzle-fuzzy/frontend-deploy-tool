@@ -34,10 +34,28 @@ contextBridge.exposeInMainWorld('deploykit', {
         'Use window.deploykit.nativeUpload.* for desktop uploads'
       );
     },
-    publishVersion: (projectId: string, versionId: string) =>
-      ipcRenderer.invoke('api:publishVersion', projectId, versionId),
-    rollbackVersion: (projectId: string, versionId: string) =>
-      ipcRenderer.invoke('api:rollbackVersion', projectId, versionId),
+    publishVersion: (
+      projectId: string,
+      versionId: string,
+      expectedActiveVersionId: string | null
+    ) =>
+      ipcRenderer.invoke(
+        'api:publishVersion',
+        projectId,
+        versionId,
+        expectedActiveVersionId
+      ),
+    rollbackVersion: (
+      projectId: string,
+      versionId: string,
+      expectedActiveVersionId: string | null
+    ) =>
+      ipcRenderer.invoke(
+        'api:rollbackVersion',
+        projectId,
+        versionId,
+        expectedActiveVersionId
+      ),
     deleteVersion: (projectId: string, versionId: string) =>
       ipcRenderer.invoke('api:deleteVersion', projectId, versionId),
     listProjectHistory: (

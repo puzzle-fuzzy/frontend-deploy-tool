@@ -74,7 +74,11 @@ export function useProjects() {
     if (!selectedProject) return;
     setPendingVersionId(versionId);
     try {
-      await api.publishVersion(selectedProject.id, versionId);
+      await api.publishVersion(
+        selectedProject.id,
+        versionId,
+        selectedProject.activeVersionId
+      );
       await refresh();
     } finally {
       setPendingVersionId(null);
@@ -85,7 +89,11 @@ export function useProjects() {
     if (!selectedProject) return;
     setPendingVersionId(versionId);
     try {
-      await api.rollbackVersion(selectedProject.id, versionId);
+      await api.rollbackVersion(
+        selectedProject.id,
+        versionId,
+        selectedProject.activeVersionId
+      );
       await refresh();
     } finally {
       setPendingVersionId(null);

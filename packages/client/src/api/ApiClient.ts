@@ -59,11 +59,13 @@ export interface ApiClient {
   ): Promise<{ version: { id: string; name: string } }>;
   publishVersion(
     projectId: string,
-    versionId: string
+    versionId: string,
+    expectedActiveVersionId: string | null
   ): Promise<{ ok: boolean }>;
   rollbackVersion(
     projectId: string,
-    versionId: string
+    versionId: string,
+    expectedActiveVersionId: string | null
   ): Promise<{ ok: boolean }>;
   deleteVersion(projectId: string, versionId: string): Promise<{ ok: boolean }>;
   listProjectHistory(

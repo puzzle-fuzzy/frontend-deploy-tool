@@ -79,7 +79,7 @@ Web builds to its own `apps/web/dist/` (package-local). The root `build` script 
 
 ### Active version invariant
 
-A project has zero or one active version, tracked by `project.activeVersionId` (nullable). Do **not** re-introduce a per-version `active` boolean. Deleting the active version promotes a replacement via `chooseReplacementActiveVersionId` (`domain/version.ts`) — preserve this on edits.
+A project has zero or one active version, tracked by `project.activeVersionId` (nullable). Do **not** re-introduce a per-version `active` boolean. Only an explicit publish, rollback, or compatibility activate command may select an active version, and every release command must carry the caller's observed `expectedActiveVersionId`. Deleting the active version unpublishes the project; it must never promote a replacement implicitly.
 
 ## Conventions
 

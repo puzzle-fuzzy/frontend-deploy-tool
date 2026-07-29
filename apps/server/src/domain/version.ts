@@ -1,22 +1,12 @@
 import type { Project, Version } from '@deploykit/shared';
 
 /**
- * Returns the `activeVersionId` to use after `deletedVersionId` is removed.
- * Deleting a non-active version leaves the active id untouched; deleting the
- * active version promotes the newest remaining version. Returns `null` when the
- * active version was the only version (nothing remains).
+ * Optimistic concurrency precondition supplied by release callers. Requiring
+ * the caller's observed active version prevents a stale browser/desktop tab
+ * from silently overwriting a newer operator decision.
  */
-export function chooseReplacementActiveVersionId(
-  versions: Version[],
-  deletedVersionId: string,
-  activeVersionId: string | null
-): string | null {
-  if (deletedVersionId !== activeVersionId) return activeVersionId;
-
-  const remaining = versions.filter(
-    (version) => version.id !== deletedVersionId
-  );
-  return remaining.at(-1)?.id ?? null;
+export interface ReleaseCommand {
+  expectedActiveVersionId: string | null;
 }
 
 /**

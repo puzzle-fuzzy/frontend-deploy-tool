@@ -11,7 +11,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data, Project, Version } from '@deploykit/shared';
 import type { AppConfig } from '../../src/config';
+import { ApiError, ErrorCode } from '../../src/errors';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
+import { checksumDirectory } from '../../src/services/artifactService';
 import { createVersionService } from '../../src/services/versionService';
 
 function version(id: string): Version {
@@ -56,6 +58,17 @@ function config(storageDir: string): AppConfig {
     secureCookies: false,
     registrationEnabled: true,
   };
+}
+
+function writeArtifact(
+  storageDir: string,
+  versionValue: Version,
+  content = '<html>ready</html>'
+): void {
+  const versionDir = join(storageDir, 'p1', versionValue.id);
+  mkdirSync(versionDir, { recursive: true });
+  writeFileSync(join(versionDir, 'index.html'), content);
+  versionValue.checksum = checksumDirectory(versionDir);
 }
 
 describe('createVersionService', () => {
@@ -179,10 +192,12 @@ describe('createVersionService', () => {
     };
 
     try {
+      writeArtifact(storageDir, activeVersion);
       createVersionService(repo, config(storageDir)).publishVersion(
         'p1',
         'v1',
-        'user-2'
+        'user-2',
+        { expectedActiveVersionId: 'v1' }
       );
 
       expect(saved).toBe(false);
@@ -227,8 +242,140 @@ describe('createVersionService', () => {
 
       expect(existsSync(deletedDir)).toBe(false);
       expect(existsSync(remainingDir)).toBe(true);
+      expect(data.projects[0].activeVersionId).toBeNull();
+      expect(data.projects[0].versions[0]?.status).toBe('preview');
+      expect(data.history[0]?.metadata).toMatchObject({
+        wasActive: true,
+        previousActiveVersionId: 'v1',
+        activeVersionId: null,
+      });
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a stale release precondition without changing production', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    writeArtifact(storageDir, demoProject.versions[1]);
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+    };
+
+    try {
+      expect(() =>
+        createVersionService(repo, config(storageDir)).publishVersion(
+          'p1',
+          'v2',
+          'user-1',
+          { expectedActiveVersionId: null }
+        )
+      ).toThrow(
+        new ApiError(
+          ErrorCode.RELEASE_CONFLICT,
+          'The active version changed; refresh before releasing',
+          409
+        )
+      );
+      expect(demoProject.activeVersionId).toBe('v1');
+      expect(data.history).toHaveLength(0);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects failed and archived versions as publish targets', () => {
+    for (const status of ['failed', 'archived'] as const) {
+      const storageDir = mkdtempSync(
+        join(tmpdir(), 'deploykit-version-service-')
+      );
+      const demoProject = project();
+      demoProject.activeVersionId = null;
+      demoProject.versions = [version('blocked')];
+      demoProject.versions[0].status = status;
+      writeArtifact(storageDir, demoProject.versions[0]);
+      const data: Data = {
+        schemaVersion: 5,
+        projects: [demoProject],
+        users: [],
+        history: [],
+      };
+      const repo: ProjectRepository = {
+        load: () => data,
+        save: () => {},
+        mutate: (operation) => operation(data),
+      };
+
+      try {
+        expect(() =>
+          createVersionService(repo, config(storageDir)).publishVersion(
+            'p1',
+            'blocked',
+            'user-1',
+            { expectedActiveVersionId: null }
+          )
+        ).toThrow('Version is not publishable');
+        expect(demoProject.activeVersionId).toBeNull();
+      } finally {
+        rmSync(storageDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('rejects missing or corrupted artifacts before publication', () => {
+    for (const scenario of ['missing', 'corrupted'] as const) {
+      const storageDir = mkdtempSync(
+        join(tmpdir(), 'deploykit-version-service-')
+      );
+      const demoProject = project();
+      demoProject.activeVersionId = null;
+      demoProject.versions = [version('candidate')];
+      if (scenario === 'corrupted') {
+        writeArtifact(storageDir, demoProject.versions[0]);
+        writeFileSync(
+          join(storageDir, 'p1', 'candidate', 'index.html'),
+          '<html>tampered</html>'
+        );
+      }
+      const data: Data = {
+        schemaVersion: 5,
+        projects: [demoProject],
+        users: [],
+        history: [],
+      };
+      const repo: ProjectRepository = {
+        load: () => data,
+        save: () => {},
+        mutate: (operation) => operation(data),
+      };
+
+      try {
+        expect(() =>
+          createVersionService(repo, config(storageDir)).publishVersion(
+            'p1',
+            'candidate',
+            'user-1',
+            { expectedActiveVersionId: null }
+          )
+        ).toThrow(
+          scenario === 'missing'
+            ? 'Upload must contain an index.html at its root'
+            : 'Artifact checksum verification failed'
+        );
+        expect(demoProject.activeVersionId).toBeNull();
+      } finally {
+        rmSync(storageDir, { recursive: true, force: true });
+      }
     }
   });
 });

@@ -2,7 +2,6 @@ import { describe, expect, test } from 'bun:test';
 import type { Project, Version } from '@deploykit/shared';
 import { DEFAULT_PROJECT_SETTINGS } from '../../src/domain/project';
 import {
-  chooseReplacementActiveVersionId,
   findProjectVersion,
   syncProductionStatus,
 } from '../../src/domain/version';
@@ -57,32 +56,6 @@ function makeProject(ownedVersions: Version[] = versions): Project {
     ],
   };
 }
-
-describe('chooseReplacementActiveVersionId', () => {
-  test('promotes the newest remaining version when the active version is deleted', () => {
-    expect(
-      chooseReplacementActiveVersionId(versions, 'version-a', 'version-a')
-    ).toBe('version-b');
-  });
-
-  test('keeps the current active version when deleting an inactive version', () => {
-    expect(
-      chooseReplacementActiveVersionId(versions, 'version-b', 'version-a')
-    ).toBe('version-a');
-  });
-
-  test('returns null when the active version was the only version', () => {
-    expect(
-      chooseReplacementActiveVersionId([versions[0]], 'version-a', 'version-a')
-    ).toBeNull();
-  });
-
-  test('returns the active id unchanged when there is no active version', () => {
-    expect(
-      chooseReplacementActiveVersionId(versions, 'version-b', null)
-    ).toBeNull();
-  });
-});
 
 describe('findProjectVersion (version-belongs-to-one-project invariant)', () => {
   const project = makeProject();

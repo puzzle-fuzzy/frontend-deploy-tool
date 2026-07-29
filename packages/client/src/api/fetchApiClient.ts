@@ -151,22 +151,30 @@ export function createFetchApiClient(): ApiClient {
 
     async publishVersion(
       projectId: string,
-      versionId: string
+      versionId: string,
+      expectedActiveVersionId: string | null
     ): Promise<{ ok: boolean }> {
       const res = await client.api.projects[':id'].versions[
         ':versionId'
-      ].publish.$post({ param: { id: projectId, versionId } });
+      ].publish.$post({
+        param: { id: projectId, versionId },
+        json: { expectedActiveVersionId },
+      });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },
 
     async rollbackVersion(
       projectId: string,
-      versionId: string
+      versionId: string,
+      expectedActiveVersionId: string | null
     ): Promise<{ ok: boolean }> {
       const res = await client.api.projects[':id'].versions[
         ':versionId'
-      ].rollback.$post({ param: { id: projectId, versionId } });
+      ].rollback.$post({
+        param: { id: projectId, versionId },
+        json: { expectedActiveVersionId },
+      });
       await checkOk(res);
       return (await res.json()) as { ok: boolean };
     },

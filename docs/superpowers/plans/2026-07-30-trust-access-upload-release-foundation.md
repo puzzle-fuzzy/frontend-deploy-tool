@@ -497,7 +497,7 @@ git commit -m "security: enforce bounded artifact uploads"
 - Changes: `publishVersion`, `activateVersion`, and `rollbackVersion` accept `ReleaseCommand`.
 - Produces: `assertPublishableVersion(projectId, versionId)` internal service check.
 
-- [ ] **Step 1: Write failing release invariant tests**
+- [x] **Step 1: Write failing release invariant tests**
 
 ```ts
 expect(() =>
@@ -519,14 +519,14 @@ expect(project.versions.every((item) => item.status !== 'production')).toBe(
 );
 ```
 
-- [ ] **Step 2: Run domain and service tests**
+- [x] **Step 2: Run domain and service tests**
 
 Run: `bun --filter @deploykit/server test tests/services/versionDomain.test.ts tests/services/versionService.test.ts`
 
 Expected: FAIL because deletion still promotes a replacement and release
 commands have no precondition.
 
-- [ ] **Step 3: Replace automatic replacement with explicit unpublish**
+- [x] **Step 3: Replace automatic replacement with explicit unpublish**
 
 Delete `chooseReplacementActiveVersionId`. When deleting an active version, set
 `activeVersionId` to `null`, call `syncProductionStatus(versions, null)`, and
@@ -542,7 +542,7 @@ write history metadata:
 
 Do not update another version's `publishedAt` or `publishedBy`.
 
-- [ ] **Step 4: Validate the release precondition**
+- [x] **Step 4: Validate the release precondition**
 
 Parse JSON body `{ expectedActiveVersionId: string | null }` on publish,
 activate, and rollback. Inside the same repository mutation that changes the
@@ -559,7 +559,7 @@ if (project.activeVersionId !== command.expectedActiveVersionId) {
 }
 ```
 
-- [ ] **Step 5: Validate artifacts before publication**
+- [x] **Step 5: Validate artifacts before publication**
 
 Reject `failed` and `archived` versions. Require the version directory and root
 `index.html`, then compare `checksumDirectory(versionDir)` to the persisted
@@ -584,7 +584,7 @@ if (checksumDirectory(versionDir) !== version.checksum) {
 }
 ```
 
-- [ ] **Step 6: Send preconditions from all clients**
+- [x] **Step 6: Send preconditions from all clients**
 
 Change `ApiClient.publishVersion` and `rollbackVersion` to receive the current
 `activeVersionId`. Send it in the JSON body so stale UI tabs cannot overwrite a
@@ -594,13 +594,13 @@ newer operator action.
 json: { expectedActiveVersionId }
 ```
 
-- [ ] **Step 7: Update architecture guidance**
+- [x] **Step 7: Update architecture guidance**
 
 Replace the AGENTS.md instruction that requires automatic replacement with the
 new invariant: deleting an active version unpublishes the project and only an
 explicit publish/rollback may select another version.
 
-- [ ] **Step 8: Run focused and full verification**
+- [x] **Step 8: Run focused and full verification**
 
 Run: `bun --filter @deploykit/server test tests/services/versionDomain.test.ts tests/services/versionService.test.ts tests/api/contracts.test.ts`
 
@@ -608,7 +608,7 @@ Run: `bun run verify`
 
 Expected: all commands exit 0.
 
-- [ ] **Step 9: Commit the release slice**
+- [x] **Step 9: Commit the release slice**
 
 ```bash
 git add apps/server/src/domain/version.ts apps/server/src/domain/schemas.ts apps/server/src/services/contracts.ts apps/server/src/services/versionService.ts apps/server/src/routes/versions.ts packages/client/src/api/ApiClient.ts packages/client/src/api/fetchApiClient.ts apps/server/tests/services/versionDomain.test.ts apps/server/tests/services/versionService.test.ts apps/server/tests/api/contracts.test.ts AGENTS.md README.md docs/architecture.md

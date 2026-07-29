@@ -83,11 +83,11 @@ Web builds to its own `apps/web/dist/` (package-local). The root `build` script 
 
 ### Active version invariant
 
-A project has zero or one active version, tracked by `project.activeVersionId` (nullable). Do **not** re-introduce a per-version `active` boolean. Deleting the active version promotes a replacement via `chooseReplacementActiveVersionId` (`domain/version.ts`) — preserve this on edits.
+A project has zero or one active version, tracked by `project.activeVersionId` (nullable). Do **not** re-introduce a per-version `active` boolean. Only an explicit publish, rollback, or compatibility activate command may select an active version, and every release command must carry the caller's observed `expectedActiveVersionId`. Deleting the active version unpublishes the project; it must never promote a replacement implicitly.
 
 ## Conventions
 
-- **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. `status` is `400 | 401 | 403 | 404 | 500`. Add new codes to the `ErrorCode` const object in `errors.ts`.
+- **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. Supported statuses are declared by `ApiError`; use `409` for optimistic release conflicts, `413` for request limits, and `429` for exhausted upload capacity. Add new codes to `packages/shared/src/errors.ts`.
 - **Request validation**: prefer zod schemas in `domain/schemas.ts` that throw `ApiError`, wired through Hono `validator('json', ...)` or a `parse*` helper. Routes should receive already-typed values — no `as` casts.
 - **History**: every mutating service call appends an event via `appendHistoryEvent` (capped at 200). New actions must be added to the `historyEventSchema` action enum in `shared`.
 - **Auth + roles**: `/api` requires a session except login/register/logout and

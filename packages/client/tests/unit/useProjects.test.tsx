@@ -97,7 +97,7 @@ describe('useProjects', () => {
       await result.current.publishVersion('v1');
     });
 
-    expect(client.publishVersion).toHaveBeenCalledWith('a', 'v1');
+    expect(client.publishVersion).toHaveBeenCalledWith('a', 'v1', 'v1');
     expect(client.listProjects).toHaveBeenCalledTimes(2);
   });
 

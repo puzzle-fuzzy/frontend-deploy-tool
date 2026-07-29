@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
-import { parseIdParam } from '../domain/schemas';
+import { validator } from 'hono/validator';
+import { parseIdParam, parseReleaseCommand } from '../domain/schemas';
 import { ErrorCode } from '../errors';
 import { requireProjectRole } from '../middleware/auth';
 import type { UploadRouteLimits } from '../middleware/uploadLimits';
@@ -64,13 +65,15 @@ export function createVersionRoutes(deps: {
     .put(
       '/api/projects/:id/versions/:versionId/activate',
       requireProjectRole('member', () => projectService),
+      validator('json', parseReleaseCommand),
       (c) => {
         const projectId = parseIdParam(c.req.param('id'));
         const versionId = parseIdParam(c.req.param('versionId'));
         versionService.activateVersion(
           projectId,
           versionId,
-          c.get('user')?.id ?? 'system'
+          c.get('user')?.id ?? 'system',
+          c.req.valid('json')
         );
         return c.json({ ok: true });
       }
@@ -78,13 +81,15 @@ export function createVersionRoutes(deps: {
     .post(
       '/api/projects/:id/versions/:versionId/publish',
       requireProjectRole('member', () => projectService),
+      validator('json', parseReleaseCommand),
       (c) => {
         const projectId = parseIdParam(c.req.param('id'));
         const versionId = parseIdParam(c.req.param('versionId'));
         versionService.publishVersion(
           projectId,
           versionId,
-          c.get('user')?.id ?? 'system'
+          c.get('user')?.id ?? 'system',
+          c.req.valid('json')
         );
         return c.json({ ok: true });
       }
@@ -92,13 +97,15 @@ export function createVersionRoutes(deps: {
     .post(
       '/api/projects/:id/versions/:versionId/rollback',
       requireProjectRole('member', () => projectService),
+      validator('json', parseReleaseCommand),
       (c) => {
         const projectId = parseIdParam(c.req.param('id'));
         const versionId = parseIdParam(c.req.param('versionId'));
         versionService.rollbackVersion(
           projectId,
           versionId,
-          c.get('user')?.id ?? 'system'
+          c.get('user')?.id ?? 'system',
+          c.req.valid('json')
         );
         return c.json({ ok: true });
       }

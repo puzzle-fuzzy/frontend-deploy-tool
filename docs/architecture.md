@@ -137,6 +137,11 @@ apps/server/
 - 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
   checksum 校验后，通过 `rename` 原子移动到正式版本目录，再提交 SQLite 元数据。
   元数据提交失败会删除正式目录。
+- `activeVersionId` 是唯一发布指针。发布、回滚与兼容 activate 请求必须携带
+  调用方读取到的 `expectedActiveVersionId`；服务端在同一次元数据事务中校验，
+  不一致返回 `409 RELEASE_CONFLICT`。切换前会验证版本生命周期、
+  `index.html` 和目录 checksum。删除线上版本只会将项目下线，不会隐式发布
+  另一个版本。
 - 应用开始服务前执行一次对账：清理中断 staging 与旧 ZIP 临时文件；没有元数据
   引用的正式产物移动到 `.recovery/orphans/`，不做不可恢复删除。元数据存在但
   缺少 `index.html` 的版本标记为 `failed` 并记录 `version.reconcile`。若缺失

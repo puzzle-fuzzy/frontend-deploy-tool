@@ -47,10 +47,18 @@ export function createIpcApiClient(): ApiClient {
         'Desktop uploads must go through window.deploykit.nativeUpload.*'
       );
     },
-    publishVersion: (projectId, versionId) =>
-      unwrapIpcResult(bridge.api.publishVersion(projectId, versionId)),
-    rollbackVersion: (projectId, versionId) =>
-      unwrapIpcResult(bridge.api.rollbackVersion(projectId, versionId)),
+    publishVersion: (projectId, versionId, expectedActiveVersionId) =>
+      unwrapIpcResult(
+        bridge.api.publishVersion(projectId, versionId, expectedActiveVersionId)
+      ),
+    rollbackVersion: (projectId, versionId, expectedActiveVersionId) =>
+      unwrapIpcResult(
+        bridge.api.rollbackVersion(
+          projectId,
+          versionId,
+          expectedActiveVersionId
+        )
+      ),
     deleteVersion: (projectId, versionId) =>
       unwrapIpcResult(bridge.api.deleteVersion(projectId, versionId)),
     listProjectHistory: (projectId, query) =>

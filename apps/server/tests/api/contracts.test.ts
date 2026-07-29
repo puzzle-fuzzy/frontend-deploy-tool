@@ -63,9 +63,14 @@ async function activateVersion(
   projectId: string,
   versionId: string
 ): Promise<void> {
+  const expectedActiveVersionId = (await getProject(projectId)).activeVersionId;
   const res = await req(
     `/api/projects/${projectId}/versions/${versionId}/activate`,
-    { method: 'PUT' }
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId }),
+    }
   );
   expect(res.status).toBe(200);
 }
@@ -74,9 +79,14 @@ async function publishVersion(
   projectId: string,
   versionId: string
 ): Promise<void> {
+  const expectedActiveVersionId = (await getProject(projectId)).activeVersionId;
   const res = await req(
     `/api/projects/${projectId}/versions/${versionId}/publish`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId }),
+    }
   );
   expect(res.status).toBe(200);
 }
@@ -85,9 +95,14 @@ async function rollbackVersion(
   projectId: string,
   versionId: string
 ): Promise<void> {
+  const expectedActiveVersionId = (await getProject(projectId)).activeVersionId;
   const res = await req(
     `/api/projects/${projectId}/versions/${versionId}/rollback`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId }),
+    }
   );
   expect(res.status).toBe(200);
 }
@@ -401,7 +416,11 @@ test('activating a version sets it as the active version', async () => {
 
   const res = await req(
     `/api/projects/${project.id}/versions/${second.id}/activate`,
-    { method: 'PUT' }
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId: null }),
+    }
   );
   expect(res.status).toBe(200);
 
@@ -466,7 +485,7 @@ test('rollback is a distinct publish-like action in history', async () => {
   });
 });
 
-test('deleting the active version promotes a replacement', async () => {
+test('deleting the active version explicitly unpublishes the project', async () => {
   const project = await createProject();
   await uploadVersion(project.id, '<html>v1</html>');
   await uploadVersion(project.id, '<html>v2</html>');
@@ -480,8 +499,37 @@ test('deleting the active version promotes a replacement', async () => {
 
   const after = await getProject(project.id);
   expect(after.versions).toHaveLength(1);
-  expect(after.activeVersionId).toBe(after.versions[0].id);
-  expect(after.versions[0].status).toBe('production');
+  expect(after.activeVersionId).toBeNull();
+  expect(after.versions[0].status).toBe('preview');
+});
+
+test('rejects a stale release precondition with 409', async () => {
+  const project = await createProject();
+  const first = await versionIdOf(
+    await uploadVersion(project.id, '<html>v1</html>')
+  );
+  const second = await versionIdOf(
+    await uploadVersion(project.id, '<html>v2</html>')
+  );
+  await publishVersion(project.id, first);
+
+  const res = await req(
+    `/api/projects/${project.id}/versions/${second}/publish`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId: null }),
+    }
+  );
+
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({
+    error: {
+      code: ErrorCode.RELEASE_CONFLICT,
+      message: 'The active version changed; refresh before releasing',
+    },
+  });
+  expect((await getProject(project.id)).activeVersionId).toBe(first);
 });
 
 test('serves the active version via /deploy/:slug/', async () => {
@@ -570,6 +618,8 @@ test('records structured metadata on upload and activate history events', async 
 
   await req(`/api/projects/${project.id}/versions/${second.id}/activate`, {
     method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ expectedActiveVersionId: null }),
   });
 
   const { items: events } = await (await req('/api/history?limit=10')).json();

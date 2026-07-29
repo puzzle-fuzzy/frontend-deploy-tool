@@ -76,7 +76,11 @@ test('rejects activating an unknown version without setting an active version', 
 
   const failed = await request(
     `/api/projects/${project.id}/versions/missing-version/activate`,
-    { method: 'PUT' }
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId: null }),
+    }
   );
   expect(failed.status).toBe(404);
 

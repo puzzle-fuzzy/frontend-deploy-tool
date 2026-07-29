@@ -7,11 +7,8 @@ import type {
 } from '@deploykit/shared';
 import type { AppConfig } from '../config';
 import { appendHistoryEvent } from '../domain/history';
-import {
-  chooseReplacementActiveVersionId,
-  findProjectVersion,
-  syncProductionStatus,
-} from '../domain/version';
+import type { ReleaseCommand } from '../domain/version';
+import { findProjectVersion, syncProductionStatus } from '../domain/version';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
@@ -37,11 +34,50 @@ export function createVersionService(
     projectId: string,
     versionId: string,
     actorId: string,
+    command: ReleaseCommand,
     action: Extract<
       HistoryAction,
       'version.publish' | 'version.activate' | 'version.rollback'
     >
   ) => {
+    const snapshot = repo.load();
+    const snapshotProject = snapshot.projects.find(
+      (project) => project.id === projectId
+    );
+    if (!snapshotProject)
+      throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+    const snapshotVersion = findProjectVersion(snapshotProject, versionId);
+    if (!snapshotVersion)
+      throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
+    if (
+      snapshotProject.activeVersionId !== command.expectedActiveVersionId
+    ) {
+      throw new ApiError(
+        ErrorCode.RELEASE_CONFLICT,
+        'The active version changed; refresh before releasing',
+        409
+      );
+    }
+    if (
+      snapshotVersion.status !== 'preview' &&
+      snapshotVersion.status !== 'production'
+    ) {
+      throw new ApiError(
+        ErrorCode.INVALID_REQUEST,
+        'Version is not publishable'
+      );
+    }
+
+    const versionDir = join(config.storageDir, projectId, versionId);
+    assertIndexHtml(versionDir);
+    if (checksumDirectory(versionDir) !== snapshotVersion.checksum) {
+      throw new ApiError(
+        ErrorCode.FILE_PROCESSING_FAILED,
+        'Artifact checksum verification failed',
+        500
+      );
+    }
+
     repo.mutate((data) => {
       const project = data.projects.find((p) => p.id === projectId);
       if (!project)
@@ -60,6 +96,19 @@ export function createVersionService(
         );
 
       const previousActiveVersionId = project.activeVersionId;
+      if (previousActiveVersionId !== command.expectedActiveVersionId) {
+        throw new ApiError(
+          ErrorCode.RELEASE_CONFLICT,
+          'The active version changed; refresh before releasing',
+          409
+        );
+      }
+      if (version.status !== 'preview' && version.status !== 'production') {
+        throw new ApiError(
+          ErrorCode.INVALID_REQUEST,
+          'Version is not publishable'
+        );
+      }
       if (previousActiveVersionId === version.id) return;
 
       const publishedAt = new Date().toISOString();
@@ -260,16 +309,28 @@ export function createVersionService(
       return { version: { id: version.id, name: version.name } };
     },
 
-    publishVersion(projectId, versionId, actorId) {
-      promoteVersion(projectId, versionId, actorId, 'version.publish');
+    publishVersion(projectId, versionId, actorId, command) {
+      promoteVersion(projectId, versionId, actorId, command, 'version.publish');
     },
 
-    activateVersion(projectId, versionId, actorId) {
-      promoteVersion(projectId, versionId, actorId, 'version.activate');
+    activateVersion(projectId, versionId, actorId, command) {
+      promoteVersion(
+        projectId,
+        versionId,
+        actorId,
+        command,
+        'version.activate'
+      );
     },
 
-    rollbackVersion(projectId, versionId, actorId) {
-      promoteVersion(projectId, versionId, actorId, 'version.rollback');
+    rollbackVersion(projectId, versionId, actorId, command) {
+      promoteVersion(
+        projectId,
+        versionId,
+        actorId,
+        command,
+        'version.rollback'
+      );
     },
 
     deleteVersion(projectId, versionId, actorId) {
@@ -290,33 +351,22 @@ export function createVersionService(
           );
 
         const wasActive = project.activeVersionId === versionId;
-        const replacementActiveVersionId = chooseReplacementActiveVersionId(
-          project.versions,
-          versionId,
-          project.activeVersionId
-        );
+        const previousActiveVersionId = project.activeVersionId;
         const removed = project.versions.splice(
           project.versions.indexOf(version),
           1
         )[0];
-        project.activeVersionId = replacementActiveVersionId;
+        if (wasActive) project.activeVersionId = null;
         const updatedAt = new Date().toISOString();
         project.versions = syncProductionStatus(
           project.versions,
-          replacementActiveVersionId
+          project.activeVersionId
         );
-        const replacementVersion =
-          replacementActiveVersionId === null
-            ? undefined
-            : findProjectVersion(project, replacementActiveVersionId);
-        if (replacementVersion) {
-          replacementVersion.publishedAt = updatedAt;
-          replacementVersion.publishedBy = actorId;
-        }
         project.updatedAt = updatedAt;
         appendHistoryEvent(data, 'version.delete', project, actorId, removed, {
           wasActive,
-          replacementActiveVersionId,
+          previousActiveVersionId,
+          activeVersionId: project.activeVersionId,
         });
       });
       removeDir(join(config.storageDir, projectId, versionId));
