@@ -54,6 +54,7 @@ describe('resolveDeployTarget', () => {
       kind: 'resolved',
       absolutePath: join(storageDir, projectId, versionB, 'index.html'),
       fallbackIndexPath: null,
+      cacheScope: 'version',
     });
   });
 
@@ -66,6 +67,7 @@ describe('resolveDeployTarget', () => {
       kind: 'resolved',
       absolutePath: join(storageDir, projectId, versionA, 'index.html'),
       fallbackIndexPath: null,
+      cacheScope: 'active',
     });
   });
 
@@ -75,6 +77,7 @@ describe('resolveDeployTarget', () => {
       kind: 'resolved',
       absolutePath: join(storageDir, projectId, versionA, 'index.html'),
       fallbackIndexPath: null,
+      cacheScope: 'active',
     });
   });
 
@@ -110,6 +113,7 @@ describe('resolveDeployTarget', () => {
       kind: 'resolved',
       absolutePath: join(storageDir, projectId, versionA, 'about'),
       fallbackIndexPath: join(storageDir, projectId, versionA, 'index.html'),
+      cacheScope: 'active',
     });
   });
 
@@ -122,6 +126,7 @@ describe('resolveDeployTarget', () => {
       kind: 'resolved',
       absolutePath: join(storageDir, projectId, versionA, 'about'),
       fallbackIndexPath: null,
+      cacheScope: 'active',
     });
   });
 });

@@ -10,6 +10,8 @@ export type DeployTarget =
       absolutePath: string;
       /** Path to `index.html` to try when the primary file is missing (SPA mode). */
       fallbackIndexPath: string | null;
+      /** Active aliases can move; explicit version paths are immutable. */
+      cacheScope: 'active' | 'version';
     };
 
 /**
@@ -26,10 +28,12 @@ export function resolveDeployTarget(
 ): DeployTarget {
   let versionId: string;
   let filePath: string;
+  let cacheScope: 'active' | 'version';
 
   if (parts.length >= 2 && project.versions.some((v) => v.id === parts[1])) {
     versionId = parts[1];
     filePath = parts.slice(2).join('/');
+    cacheScope = 'version';
   } else {
     const active = project.versions.find(
       (v) => v.id === project.activeVersionId
@@ -37,6 +41,7 @@ export function resolveDeployTarget(
     if (!active) return { kind: 'no-active' };
     versionId = active.id;
     filePath = parts.slice(1).join('/');
+    cacheScope = 'active';
   }
 
   if (!filePath || filePath.endsWith('/')) filePath += 'index.html';
@@ -49,5 +54,5 @@ export function resolveDeployTarget(
     ? join(versionRoot, 'index.html')
     : null;
 
-  return { kind: 'resolved', absolutePath, fallbackIndexPath };
+  return { kind: 'resolved', absolutePath, fallbackIndexPath, cacheScope };
 }

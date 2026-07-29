@@ -53,10 +53,10 @@ then exits, with a bounded force-close fallback.
 
 **Acceptance criteria:**
 
-- [ ] Active-alias responses use revalidation rather than immutable caching.
-- [ ] Explicit version URLs are immutable and cacheable for one year.
-- [ ] Active responses include an ETag and honor `If-None-Match` with `304`.
-- [ ] Changing or rolling back the active version cannot reuse the old ETag.
+- [x] Active-alias responses use revalidation rather than immutable caching.
+- [x] Explicit version URLs are immutable and cacheable for one year.
+- [x] Active responses include an ETag and honor `If-None-Match` with `304`.
+- [x] Changing or rolling back the active version cannot reuse the old ETag.
 
 ## Task 3: Graceful shutdown and SQLite checkpoint
 

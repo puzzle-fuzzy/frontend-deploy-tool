@@ -480,26 +480,55 @@ function resolveArtifactLimits(limits: ArtifactLimits): ResolvedArtifactLimits {
 }
 
 /**
- * Builds a static-file `Response` for an artifact path with the correct
- * content-type and cache policy (HTML is never cached; hashed assets are
- * immutable). Returns `null` when the path is not a file.
+ * Builds a static-file response with cache semantics based on URL identity:
+ * mutable active aliases must revalidate, while an explicit version URL is
+ * immutable. Returns `null` when the path is not a file.
  */
-export function serveArtifactFile(absolutePath: string): Response | null {
-  if (!existsSync(absolutePath) || !statSync(absolutePath).isFile())
-    return null;
+export function serveArtifactFile(
+  absolutePath: string,
+  options: {
+    cacheScope: 'active' | 'version';
+    ifNoneMatch?: string;
+  }
+): Response | null {
+  if (!existsSync(absolutePath)) return null;
+  const stats = statSync(absolutePath);
+  if (!stats.isFile()) return null;
 
   const mimeType = getMimeType(absolutePath);
-  const headers: Record<string, string> = { 'Content-Type': mimeType };
+  const etag = createArtifactEtag(absolutePath, stats.size, stats.mtimeMs);
+  const headers: Record<string, string> = {
+    'Content-Type': mimeType,
+    ETag: etag,
+    'Cache-Control':
+      options.cacheScope === 'version'
+        ? 'public, max-age=31536000, immutable'
+        : 'public, max-age=0, must-revalidate',
+  };
 
-  // Cache strategy: HTML files should not be cached, other assets can be cached
-  if (absolutePath.endsWith('.html')) {
-    headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
-  } else {
-    // For hashed assets and other static files, use long cache
-    headers['Cache-Control'] = 'public, max-age=31536000, immutable';
+  if (etagMatches(options.ifNoneMatch, etag)) {
+    return new Response(null, { status: 304, headers });
   }
-
   return new Response(Bun.file(absolutePath), { headers });
+}
+
+function createArtifactEtag(
+  absolutePath: string,
+  size: number,
+  mtimeMs: number
+): string {
+  const digest = createHash('sha256')
+    .update(`${absolutePath}\0${size}\0${mtimeMs}`)
+    .digest('base64url');
+  return `W/"${digest}"`;
+}
+
+function etagMatches(ifNoneMatch: string | undefined, etag: string): boolean {
+  if (!ifNoneMatch) return false;
+  return ifNoneMatch
+    .split(',')
+    .map((candidate) => candidate.trim())
+    .some((candidate) => candidate === '*' || candidate === etag);
 }
 
 /** Recursively removes a directory (no-op if it does not exist). */

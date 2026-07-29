@@ -543,7 +543,61 @@ test('serves the active version via /deploy/:slug/', async () => {
   const res = await app.request('/deploy/demo-app/');
   expect(res.status).toBe(200);
   expect(res.headers.get('content-type')).toBe('text/html; charset=utf-8');
+  expect(res.headers.get('cache-control')).toBe(
+    'public, max-age=0, must-revalidate'
+  );
+  expect(res.headers.get('etag')).toBeTruthy();
   expect(await res.text()).toBe('<html><body>deployed</body></html>');
+});
+
+test('uses immutable caching only for an explicit version URL', async () => {
+  const project = await createProject('demo-app');
+  const versionId = await versionIdOf(
+    await uploadVersion(project.id, '<html><body>fixed</body></html>')
+  );
+  await activateVersion(project.id, versionId);
+
+  const explicit = await app.request(`/deploy/demo-app/${versionId}/`);
+  expect(explicit.status).toBe(200);
+  expect(explicit.headers.get('cache-control')).toBe(
+    'public, max-age=31536000, immutable'
+  );
+  const etag = explicit.headers.get('etag');
+  expect(etag).toBeTruthy();
+
+  const unchanged = await app.request(`/deploy/demo-app/${versionId}/`, {
+    headers: { 'If-None-Match': etag ?? '' },
+  });
+  expect(unchanged.status).toBe(304);
+  expect(await unchanged.text()).toBe('');
+});
+
+test('changes the active ETag after a manual rollback', async () => {
+  const project = await createProject('demo-app');
+  const first = await versionIdOf(
+    await uploadVersion(project.id, '<html><body>v1</body></html>')
+  );
+  const second = await versionIdOf(
+    await uploadVersion(project.id, '<html><body>v2</body></html>')
+  );
+  await publishVersion(project.id, first);
+  await publishVersion(project.id, second);
+
+  const before = await app.request('/deploy/demo-app/');
+  const beforeEtag = before.headers.get('etag');
+  expect(beforeEtag).toBeTruthy();
+  const unchanged = await app.request('/deploy/demo-app/', {
+    headers: { 'If-None-Match': beforeEtag ?? '' },
+  });
+  expect(unchanged.status).toBe(304);
+
+  await rollbackVersion(project.id, first);
+  const after = await app.request('/deploy/demo-app/', {
+    headers: { 'If-None-Match': beforeEtag ?? '' },
+  });
+  expect(after.status).toBe(200);
+  expect(after.headers.get('etag')).not.toBe(beforeEtag);
+  expect(await after.text()).toContain('v1');
 });
 
 test('returns 404 for a missing path when SPA mode is off', async () => {

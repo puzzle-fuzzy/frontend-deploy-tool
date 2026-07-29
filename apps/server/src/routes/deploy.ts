@@ -22,9 +22,16 @@ export function createDeployRoutes(deps: {
     if (target.kind === 'no-active') return c.text('No active version', 404);
     if (target.kind === 'forbidden') return c.text('Forbidden', 403);
 
-    const res = serveArtifactFile(target.absolutePath);
+    const serveOptions = {
+      cacheScope: target.cacheScope,
+      ifNoneMatch: c.req.header('If-None-Match'),
+    } as const;
+    const res = serveArtifactFile(target.absolutePath, serveOptions);
     if (!res && target.fallbackIndexPath) {
-      const indexRes = serveArtifactFile(target.fallbackIndexPath);
+      const indexRes = serveArtifactFile(
+        target.fallbackIndexPath,
+        serveOptions
+      );
       if (indexRes) return indexRes;
     }
     return res ?? c.notFound();
