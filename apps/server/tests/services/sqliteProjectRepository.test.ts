@@ -170,6 +170,56 @@ test('upgrades relational v1 through v3 with policy, audit, integrity, and backu
   expect(existsSync(`${databaseFile}.pre-relational-v3.bak`)).toBe(true);
 });
 
+test('upgrades the deployed relational v2 schema to v3 with a backup', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP TABLE artifact_audits;
+    DROP TABLE projects;
+    CREATE TABLE projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL UNIQUE,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      active_version_id TEXT NULL,
+      spa_mode INTEGER NOT NULL,
+      routing_type TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const auditColumns = verify
+    .query<{ name: string }, []>('PRAGMA table_info(artifact_audits)')
+    .all()
+    .map((column) => column.name);
+  verify.close();
+
+  expect(loaded.projects).toEqual([]);
+  expect(migration?.version).toBe(3);
+  expect(auditColumns).toContain('engine_version');
+  expect(auditColumns).toContain('policy_json');
+  expect(existsSync(`${databaseFile}.pre-relational-v3.bak`)).toBe(true);
+});
+
 test('save persists data that a second repository can read', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const first = createSqliteProjectRepository({ databaseFile });
@@ -411,6 +461,8 @@ test('round-trips project audit policy and replaces a version current report', (
     score: 82,
     createdAt: '2026-07-30T00:00:00.000Z',
     createdBy: 'user-1',
+    engineVersion: 1,
+    policy: { ...data.projects[0].auditPolicy },
     summary: {
       totalBytes: 10,
       fileCount: 1,

@@ -96,7 +96,16 @@ const legacyDataSchema = z.object({
   history: z
     .array(historyEventSchema.extend({ actorId: z.string().default('system') }))
     .default([]),
-  artifactAudits: z.array(artifactAuditReportSchema).default([]),
+  artifactAudits: z
+    .array(
+      artifactAuditReportSchema.extend({
+        engineVersion: z.number().int().positive().default(1),
+        policy: artifactAuditPolicySchema.default({
+          ...DEFAULT_PROJECT_AUDIT_POLICY,
+        }),
+      })
+    )
+    .default([]),
 });
 
 export function createEmptyData(): Data {

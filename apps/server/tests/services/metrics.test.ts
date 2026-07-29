@@ -20,6 +20,7 @@ describe('metrics registry', () => {
       status: 409,
       durationSeconds: 0.5,
     });
+    metrics.recordArtifactAudit('warning');
 
     const output = metrics.render();
     expect(output).toContain(
@@ -32,6 +33,9 @@ describe('metrics registry', () => {
       'deploykit_release_requests_total{action="rollback",outcome="failure"} 1'
     );
     expect(output).toContain('deploykit_http_failures_total 1');
+    expect(output).toContain(
+      'deploykit_artifact_audits_total{status="warning"} 1'
+    );
     expect(output).toContain('deploykit_artifact_storage_bytes 4096');
     expect(output).toContain('deploykit_sqlite_storage_bytes 8192');
     expect(output).toContain(

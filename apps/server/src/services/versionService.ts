@@ -6,6 +6,7 @@ import type {
   VersionSourceType,
 } from '@deploykit/shared';
 import type { AppConfig } from '../config';
+import { assertArtifactAuditAllowsRelease } from '../domain/artifactAudit';
 import { appendHistoryEvent } from '../domain/history';
 import {
   DEFAULT_STORAGE_QUOTA_LIMITS,
@@ -85,6 +86,11 @@ export function createVersionService(
         'Version is not publishable'
       );
     }
+    assertArtifactAuditAllowsRelease(
+      snapshot,
+      snapshotProject,
+      snapshotVersion
+    );
 
     const versionDir = join(config.storageDir, projectId, versionId);
     assertIndexHtml(versionDir);
@@ -127,6 +133,7 @@ export function createVersionService(
           'Version is not publishable'
         );
       }
+      assertArtifactAuditAllowsRelease(data, project, version);
       if (previousActiveVersionId === version.id) return;
 
       const publishedAt = new Date().toISOString();

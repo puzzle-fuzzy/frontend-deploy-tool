@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { validator } from 'hono/validator';
 import { canCreateProject } from '../domain/authorization';
-import { parseSettings } from '../domain/project';
+import { parseArtifactAuditPolicy, parseSettings } from '../domain/project';
 import {
   parseCreateProject,
   parseIdParam,
@@ -84,6 +84,29 @@ export function createProjectRoutes(deps: { projectService: ProjectService }) {
       (c) => {
         const id = parseIdParam(c.req.param('id'));
         const project = projectService.updateProjectSettings(
+          id,
+          c.req.valid('json'),
+          c.get('user')?.id ?? 'system'
+        );
+        return c.json(project);
+      }
+    )
+    .patch(
+      '/api/projects/:id/audit-policy',
+      requireProjectRole('owner', () => projectService),
+      validator('json', (value) => {
+        const policy = parseArtifactAuditPolicy(value);
+        if (!policy) {
+          throw new ApiError(
+            ErrorCode.INVALID_AUDIT_POLICY,
+            'Invalid artifact audit policy'
+          );
+        }
+        return policy;
+      }),
+      (c) => {
+        const id = parseIdParam(c.req.param('id'));
+        const project = projectService.updateProjectAuditPolicy(
           id,
           c.req.valid('json'),
           c.get('user')?.id ?? 'system'

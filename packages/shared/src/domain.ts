@@ -13,20 +13,26 @@ export const settingsSchema = z.object({
 
 export const artifactAuditEnforcementSchema = z.enum(['advisory', 'blocking']);
 
-export const artifactAuditPolicySchema = z.object({
-  enforcement: artifactAuditEnforcementSchema,
-  maxTotalBytes: z
-    .number()
-    .int()
-    .positive()
-    .max(10 * 1024 * 1024 * 1024),
-  maxFileBytes: z
-    .number()
-    .int()
-    .positive()
-    .max(2 * 1024 * 1024 * 1024),
-  maxFileCount: z.number().int().positive().max(100_000),
-});
+export const artifactAuditPolicySchema = z
+  .object({
+    enforcement: artifactAuditEnforcementSchema,
+    maxTotalBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(10 * 1024 * 1024 * 1024),
+    maxFileBytes: z
+      .number()
+      .int()
+      .positive()
+      .max(2 * 1024 * 1024 * 1024),
+    maxFileCount: z.number().int().positive().max(100_000),
+  })
+  .strict()
+  .refine((policy) => policy.maxFileBytes <= policy.maxTotalBytes, {
+    path: ['maxFileBytes'],
+    message: 'maxFileBytes cannot exceed maxTotalBytes',
+  });
 
 export const DEFAULT_ARTIFACT_AUDIT_POLICY = {
   enforcement: 'advisory',
@@ -165,6 +171,8 @@ export const artifactAuditReportSchema = z.object({
   score: z.number().int().min(0).max(100),
   createdAt: z.string(),
   createdBy: z.string(),
+  engineVersion: z.number().int().positive(),
+  policy: artifactAuditPolicySchema,
   summary: artifactAuditSummarySchema,
   checks: z.array(artifactAuditCheckSchema),
 });

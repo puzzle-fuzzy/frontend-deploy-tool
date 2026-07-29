@@ -5,6 +5,7 @@ import { parseIdParam } from './domain/schemas';
 import { ApiError, ErrorCode } from './errors';
 import { requireAuthExceptPublic } from './middleware/auth';
 import type { UploadRouteLimits } from './middleware/uploadLimits';
+import { createArtifactAuditRoutes } from './routes/artifactAudits';
 import { createHistoryRoutes } from './routes/history';
 import { createMemberRoutes } from './routes/members';
 import { createProjectRoutes } from './routes/projects';
@@ -12,6 +13,7 @@ import { createUserSearchRoutes } from './routes/userSearch';
 import { createVersionRoutes } from './routes/versions';
 import type {
   AppEnv,
+  ArtifactAuditService,
   ProjectService,
   SessionService,
   UserService,
@@ -58,6 +60,7 @@ function isLoopbackRedirectUri(uri: string): boolean {
 export interface ApiDeps {
   projectService: ProjectService;
   versionService: VersionService;
+  artifactAuditService: ArtifactAuditService;
   userService: UserService;
   /** Loads the session user into `c.var.user` (Node-backed; injected). */
   sessionMiddleware: MiddlewareHandler<AppEnv>;
@@ -295,6 +298,13 @@ export function createApiApp(deps: ApiDeps) {
         versionService: deps.versionService,
         projectService: deps.projectService,
         uploadRouteLimits: deps.uploadRouteLimits,
+      })
+    )
+    .route(
+      '/',
+      createArtifactAuditRoutes({
+        artifactAuditService: deps.artifactAuditService,
+        projectService: deps.projectService,
       })
     )
     .route('/', createMemberRoutes({ projectService: deps.projectService }))

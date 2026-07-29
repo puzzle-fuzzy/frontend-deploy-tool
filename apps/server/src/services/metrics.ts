@@ -33,6 +33,7 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
   const requestSeries = new Map<string, RequestSeries>();
   const uploadCounts = new Map<string, number>();
   const releaseCounts = new Map<string, number>();
+  const artifactAuditCounts = new Map<ArtifactAuditStatus, number>();
   let failureCount = 0;
 
   return {
@@ -66,6 +67,10 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
         increment(releaseCounts, `${release[1]}:${outcome}`);
       }
       if (metric.status >= 400) failureCount += 1;
+    },
+
+    recordArtifactAudit(status: ArtifactAuditStatus): void {
+      increment(artifactAuditCounts, status);
     },
 
     render(): string {
@@ -144,6 +149,16 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
       }
 
       lines.push(
+        '# HELP deploykit_artifact_audits_total Completed artifact audits by report status.',
+        '# TYPE deploykit_artifact_audits_total counter'
+      );
+      for (const [status, count] of [...artifactAuditCounts.entries()].sort()) {
+        lines.push(
+          `deploykit_artifact_audits_total${labels({ status })} ${count}`
+        );
+      }
+
+      lines.push(
         '# HELP deploykit_artifact_storage_bytes Artifact bytes recorded in deployment metadata.',
         '# TYPE deploykit_artifact_storage_bytes gauge',
         `deploykit_artifact_storage_bytes ${readGauge(
@@ -210,3 +225,5 @@ function readGauge(provider: () => number): number {
     return 0;
   }
 }
+
+import type { ArtifactAuditStatus } from '@deploykit/shared';

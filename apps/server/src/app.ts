@@ -27,6 +27,7 @@ import {
 } from './repositories/sessionRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
+import { createArtifactAuditService } from './services/artifactAuditService';
 import { createArtifactRecoveryService } from './services/artifactRecovery';
 import type { AppEnv } from './services/contracts';
 import {
@@ -72,11 +73,39 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
       `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`
     );
   }
+  const metrics =
+    options.metrics ??
+    createMetricsRegistry({
+      artifactStorageBytes: () =>
+        repo
+          .load()
+          .projects.flatMap((project) => project.versions)
+          .reduce((total, version) => total + version.size, 0),
+      sqliteStorageBytes: () =>
+        config.databaseFile
+          ? [
+              config.databaseFile,
+              `${config.databaseFile}-wal`,
+              `${config.databaseFile}-shm`,
+            ].reduce(
+              (total, path) =>
+                total + (existsSync(path) ? statSync(path).size : 0),
+              0
+            )
+          : 0,
+    });
   const artifactRecovery = createArtifactRecoveryService(config.storageDir);
   const projectService = createProjectService(repo, { artifactRecovery });
   const versionService = createVersionService(repo, config, {
     artifactRecovery,
   });
+  const artifactAuditService = createArtifactAuditService(
+    repo,
+    config.storageDir,
+    {
+      recordOutcome: (status) => metrics.recordArtifactAudit(status),
+    }
+  );
   const userService = createUserService(repo);
 
   // Seed an admin on first run so the app is usable immediately.
@@ -135,31 +164,10 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
         config.maxConcurrentUploadsPerProject ?? 1,
     }),
   };
-  const metrics =
-    options.metrics ??
-    createMetricsRegistry({
-      artifactStorageBytes: () =>
-        repo
-          .load()
-          .projects.flatMap((project) => project.versions)
-          .reduce((total, version) => total + version.size, 0),
-      sqliteStorageBytes: () =>
-        config.databaseFile
-          ? [
-              config.databaseFile,
-              `${config.databaseFile}-wal`,
-              `${config.databaseFile}-shm`,
-            ].reduce(
-              (total, path) =>
-                total + (existsSync(path) ? statSync(path).size : 0),
-              0
-            )
-          : 0,
-    });
-
   const apiApp = createApiApp({
     projectService,
     versionService,
+    artifactAuditService,
     userService,
     sessionMiddleware: createSessionMiddleware({
       sessionService,

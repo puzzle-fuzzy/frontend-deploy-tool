@@ -63,7 +63,32 @@ function createFixture(tempDir: string) {
     ],
     users: [],
     history: [],
-    artifactAudits: [],
+    artifactAudits: [
+      {
+        id: 'audit-1',
+        projectId: 'p1',
+        versionId: 'v1',
+        artifactChecksum: checksum,
+        status: 'warning',
+        score: 90,
+        createdAt: '2026-07-30T00:00:00.000Z',
+        createdBy: 'user-1',
+        engineVersion: 1,
+        policy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 50 * 1024 * 1024,
+          maxFileBytes: 10 * 1024 * 1024,
+          maxFileCount: 1_000,
+        },
+        summary: {
+          totalBytes: 19,
+          fileCount: 1,
+          largestFiles: [{ path: 'index.html', size: 19 }],
+          extensions: [{ extension: '.html', bytes: 19, count: 1 }],
+        },
+        checks: [],
+      },
+    ],
   };
   const repository = createSqliteProjectRepository({ databaseFile });
   repository.save(data);
@@ -85,7 +110,7 @@ describe('createBackupService', () => {
         formatVersion: 1,
         databaseFile: 'deploykit.sqlite',
         storageDirectory: 'storage',
-        metadataCounts: { projects: 1, versions: 1 },
+        metadataCounts: { projects: 1, versions: 1, artifactAudits: 1 },
         artifactCounts: { files: 1, deployableVersions: 1 },
       });
       expect(verification).toMatchObject({
@@ -120,6 +145,7 @@ describe('createBackupService', () => {
       const result = service.restoreBackup(backupDir, { force: true });
 
       expect(fixture.repository.load().projects[0].name).toBe('Original');
+      expect(fixture.repository.load().artifactAudits).toHaveLength(1);
       expect(
         readFileSync(join(fixture.storageDir, 'p1', 'v1', 'index.html'), 'utf8')
       ).toBe('<html>backup</html>');

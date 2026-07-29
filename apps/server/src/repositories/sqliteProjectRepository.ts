@@ -11,6 +11,7 @@ import type {
   User,
   Version,
 } from '@deploykit/shared';
+import { artifactAuditReportSchema } from '@deploykit/shared';
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -116,6 +117,8 @@ interface ArtifactAuditRow {
   score: number;
   created_at: string;
   created_by: string;
+  engine_version: number;
+  policy_json: string;
   summary_json: string;
   checks_json: string;
 }
@@ -355,7 +358,8 @@ function loadRelationalData(database: Database): Data {
   const artifactAudits = database
     .query<ArtifactAuditRow, []>(
       `SELECT id, project_id, version_id, artifact_checksum, status, score,
-              created_at, created_by, summary_json, checks_json
+              created_at, created_by, engine_version, policy_json,
+              summary_json, checks_json
        FROM artifact_audits
        ORDER BY project_id ASC, created_at DESC`
     )
@@ -418,7 +422,7 @@ function rowToHistoryEvent(row: AuditRow): HistoryEvent {
 }
 
 function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
-  return {
+  return artifactAuditReportSchema.parse({
     id: row.id,
     projectId: row.project_id,
     versionId: row.version_id,
@@ -427,9 +431,11 @@ function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
     score: row.score,
     createdAt: row.created_at,
     createdBy: row.created_by,
+    engineVersion: row.engine_version,
+    policy: JSON.parse(row.policy_json) as ArtifactAuditReport['policy'],
     summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
     checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
-  };
+  });
 }
 
 function listSqliteHistoryPage(
@@ -668,8 +674,9 @@ function persistArtifactAudits(
   const statement = database.query(
     `INSERT INTO artifact_audits (
        id, project_id, version_id, artifact_checksum, status, score,
-       created_at, created_by, summary_json, checks_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       created_at, created_by, engine_version, policy_json, summary_json,
+       checks_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(version_id) DO UPDATE SET
        id = excluded.id,
        project_id = excluded.project_id,
@@ -678,6 +685,8 @@ function persistArtifactAudits(
        score = excluded.score,
        created_at = excluded.created_at,
        created_by = excluded.created_by,
+       engine_version = excluded.engine_version,
+       policy_json = excluded.policy_json,
        summary_json = excluded.summary_json,
        checks_json = excluded.checks_json`
   );
@@ -691,6 +700,8 @@ function persistArtifactAudits(
       report.score,
       report.createdAt,
       report.createdBy,
+      report.engineVersion,
+      JSON.stringify(report.policy),
       JSON.stringify(report.summary),
       JSON.stringify(report.checks)
     );

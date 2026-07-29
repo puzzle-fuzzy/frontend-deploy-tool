@@ -1,5 +1,6 @@
 import type {
   ArtifactAuditPolicy,
+  ArtifactAuditReport,
   CreateProjectInput,
   HistoryPage,
   Project,
@@ -119,6 +120,15 @@ export interface VersionService {
     command: ReleaseCommand
   ): void;
   deleteVersion(projectId: string, versionId: string, actorId: string): void;
+}
+
+export interface ArtifactAuditService {
+  runArtifactAudit(
+    projectId: string,
+    versionId: string,
+    actorId: string
+  ): ArtifactAuditReport;
+  getArtifactAudit(projectId: string, versionId: string): ArtifactAuditReport;
 }
 
 export interface UserService {

@@ -5,6 +5,7 @@ import {
   DEFAULT_PROJECT_SETTINGS,
   isSlugUnique,
   isValidProjectSlug,
+  parseArtifactAuditPolicy,
   parseSettings,
 } from '../../src/domain/project';
 
@@ -81,6 +82,39 @@ describe('project domain', () => {
     expect(parseSettings({ spaMode: true, routingType: 'memory' })).toBeNull();
     expect(parseSettings(null)).toBeNull();
     expect(parseSettings('not-an-object')).toBeNull();
+  });
+
+  test('parseArtifactAuditPolicy requires complete, coherent budgets', () => {
+    expect(
+      parseArtifactAuditPolicy({
+        enforcement: 'blocking',
+        maxTotalBytes: 100,
+        maxFileBytes: 50,
+        maxFileCount: 10,
+      })
+    ).toEqual({
+      enforcement: 'blocking',
+      maxTotalBytes: 100,
+      maxFileBytes: 50,
+      maxFileCount: 10,
+    });
+    expect(
+      parseArtifactAuditPolicy({
+        enforcement: 'blocking',
+        maxTotalBytes: 100,
+        maxFileBytes: 101,
+        maxFileCount: 10,
+      })
+    ).toBeNull();
+    expect(
+      parseArtifactAuditPolicy({
+        enforcement: 'blocking',
+        maxTotalBytes: 100,
+        maxFileBytes: 50,
+        maxFileCount: 10,
+        typoBudget: 1,
+      })
+    ).toBeNull();
   });
 });
 
