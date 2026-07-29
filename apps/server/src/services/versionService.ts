@@ -49,9 +49,7 @@ export function createVersionService(
     const snapshotVersion = findProjectVersion(snapshotProject, versionId);
     if (!snapshotVersion)
       throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
-    if (
-      snapshotProject.activeVersionId !== command.expectedActiveVersionId
-    ) {
+    if (snapshotProject.activeVersionId !== command.expectedActiveVersionId) {
       throw new ApiError(
         ErrorCode.RELEASE_CONFLICT,
         'The active version changed; refresh before releasing',

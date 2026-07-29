@@ -131,8 +131,14 @@ apps/server/
             └── index.html, assets/, ...
 ```
 
-- `deploykit.sqlite`：启用 WAL、`synchronous=NORMAL` 与 `busy_timeout`。当前采用单行版本化状态文档；写用例通过同步 `mutate` + `IMMEDIATE` 事务防止并发覆盖，适合单节点/共享本机数据库；需要多节点查询扩展时再关系化拆表。
-- 旧 `data.json`：仅在 SQLite 状态行不存在时导入，导入前创建 `.sqlite-migration.bak`，原文件保持不变。
+- `deploykit.sqlite`：启用外键、WAL、`synchronous=NORMAL` 与
+  `busy_timeout`。用户、项目、成员、版本、发布、审计和会话使用独立关系表；
+  聚合写用例通过同步 `mutate` + `IMMEDIATE` 事务执行行级 upsert/delete，防止
+  并发覆盖。
+- 旧 `deploykit_state` 单行数据库会先通过 `VACUUM INTO` 创建
+  `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
+  SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
+  启动不会再次覆盖关系数据。
 - 产物目录：删除项目/版本时联动清理；`flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除 `__MACOSX`。
 - 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
   checksum 校验后，通过 `rename` 原子移动到正式版本目录，再提交 SQLite 元数据。

@@ -1,6 +1,12 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data } from '@deploykit/shared';
@@ -53,6 +59,34 @@ test('creates a SQLite store with WAL enabled', () => {
   expect(mode?.journal_mode.toLowerCase()).toBe('wal');
 });
 
+test('creates the normalized relational schema', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  createSqliteProjectRepository({ databaseFile }).load();
+
+  const database = new Database(databaseFile);
+  const tables = database
+    .query<{ name: string }, []>(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+       ORDER BY name`
+    )
+    .all()
+    .map((row) => row.name);
+  database.close();
+
+  expect(tables).toEqual([
+    'audit_events',
+    'project_members',
+    'projects',
+    'releases',
+    'schema_migrations',
+    'sessions',
+    'users',
+    'versions',
+  ]);
+});
+
 test('save persists data that a second repository can read', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const first = createSqliteProjectRepository({ databaseFile });
@@ -93,8 +127,9 @@ test('does not replace existing SQLite data with legacy JSON', () => {
   expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
 });
 
-test('migrates and persists an older payload', () => {
+test('migrates an older document payload once and keeps a database backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const backupFile = `${databaseFile}.pre-relational-v1.bak`;
   const database = new Database(databaseFile, { create: true });
   database.exec(`
     CREATE TABLE deploykit_state (
@@ -122,15 +157,20 @@ test('migrates and persists an older payload', () => {
 
   const repository = createSqliteProjectRepository({ databaseFile });
   expect(repository.load().schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+  expect(existsSync(backupFile)).toBe(true);
+  const firstBackup = readFileSync(backupFile);
 
   const verifyDatabase = new Database(databaseFile);
-  const row = verifyDatabase
-    .query<{ schema_version: number }, []>(
-      'SELECT schema_version FROM deploykit_state WHERE id = 1'
+  const migration = verifyDatabase
+    .query<{ version: number }, []>(
+      'SELECT version FROM schema_migrations WHERE version = 1'
     )
     .get();
   verifyDatabase.close();
-  expect(row?.schema_version).toBe(CURRENT_SCHEMA_VERSION);
+  expect(migration?.version).toBe(1);
+
+  createSqliteProjectRepository({ databaseFile }).load();
+  expect(readFileSync(backupFile)).toEqual(firstBackup);
 });
 
 test('mutate returns the callback result and persists its changes', () => {
@@ -159,6 +199,69 @@ test('mutate rolls back stored changes when the callback throws', () => {
   ).toThrow('reject mutation');
 
   expect(repository.load().projects[0].name).toBe('Signal Desk');
+});
+
+test('persists project, member, and version changes as normalized rows', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const repository = createSqliteProjectRepository({ databaseFile });
+  const data = createData();
+  data.users.push({
+    id: 'user-1',
+    name: 'Owner',
+    email: 'owner@example.com',
+    passwordHash: 'hash',
+    role: 'developer',
+    createdAt: '2026-07-24T00:00:00.000Z',
+    updatedAt: '2026-07-24T00:00:00.000Z',
+  });
+  data.projects[0].members.push({
+    userId: 'user-1',
+    role: 'owner',
+    invitedAt: '2026-07-24T00:00:00.000Z',
+  });
+  data.projects[0].versions.push({
+    id: 'version-1',
+    name: 'v1',
+    description: '',
+    createdAt: '2026-07-24T00:00:00.000Z',
+    size: 10,
+    fileCount: 1,
+    sourceType: 'folder',
+    status: 'production',
+    publishedAt: '2026-07-24T00:00:00.000Z',
+    publishedBy: 'user-1',
+    checksum: 'checksum-1',
+  });
+  data.projects[0].activeVersionId = 'version-1';
+  repository.save(data);
+
+  repository.mutate((next) => {
+    next.projects[0].name = 'Renamed';
+    next.projects[0].activeVersionId = null;
+    next.projects[0].members[0].role = 'member';
+    next.projects[0].versions = [];
+  });
+
+  const database = new Database(databaseFile);
+  const project = database
+    .query<{ name: string; active_version_id: string | null }, []>(
+      'SELECT name, active_version_id FROM projects WHERE id = "project-1"'
+    )
+    .get();
+  const member = database
+    .query<{ role: string }, []>(
+      'SELECT role FROM project_members WHERE project_id = "project-1"'
+    )
+    .get();
+  const versionCount = database
+    .query<{ count: number }, []>('SELECT COUNT(*) AS count FROM versions')
+    .get();
+  database.close();
+
+  expect(project).toEqual({ name: 'Renamed', active_version_id: null });
+  expect(member?.role).toBe('member');
+  expect(versionCount?.count).toBe(0);
+  expect(repository.load().projects[0].versions).toEqual([]);
 });
 
 test('separate repository instances mutate the latest committed state', () => {

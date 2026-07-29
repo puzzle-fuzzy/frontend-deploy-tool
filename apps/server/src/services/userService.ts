@@ -92,7 +92,7 @@ export function createUserService(repo: ProjectRepository): UserService {
       const plain = password || generatePassword();
       const passwordHash = Bun.password.hashSync(plain);
       return repo.mutate((data) => {
-        if (data.users.length > 0) return null;
+        if (data.users.some((user) => user.role === 'admin')) return null;
 
         const now = new Date().toISOString();
         data.users.push({
