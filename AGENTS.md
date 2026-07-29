@@ -89,12 +89,15 @@ A project has zero or one active version, tracked by `project.activeVersionId` (
 
 - **Errors**: throw `new ApiError(ErrorCode.X, message, status?)` from anywhere; `app.onError` serializes it to `{ error: { code, message } }`. Supported statuses are declared by `ApiError`; use `409` for optimistic release conflicts, `413` for request limits, and `429` for exhausted upload capacity. Add new codes to `packages/shared/src/errors.ts`.
 - **Request validation**: prefer zod schemas in `domain/schemas.ts` that throw `ApiError`, wired through Hono `validator('json', ...)` or a `parse*` helper. Routes should receive already-typed values — no `as` casts.
-- **History**: every mutating service call appends an event via `appendHistoryEvent` (capped at 200). New actions must be added to the `historyEventSchema` action enum in `shared`.
+- **History**: every mutating service call appends an event via `appendHistoryEvent`; SQLite persists new events append-only and pages by database sequence. The aggregate's 200-event window is only a compatibility buffer and must never delete older SQL rows. New actions must be added to `historyEventSchema`; release actions also populate `releases`.
 - **Auth + roles**: `/api` requires a session except login/register/logout and
   desktop exchange. `admin` can read/manage every project; `developer` can
   create projects and can write only projects where it has the required
   `owner/member` role; `viewer` is read-only and sees only its memberships.
   Keep read scoping in `ProjectService`, not only in route middleware.
+- **Sessions**: signed browser/desktop tokens must contain a `jti` backed by an
+  active `sessions` row. Logout revokes before clearing transport state; never
+  restore stateless bearer acceptance or trust the role embedded in a token.
 - **Formatting** (Biome, enforced in CI): single quotes, 2-space indent, LF, line width 80, ES5 trailing commas, semicolons always. Biome also lints (`noExplicitAny` warn, `noUnusedVariables` error, `noNonNullAssertion` warn). Run `bun run check:fix` before committing.
 - **Tests**: server API tests in `apps/server/tests/api` drive the full app via `app.request()` with per-test temp dirs; service/domain unit tests in `apps/server/tests/services`. Web component/hook tests in `apps/web/tests/unit` (Vitest + RTL + jsdom). Don't colocate `*.test.ts` in `src/`.
 - **Web stack**: React 19 + React Compiler, shadcn/ui (Radix) + Tailwind v4, react-router, i18next (zh/en under `src/i18n/locales`). `@` alias → `apps/web/src`. Uploads use a hand-written XHR in `shared/api.ts` (for progress events); all other calls use the typed `hono/client`.

@@ -1,5 +1,4 @@
 import { expect, test } from 'bun:test';
-import type { Role } from '@deploykit/shared';
 import {
   createSessionToken,
   verifySessionToken,
@@ -7,7 +6,12 @@ import {
 
 const SECRET = 'test-session-secret';
 const future = Math.floor(Date.now() / 1000) + 3600;
-const payload = { sub: 'user-1', role: 'admin' as Role, exp: future };
+const payload = {
+  sub: 'user-1',
+  jti: 'session-1',
+  kind: 'browser' as const,
+  exp: future,
+};
 
 test('round-trips a valid token', () => {
   const token = createSessionToken(payload, SECRET);
@@ -40,7 +44,8 @@ test('rejects an expired token', () => {
 test('rejects a signed token with an invalid payload shape', () => {
   const invalid = {
     sub: '',
-    role: 'owner',
+    jti: '',
+    kind: 'unknown',
     exp: future,
   };
 

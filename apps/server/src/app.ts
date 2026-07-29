@@ -1,7 +1,6 @@
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import type { SafeUser } from '@deploykit/shared';
 import { type Context, Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { createApiApp } from './api';
@@ -11,16 +10,19 @@ import { ApiError, ErrorCode } from './errors';
 import {
   clearSessionCookie,
   createSessionMiddleware,
-  createSessionToken,
-  SESSION_MAX_AGE_SECONDS,
   setSessionCookie,
 } from './middleware/session';
 import { createTrustBoundary } from './middleware/trustBoundary';
 import { createUploadGate } from './middleware/uploadLimits';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
+import {
+  createMemorySessionRepository,
+  createSqliteSessionRepository,
+} from './repositories/sessionRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import { createProjectService } from './services/projectService';
+import { createSessionService } from './services/sessionService';
 import { reconcileStorage } from './services/storageReconciler';
 import { createUserService } from './services/userService';
 import { createVersionService } from './services/versionService';
@@ -77,31 +79,22 @@ export function createApp(config: AppConfig) {
     );
   }
 
-  // Node-backed auth helpers injected into the (otherwise Node-free) typed API.
-  const issueSession = (c: Context, user: SafeUser) => {
-    const token = createSessionToken(
-      {
-        sub: user.id,
-        role: user.role,
-        exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
-      },
-      sessionSecret
-    );
+  const sessionRepository = config.databaseFile
+    ? createSqliteSessionRepository(config.databaseFile)
+    : createMemorySessionRepository();
+  const sessionService = createSessionService({
+    repository: sessionRepository,
+    secret: sessionSecret,
+  });
+  sessionService.cleanupExpired();
+
+  // Cookie transport remains separate from durable session issuance.
+  const writeSessionCookie = (c: Context, token: string) => {
     setSessionCookie(c, token, config.secureCookies);
   };
-  const clearSession = (c: Context) => {
+  const deleteSessionCookie = (c: Context) => {
     clearSessionCookie(c, config.secureCookies);
   };
-  // Signs a session token for the desktop auth exchange (no cookie set here).
-  const signSessionToken = (user: SafeUser) =>
-    createSessionToken(
-      {
-        sub: user.id,
-        role: user.role,
-        exp: Math.floor(Date.now() / 1000) + SESSION_MAX_AGE_SECONDS,
-      },
-      sessionSecret
-    );
   const desktopAuth = createDesktopAuthCodeStore();
   const uploadRouteLimits = {
     maxUploadRequestSize:
@@ -124,12 +117,12 @@ export function createApp(config: AppConfig) {
     versionService,
     userService,
     sessionMiddleware: createSessionMiddleware({
-      secret: sessionSecret,
+      sessionService,
       userService,
     }),
-    issueSession,
-    clearSession,
-    signSessionToken,
+    sessionService,
+    setSessionCookie: writeSessionCookie,
+    clearSessionCookie: deleteSessionCookie,
     desktopAuth,
     registrationEnabled: config.registrationEnabled,
     uploadRouteLimits,

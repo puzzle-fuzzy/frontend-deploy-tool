@@ -27,7 +27,7 @@
 - **版本管理** — 支持 ZIP 上传或文件夹拖拽，自动记录版本历史
 - **一键部署** — 激活版本后立即可访问，支持正式/预览版本
 - **SPA 支持** — 支持 Hash/Path 两种路由模式，Path 模式自动 fallback 到 index.html
-- **操作历史** — 记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载（上限 200 条）
+- **操作历史** — 关系型追加记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载
 - **失败恢复** — 上传 staging、同盘原子切换与启动对账；孤儿产物进入可恢复隔离区
 - **明暗主题** — 支持亮色/暗色主题切换
 - **中英文** — 内置中文和英文界面，自动检测浏览器语言
@@ -153,7 +153,9 @@ deploykit/
 
 ## API 接口
 
-所有接口前缀为 `/api`。除登录/登出外，API 需要 HttpOnly session cookie；
+所有接口前缀为 `/api`。除登录、注册、登出和桌面授权码交换外，API 需要
+持久化 session；浏览器使用 HttpOnly Cookie，桌面使用 bearer token。令牌中的
+`jti` 必须对应 SQLite 中未过期、未撤销的会话，
 浏览器不会把 bearer token 写入 localStorage。权限分为
 `admin` / `developer` / `viewer`。错误响应格式：
 `{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见
@@ -174,7 +176,10 @@ deploykit/
 | 方法 | 路径 | 说明 | 请求体 |
 |------|------|------|--------|
 | POST | `/api/auth/login` | 登录并设置 session cookie | `{ email, password }` |
-| POST | `/api/auth/logout` | 清除 session cookie | — |
+| POST | `/api/auth/logout` | 撤销当前 session 并清除 cookie | — |
+| GET | `/api/auth/sessions` | 列出当前用户的浏览器/桌面会话 | — |
+| DELETE | `/api/auth/sessions/:sessionId` | 撤销自己的指定会话 | — |
+| POST | `/api/auth/logout-all` | 撤销当前用户的全部会话 | — |
 | GET | `/api/me` | 获取当前用户 | — |
 
 ### 项目
@@ -208,7 +213,7 @@ deploykit/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/projects/:id/history?limit=50&cursor=...` | 获取指定项目的操作历史页（上限 200） |
+| GET | `/api/projects/:id/history?limit=50&cursor=...` | 获取指定项目的操作历史页（单页上限 200） |
 
 历史响应为 `{ items: HistoryEvent[], nextCursor: string | null }`。下一页把
 `nextCursor` 原样作为 `cursor` 传回；游标失效时返回

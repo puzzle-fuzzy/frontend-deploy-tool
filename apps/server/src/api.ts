@@ -1,8 +1,8 @@
-import type { SafeUser } from '@deploykit/shared';
 import { type Context, Hono, type MiddlewareHandler } from 'hono';
 import { requestId } from 'hono/request-id';
 import { validator } from 'hono/validator';
 import { z } from 'zod';
+import { parseIdParam } from './domain/schemas';
 import { ApiError, ErrorCode } from './errors';
 import { requireAuthExceptPublic } from './middleware/auth';
 import type { UploadRouteLimits } from './middleware/uploadLimits';
@@ -14,6 +14,7 @@ import { createVersionRoutes } from './routes/versions';
 import type {
   AppEnv,
   ProjectService,
+  SessionService,
   UserService,
   VersionService,
 } from './services/contracts';
@@ -61,16 +62,16 @@ export interface ApiDeps {
   userService: UserService;
   /** Loads the session user into `c.var.user` (Node-backed; injected). */
   sessionMiddleware: MiddlewareHandler<AppEnv>;
-  /** Issues a bearer access token for `user` (Node-backed; injected). */
-  issueSession: (c: Context, user: SafeUser) => void;
-  /** Clears the auth state for the current response (Node-backed; injected). */
-  clearSession: (c: Context) => void;
+  /** Durable browser/desktop session operations (runtime-backed; injected). */
+  sessionService: SessionService;
+  /** Writes the browser's HttpOnly session cookie. */
+  setSessionCookie: (c: Context, token: string) => void;
+  /** Clears the browser's HttpOnly session cookie. */
+  clearSessionCookie: (c: Context) => void;
   /** Whether self-service registration is allowed on this instance. */
   registrationEnabled: boolean;
   /** Request-size and concurrency limits for artifact uploads. */
   uploadRouteLimits: UploadRouteLimits;
-  /** Signs a bearer token string without setting a cookie (Node-backed). */
-  signSessionToken: (user: SafeUser) => string;
   /** One-time code store for the desktop auth flow (Node-backed; injected). */
   desktopAuth: {
     issueCode(userId: string, redirectUri: string): string;
@@ -119,8 +120,8 @@ export function createApiApp(deps: ApiDeps) {
             401
           );
         }
-        const token = deps.signSessionToken(user);
-        deps.issueSession(c, user);
+        const token = deps.sessionService.issue(user.id, 'browser');
+        deps.setSessionCookie(c, token);
         return c.json({ user, token });
       }
     )
@@ -153,16 +154,69 @@ export function createApiApp(deps: ApiDeps) {
           password,
           role: 'developer',
         });
-        const token = deps.signSessionToken(user);
-        deps.issueSession(c, user);
+        const token = deps.sessionService.issue(user.id, 'browser');
+        deps.setSessionCookie(c, token);
         return c.json({ user, token });
       }
     )
     .post('/api/auth/logout', (c) => {
-      deps.clearSession(c);
+      const user = c.get('user');
+      const sessionId = c.get('sessionId');
+      if (user && sessionId) {
+        deps.sessionService.revoke(sessionId, user.id);
+      }
+      deps.clearSessionCookie(c);
       return c.json({ ok: true });
     })
     .get('/api/me', (c) => c.json(c.get('user')))
+    .get('/api/auth/sessions', (c) => {
+      const user = c.get('user');
+      if (!user) {
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      }
+      return c.json({
+        sessions: deps.sessionService.listForUser(user.id, c.get('sessionId')),
+      });
+    })
+    .delete('/api/auth/sessions/:sessionId', (c) => {
+      const user = c.get('user');
+      if (!user) {
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      }
+      const sessionId = parseIdParam(c.req.param('sessionId'));
+      if (!deps.sessionService.revoke(sessionId, user.id)) {
+        throw new ApiError(
+          ErrorCode.SESSION_NOT_FOUND,
+          'Session not found',
+          404
+        );
+      }
+      if (sessionId === c.get('sessionId')) {
+        deps.clearSessionCookie(c);
+      }
+      return c.json({ ok: true });
+    })
+    .post('/api/auth/logout-all', (c) => {
+      const user = c.get('user');
+      if (!user) {
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      }
+      const revoked = deps.sessionService.revokeAll(user.id);
+      deps.clearSessionCookie(c);
+      return c.json({ ok: true, revoked });
+    })
     .post(
       '/api/desktop/authorize',
       validator('json', (value) => {
@@ -228,7 +282,7 @@ export function createApiApp(deps: ApiDeps) {
             401
           );
         }
-        const token = deps.signSessionToken(user);
+        const token = deps.sessionService.issue(user.id, 'desktop');
         return c.json({ token, user });
       }
     )

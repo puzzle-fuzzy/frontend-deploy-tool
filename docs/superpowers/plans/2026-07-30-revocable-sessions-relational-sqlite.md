@@ -134,22 +134,22 @@ phase.
 - Modify: `apps/server/tests/api/desktopAuth.test.ts`
 - Modify: `apps/server/tests/api/helpers.ts`
 
-- [ ] Add failing token tests requiring `sub`, random `jti`, `kind`, and `exp`.
-- [ ] Add repository tests for create/list/active lookup/revoke/revoke-all/
+- [x] Add failing token tests requiring `sub`, random `jti`, `kind`, and `exp`.
+- [x] Add repository tests for create/list/active lookup/revoke/revoke-all/
   expiry cleanup and persistence across repository/app instances.
-- [ ] Add API tests proving logout immediately invalidates the same bearer
+- [x] Add API tests proving logout immediately invalidates the same bearer
   token, restart does not invalidate a SQLite session, and revoking another
   user's session is impossible.
-- [ ] Make session middleware require both a valid signature and an active
+- [x] Make session middleware require both a valid signature and an active
   repository row, then load the current user role from persistence.
-- [ ] Make login/register create one browser session and desktop exchange one
+- [x] Make login/register create one browser session and desktop exchange one
   desktop session. Do not issue a different cookie token and response token.
-- [ ] Add authenticated `GET /api/auth/sessions`,
+- [x] Add authenticated `GET /api/auth/sessions`,
   `DELETE /api/auth/sessions/:sessionId`, and
   `POST /api/auth/logout-all`.
-- [ ] Keep JSON fixture mode explicit and in-memory; production/default SQLite
+- [x] Keep JSON fixture mode explicit and in-memory; production/default SQLite
   uses durable rows.
-- [ ] Run:
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/session.test.ts tests/services/sessionRepository.test.ts tests/api/sessions.test.ts tests/api/desktopAuth.test.ts`
 
 ## Task 5: Phase gate, documentation, and remote checkpoint

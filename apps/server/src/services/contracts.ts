@@ -8,6 +8,11 @@ import type {
   User,
 } from '@deploykit/shared';
 import type { Actor } from '../domain/authorization';
+import type {
+  SessionIdentity,
+  SessionInfo,
+  SessionKind,
+} from '../domain/session';
 import type { ReleaseCommand } from '../domain/version';
 
 /**
@@ -23,10 +28,21 @@ import type { ReleaseCommand } from '../domain/version';
 export type AppEnv = {
   Variables: {
     user: SafeUser | null;
+    /** Durable session id for the authenticated request. */
+    sessionId: string | null;
     /** Correlation id populated by Hono's request-id middleware. */
     requestId: string;
   };
 };
+
+export interface SessionService {
+  issue(userId: string, kind: SessionKind): string;
+  authenticate(token: string): SessionIdentity | null;
+  listForUser(userId: string, currentSessionId: string | null): SessionInfo[];
+  revoke(sessionId: string, userId: string): boolean;
+  revokeAll(userId: string): number;
+  cleanupExpired(): number;
+}
 
 export interface ProjectService {
   listProjects(actor: Actor): Project[];

@@ -1,20 +1,21 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { Role } from '@deploykit/shared';
 import type { Context, MiddlewareHandler } from 'hono';
 import { deleteCookie, getCookie, setCookie } from 'hono/cookie';
-import type { AppEnv } from '../services/contracts';
+import type { SessionKind } from '../domain/session';
+import type { AppEnv, SessionService } from '../services/contracts';
 import type { UserService } from '../services/userService';
 
 /** Cookie name holding the HMAC-signed session token. */
 export const SESSION_COOKIE = 'deploykit_session';
 /** Session lifetime in seconds (7 days). */
 export const SESSION_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
-const ROLES = new Set<Role>(['admin', 'developer', 'viewer']);
 
 export interface SessionPayload {
   /** User id. */
   sub: string;
-  role: Role;
+  /** Durable session id checked against the session repository. */
+  jti: string;
+  kind: SessionKind;
   /** Expiry, unix seconds. */
   exp: number;
 }
@@ -56,7 +57,9 @@ export function verifySessionToken(
     if (
       typeof payload.sub !== 'string' ||
       !payload.sub ||
-      !ROLES.has(payload.role) ||
+      typeof payload.jti !== 'string' ||
+      !payload.jti ||
+      (payload.kind !== 'browser' && payload.kind !== 'desktop') ||
       typeof payload.exp !== 'number' ||
       payload.exp < Math.floor(Date.now() / 1000)
     ) {
@@ -112,17 +115,18 @@ export function readBearerToken(c: Context): string | undefined {
  * decide.
  */
 export function createSessionMiddleware(deps: {
-  secret: string;
+  sessionService: SessionService;
   userService: UserService;
 }): MiddlewareHandler<AppEnv> {
-  const { secret, userService } = deps;
+  const { sessionService, userService } = deps;
   return async (c, next) => {
     const token = readBearerToken(c) ?? readSessionCookie(c);
-    const payload = token ? verifySessionToken(token, secret) : null;
-    const user = payload
-      ? (userService.getSafeUser(payload.sub) ?? null)
+    const identity = token ? sessionService.authenticate(token) : null;
+    const user = identity
+      ? (userService.getSafeUser(identity.userId) ?? null)
       : null;
     c.set('user', user);
+    c.set('sessionId', user && identity ? identity.id : null);
     await next();
   };
 }

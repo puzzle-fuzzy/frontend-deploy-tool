@@ -37,7 +37,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 |----|------|----------|
 | `config.ts` | 环境变量解析与生产启动门禁（secret/password/双域/数值严格校验） | `config.ts` |
 | `errors.ts` | 服务端 `ApiError`；稳定错误码定义在 `@deploykit/shared/errors.ts` | `errors.ts` |
-| `domain/` | 纯领域规则，无 I/O | `project.ts`（slug 校验、`parseSettings`）、`version.ts`（激活、替换活跃版本）、`history.ts`（追加事件，上限 200） |
+| `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置）、`version.ts`（显式发布状态）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
 | `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`storageReconciler`（启动时元数据/产物对账）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
@@ -93,8 +93,12 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 - `DEPLOY_BASE_URL`：`/deploy/*`、`/health/*`。
 - 其他 Host、部署源上的 API、管理源上的产物路由都返回 404。
 - 浏览器 API 客户端只使用 HttpOnly session Cookie，不持久化 bearer token。
-- Electron 仍通过一次性授权码换取进程内 bearer token；持久化可撤销设备会话
-  在身份阶段接入。
+- 浏览器和 Electron 令牌都包含签名 `jti`，并且必须命中 SQLite 中未过期、
+  未撤销的 `sessions` 行；角色始终从当前用户数据读取。登录/注册只创建一个
+  browser session，响应 token 与 Cookie 相同。Electron 通过一次性授权码创建
+  独立 desktop session。
+- 登出会先撤销当前 session；用户可列出自己的设备、撤销指定设备或全部登出，
+  不能读取或撤销他人的 session。
 
 ### 授权边界
 
@@ -114,14 +118,14 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 历史接口返回 `{ items, nextCursor }`。`nextCursor` 是只包含历史事件 ID
 的版本化 Base64URL 不透明令牌；下一页从该事件之后继续，因此列表头部新增事件
-不会导致重复或跳项。历史仍保留最近 200 条，游标对应事件离开保留窗口后返回
-`INVALID_HISTORY_CURSOR`，客户端保留已显示内容并提示刷新或重试。
+不会导致重复或跳项。SQLite 历史不截断，单页最多返回 200 条；不存在、格式
+错误或不属于当前可见项目的游标返回 `INVALID_HISTORY_CURSOR`。
 
 ## 存储布局
 
 ```
 apps/server/
-├── deploykit.sqlite                       # 版本化状态文档：{ projects, users, history }
+├── deploykit.sqlite                       # 关系型元数据、发布台账、审计与会话
 ├── data.json                              # 旧版本数据，仅在 SQLite 为空时导入一次
 ├── public/                                # 管理面板（打包脚本同步自 apps/web/dist）
 └── .voasx/storage/
