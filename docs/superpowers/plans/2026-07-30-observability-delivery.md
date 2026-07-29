@@ -100,14 +100,14 @@ then exits, with a bounded force-close fallback.
 - Modify: `README.md`
 - Modify: `apps/server/README.md`
 - Modify: `docs/architecture.md`
-- Modify: `docs/roadmap.md`
+- Modify: `docs/backend-hardening-roadmap.md`
 - Modify: `.env.example`
 
 **Acceptance criteria:**
 
-- [ ] Metrics access, alert signals, cache rules, and shutdown behavior are
+- [x] Metrics access, alert signals, cache rules, and shutdown behavior are
       documented.
-- [ ] `bun run verify` passes from a clean checkout.
-- [ ] A production build is started and smoke-tested on management and deploy
+- [x] `bun run verify` passes from a clean checkout.
+- [x] A production build is started and smoke-tested on management and deploy
       origins.
 - [ ] Changes are committed to `main` and pushed to `origin/main`.

@@ -72,6 +72,10 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 ### 阶段 4：可观测性、交付和静态服务
 
+状态：已于 2026-07-30 完成。受保护指标、结构化请求日志、有界优雅停机、
+回退安全的缓存语义，以及 dependency audit / secret scan / CodeQL 门禁均已
+进入统一验证和 CI。
+
 - 所有响应携带请求 ID；访问日志为结构化 JSON。
 - 增加请求延迟、上传、发布、失败、磁盘和数据库指标。
 - 服务支持 SIGTERM/SIGINT 优雅退出和 SQLite checkpoint。
@@ -80,6 +84,11 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 完成门槛：统一 `verify` 和 CI 成功；终止服务时不接受新写入且在超时内
 完成在途操作。
+
+验证证据：全仓 `bun run verify` 通过（server 245、client 40、desktop 23）；
+高危/严重依赖审计为 0，secret scanner 通过；active URL 的 ETag 在手动回退后
+变化，固定版本 URL 支持 immutable 与条件请求；关机单元测试覆盖正常 drain、
+超时 force-close、失败退出和真实 SQLite checkpoint。
 
 ### 阶段 5：产物审计
 

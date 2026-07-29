@@ -30,6 +30,8 @@
 - **操作历史** — 关系型追加记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载
 - **产物完整性** — 显式检查入口文件和目录校验和，持久化检查状态；损坏的线上版本会下线但不会自动换版
 - **失败恢复** — 上传 staging、同盘原子切换与启动对账；孤儿产物进入可恢复隔离区
+- **可观测运行** — 全链路 request ID、结构化 JSON 访问日志、受保护的 Prometheus 指标和优雅停机
+- **回退友好缓存** — 当前版本 URL 强制重新验证；只有固定版本 URL 使用长期 immutable 缓存
 - **明暗主题** — 支持亮色/暗色主题切换
 - **中英文** — 内置中文和英文界面，自动检测浏览器语言
 - **零外部服务** — 内嵌 SQLite + 文件系统存储，无需单独部署数据库
@@ -149,6 +151,9 @@ deploykit/
 | `MAX_STORAGE_SIZE_PER_PROJECT` | `5368709120` (5GB) | 单项目已保存解压产物的容量上限 |
 | `STAGING_RETENTION_HOURS` | `24` | 未完成上传暂存区的最短保留时间 |
 | `RECOVERY_RETENTION_HOURS` | `168` | 已提交删除和孤儿隔离区的最短保留时间 |
+| `METRICS_ENABLED` | 开发 `true`、生产 `false` | 是否在管理源开放 Prometheus `/metrics` |
+| `METRICS_TOKEN` | 无 | `/metrics` bearer token；生产开启指标时必填且至少 32 字符 |
+| `SHUTDOWN_TIMEOUT_MS` | `30000` | SIGTERM/SIGINT 等待在途请求完成的上限（最大 10 分钟） |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 
@@ -230,6 +235,12 @@ deploykit/
 - **正式版本**: `/deploy/{slug}/`
 - **指定版本**: `/deploy/{slug}/{versionId}/`
 
+正式版本 URL 是可移动的 active 别名，返回 ETag 和
+`Cache-Control: public, max-age=0, must-revalidate`；浏览器每次复用前都会确认
+线上指针，手动回退不会被旧缓存遮挡。指定版本 URL 不会改变，返回
+`Cache-Control: public, max-age=31536000, immutable`。两类 URL 都支持
+`If-None-Match`，未变化时返回 `304`。
+
 详细指导见 [docs/vite-deployment.md](docs/vite-deployment.md)。
 
 ## 备份、恢复与存储运维
@@ -264,7 +275,8 @@ bun run ops -- restore <备份目录> --force
 
 ```bash
 bun run test          # 全部（shared / server / web）
-bun run verify        # Biome + 类型检查 + 测试 + 生产构建
+bun run verify        # Biome + secret scan + 类型检查 + 测试 + 生产构建
+bun run security      # secret scan + 高危/严重依赖漏洞审计（需要 npm registry）
 ```
 
 - 后端：`bun test`（[apps/server/tests](apps/server/tests)）— API 契约 + 服务/领域单元测试
@@ -272,7 +284,33 @@ bun run verify        # Biome + 类型检查 + 测试 + 生产构建
 
 本地与 CI 共享同一个质量入口：`bun run verify`。
 CI 额外保留 14 天的验证日志 `deploykit-verify-{commit}`，并在成功时保留
-`deploykit-web-{commit}` Web 构建产物。
+`deploykit-web-{commit}` Web 构建产物。CI 还会阻断高危依赖漏洞，并通过
+CodeQL `security-extended` 扫描 JavaScript/TypeScript；secret scan 只输出
+文件、行号和规则名，不会把疑似凭据复制到日志。
+
+## 可观测性与告警
+
+每个响应带 `X-Request-Id`，访问日志为单行 JSON。`/metrics` 只允许从
+`MANAGEMENT_BASE_URL` 访问；生产默认关闭，开启时必须携带
+`Authorization: Bearer $METRICS_TOKEN`：
+
+```bash
+curl -H "Authorization: Bearer $METRICS_TOKEN" \
+  "$MANAGEMENT_BASE_URL/metrics"
+```
+
+主要指标包括请求量与延迟、4xx/5xx 失败、上传与发布结果、元数据记录的产物
+字节数以及 SQLite/WAL 文件字节数。建议至少配置以下告警：
+
+- `/health/ready` 连续失败，或 5xx 在 5 分钟窗口持续出现；
+- 上传/发布 `failure` 比例升高；
+- 请求 p95 延迟持续超过实例基线；
+- `deploykit_artifact_storage_bytes` 接近 `MAX_STORAGE_SIZE` 的 80%；
+- SQLite/WAL 体积异常持续增长。
+
+收到 SIGTERM/SIGINT 后，服务停止接收新连接，等待在途请求完成，再执行 SQLite
+WAL checkpoint。超过 `SHUTDOWN_TIMEOUT_MS` 会强制关闭并以非零状态退出，便于
+编排器标记本次终止异常。
 
 ## 文档
 

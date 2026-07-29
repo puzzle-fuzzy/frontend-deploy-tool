@@ -37,6 +37,7 @@ HTTP 请求
   `developer` 结合项目 `owner/member` 授权，`viewer` 仅可读取所属项目
 - **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
 - **请求追踪** — 每个响应携带 `X-Request-Id`，也会接受并回传有效的上游请求编号
+- **可观测运行** — 低基数 Prometheus 指标、结构化 JSON 访问日志和有界优雅停机
 - **路径安全** — `safeJoin` 拦截路径遍历；上传有大小/数量/路径长度上限
 - **类型化路由** — [src/api.ts](src/api.ts) 导出 `ApiApp`，供前端 `hono/client` 自动推导请求/响应类型
 
@@ -97,6 +98,8 @@ bun run dev:server          # 仅后端
 | `MAX_CONCURRENT_UPLOADS` / `MAX_CONCURRENT_UPLOADS_PER_USER` / `MAX_CONCURRENT_UPLOADS_PER_PROJECT` | 4 / 2 / 1 | 单进程、用户、项目上传并发预算 |
 | `MAX_STORAGE_SIZE` / `MAX_STORAGE_SIZE_PER_USER` / `MAX_STORAGE_SIZE_PER_PROJECT` | 20GB / 10GB / 5GB | 持久化产物全局、项目创建者、项目容量上限 |
 | `STAGING_RETENTION_HOURS` / `RECOVERY_RETENTION_HOURS` | 24 / 168 | 上传暂存、已提交删除与孤儿隔离的最短保留小时数 |
+| `METRICS_ENABLED` / `METRICS_TOKEN` | 开发 `true`、生产 `false` / 空 | 管理源指标开关与 bearer token；生产开启时 token 至少 32 字符 |
+| `SHUTDOWN_TIMEOUT_MS` | `30000` | 停止接收请求后等待在途连接的毫秒数，最大 10 分钟 |
 
 所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
 当前阶段用户容量明确归属到 `project.createdBy`；协作者上传不会被重复计算。未来若支持计费/归属转移，将提供显式迁移操作，而不会随成员变化静默转移。
@@ -110,6 +113,9 @@ bun run dev:server          # 仅后端
 - `/deploy/:slug/:versionId/` — 指定版本预览
 
 启用 SPA 模式后，请求文件不存在会返回 `index.html`，支持前端路由框架。
+当前激活版本是可移动别名，使用 ETag +
+`public, max-age=0, must-revalidate`；指定版本 URL 才使用一年
+`immutable`。因此发布或回滚后，浏览器不会把旧 active 资源误当成当前版本。
 
 ### Slug 校验
 
@@ -138,6 +144,18 @@ bun run dev:server          # 仅后端
 - `GET /health/ready` — 返回 `{ "status": "ok" }`，并实际读取元数据仓库。
 
 所有响应包含 `X-Request-Id`。调用方可传入合法的 `X-Request-Id` 以串联代理、服务端日志和客户端报错。
+
+访问日志是包含 `requestId/method/route/status/statusClass/durationMs` 的单行
+JSON；`route` 是 Hono 路由模板，不包含用户、项目、slug 或文件名。
+
+`GET /metrics` 只在管理源提供。开发默认开启且可无 token；生产默认关闭，
+若开启则 `METRICS_TOKEN` 必须至少 32 字符，并要求 bearer 认证。指标覆盖
+HTTP 数量/延迟/失败、上传结果、发布操作结果、产物字节数和 SQLite/WAL 字节数。
+部署源访问 `/metrics` 始终得到 404。
+
+收到 SIGTERM/SIGINT 时，运行时只执行一次关机流程：先 drain Bun server，
+再 `PRAGMA wal_checkpoint(TRUNCATE)`。超过 `SHUTDOWN_TIMEOUT_MS` 会强制断开、
+尝试 checkpoint 并以状态 1 退出。
 
 ## 运维命令
 

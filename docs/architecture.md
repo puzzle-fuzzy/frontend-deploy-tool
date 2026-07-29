@@ -40,11 +40,11 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置）、`version.ts`（显式发布状态）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/服务文件）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
-| `app.ts` | 组合根 | `createApp(config)`：配置校验、信任域路由、服务装配、`/health/*`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
+| `app.ts` | 组合根 | `createApp(config)`：配置校验、request ID、可观测中间件、信任域路由、服务装配、`/health/*`、受保护的 `/metrics`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
-| `index.ts` | 运行入口 | `Bun.serve({ fetch: createApp(config).fetch })` |
+| `index.ts` / `runtime.ts` | 运行入口 | `Bun.serve({ fetch: createApp(config).fetch })`；SIGTERM/SIGINT drain、超时强制关闭与 SQLite checkpoint |
 
 ### 错误传递
 
@@ -77,6 +77,9 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 - 路径：`safeJoin` 拒绝绝对路径、`..`、空字节、Windows 盘符逃逸；任一失败
   清理本次生成的产物。
 - 部署：`deployResolver` 经 `safeJoin` 将请求解析到版本目录内，越界返回 `403`。
+- 缓存：active URL 是可移动别名，使用 ETag/revalidate；只有携带真实
+  `versionId` 的 URL 才能使用一年 immutable。ETag 包含版本文件身份和 stat
+  信息，回退到其他目录时不会复用旧 validator。
 
 ### 为什么 `api.ts` 与 `contracts.ts` 必须 Bun/Node 无关
 
@@ -91,6 +94,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 - `MANAGEMENT_BASE_URL`：管理 UI、`/api/*`、`/health/*`。
 - `DEPLOY_BASE_URL`：`/deploy/*`、`/health/*`。
+- `/metrics` 仅属于管理源；生产开启时还需要独立 bearer token。
 - 其他 Host、部署源上的 API、管理源上的产物路由都返回 404。
 - 浏览器 API 客户端只使用 HttpOnly session Cookie，不持久化 bearer token。
 - 浏览器和 Electron 令牌都包含签名 `jti`，并且必须命中 SQLite 中未过期、
@@ -213,3 +217,19 @@ Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryE
   注册默认关闭；任何非法端口、大小、数量、布尔或 URL 配置都会中止启动。
 - `GET /health/live`：`204`，仅表示 HTTP 进程存活。
 - `GET /health/ready`：实际读取元数据仓库，成功返回 `{ "status": "ok" }`。
+
+## 可观测性与生命周期
+
+根应用先分配/回传 `X-Request-Id`，再执行可观测中间件与信任边界，因此成功、
+业务错误、内部错误和 Host 拒绝都会产生一条访问日志。日志为单行 JSON，指标
+只使用方法、已注册路由模板和状态类别；不得把项目 ID、slug、用户或文件路径
+作为 label。
+
+`/metrics` 使用 Prometheus text exposition，提供 HTTP histogram/counter、
+失败、上传、发布及存储 gauge。指标进程内累计，重启后清零；持久化审计历史
+仍以 SQLite 为准。生产默认不开放 metrics，显式开放时 token 通过常量时间比较。
+
+SIGTERM/SIGINT 首次到达后，`runtime.ts` 调用 `server.stop(false)` 停止接收并
+等待在途连接，完成后对 SQLite 执行 `wal_checkpoint(TRUNCATE)`。若 drain
+失败或超过配置时限，则调用 `server.stop(true)`，仍尝试 checkpoint，并以
+非零状态退出；重复信号复用同一个关机 Promise。
