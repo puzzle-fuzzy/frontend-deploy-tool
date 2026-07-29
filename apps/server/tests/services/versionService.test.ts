@@ -29,6 +29,8 @@ function version(id: string): Version {
     publishedAt: null,
     publishedBy: null,
     checksum: '',
+    integrityStatus: 'unknown',
+    integrityCheckedAt: null,
   };
 }
 

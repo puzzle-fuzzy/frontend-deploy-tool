@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 1;
+export const RELATIONAL_SCHEMA_VERSION = 2;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -50,6 +50,10 @@ const RELATIONAL_SCHEMA_SQL = `
     published_at TEXT NULL,
     published_by TEXT NULL,
     checksum TEXT NOT NULL,
+    integrity_status TEXT NOT NULL DEFAULT 'unknown' CHECK (
+      integrity_status IN ('unknown', 'verified', 'missing', 'corrupted')
+    ),
+    integrity_checked_at TEXT NULL,
     sort_order INTEGER NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
     UNIQUE (project_id, id)
@@ -144,12 +148,39 @@ export function hasTable(database: Database, tableName: string): boolean {
 }
 
 export function hasRelationalMigration(database: Database): boolean {
-  if (!hasTable(database, 'schema_migrations')) return false;
-  return Boolean(
+  return getRelationalSchemaVersion(database) >= RELATIONAL_SCHEMA_VERSION;
+}
+
+export function getRelationalSchemaVersion(database: Database): number {
+  if (!hasTable(database, 'schema_migrations')) return 0;
+  return (
     database
-      .query<{ version: number }, [number]>(
-        'SELECT version FROM schema_migrations WHERE version = ?'
+      .query<{ version: number | null }, []>(
+        'SELECT MAX(version) AS version FROM schema_migrations'
       )
-      .get(RELATIONAL_SCHEMA_VERSION)
+      .get()?.version ?? 0
   );
+}
+
+export function upgradeRelationalSchema(
+  database: Database,
+  fromVersion: number
+): void {
+  if (fromVersion < 2) {
+    database.exec(`
+      ALTER TABLE versions
+        ADD COLUMN integrity_status TEXT NOT NULL DEFAULT 'unknown'
+        CHECK (
+          integrity_status IN ('unknown', 'verified', 'missing', 'corrupted')
+        );
+      ALTER TABLE versions
+        ADD COLUMN integrity_checked_at TEXT NULL;
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (2, ?)`
+      )
+      .run(new Date().toISOString());
+  }
 }

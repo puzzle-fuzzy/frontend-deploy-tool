@@ -86,7 +86,9 @@ export function reconcileStorage(
     project.versions.some(
       (version) =>
         !existsSync(join(storageDir, project.id, version.id, 'index.html')) &&
-        (version.status !== 'failed' || project.activeVersionId === version.id)
+        (version.status !== 'failed' ||
+          version.integrityStatus !== 'missing' ||
+          project.activeVersionId === version.id)
     )
   );
   if (!requiresMetadataRepair) return report;
@@ -106,9 +108,16 @@ export function reconcileStorage(
           project.updatedAt = now;
           report.deactivatedProjects += 1;
         }
-        if (version.status === 'failed') continue;
-
+        if (
+          version.status === 'failed' &&
+          version.integrityStatus === 'missing' &&
+          !wasActive
+        ) {
+          continue;
+        }
         version.status = 'failed';
+        version.integrityStatus = 'missing';
+        version.integrityCheckedAt = now;
         project.updatedAt = now;
         appendHistoryEvent(
           data,

@@ -27,6 +27,8 @@ function version(id: string, status: Version['status'] = 'preview'): Version {
     publishedAt: status === 'production' ? '2026-07-24T00:00:00.000Z' : null,
     publishedBy: status === 'production' ? 'user-1' : null,
     checksum: id,
+    integrityStatus: 'unknown',
+    integrityCheckedAt: null,
   };
 }
 

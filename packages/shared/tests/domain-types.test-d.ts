@@ -17,6 +17,8 @@ const version: Version = {
   publishedAt: '2026-06-30T00:01:00.000Z',
   publishedBy: 'user-1',
   checksum: 'a'.repeat(64),
+  integrityStatus: 'verified',
+  integrityCheckedAt: '2026-07-30T00:00:00.000Z',
 };
 
 const project: Project = {

@@ -267,6 +267,8 @@ export function createVersionService(
           publishedAt: null,
           publishedBy: null,
           checksum: checksumDirectory(stagingDir),
+          integrityStatus: 'unknown',
+          integrityCheckedAt: null,
         };
 
         mkdirSync(join(config.storageDir, projectId), { recursive: true });

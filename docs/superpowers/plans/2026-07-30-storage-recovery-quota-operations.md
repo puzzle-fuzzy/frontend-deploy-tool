@@ -123,16 +123,16 @@ background queue, incremental backup, billing, or artifact SEO analysis.
 - Modify: `apps/server/src/repositories/sqliteSchema.ts`
 - Modify: `apps/server/src/repositories/sqliteProjectRepository.ts`
 
-- [ ] Add a persisted `integrityStatus` (`unknown|verified|missing|corrupted`)
+- [x] Add a persisted `integrityStatus` (`unknown|verified|missing|corrupted`)
   and `integrityCheckedAt` to versions with a reversible relational migration.
-- [ ] Add tests for valid checksum, missing entrypoint, checksum mismatch, and
+- [x] Add tests for valid checksum, missing entrypoint, checksum mismatch, and
   legacy empty-checksum backfill.
-- [ ] Implement an explicit inspector that computes checksums outside the
+- [x] Implement an explicit inspector that computes checksums outside the
   metadata transaction, then applies results transactionally; a damaged active
   version is unpublished, never replaced.
-- [ ] Record `version.reconcile` audit metadata with a stable reason and never
+- [x] Record `version.reconcile` audit metadata with a stable reason and never
   run full-tree hashing on every server startup.
-- [ ] Run:
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/artifactIntegrityService.test.ts tests/services/schemaMigration.test.ts tests/services/sqliteProjectRepository.test.ts`
 
 ## Task 5: Tested backup, verify, and restore operations

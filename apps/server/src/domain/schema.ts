@@ -1,6 +1,7 @@
 import {
   type Data,
   historyEventSchema,
+  integrityStatusSchema,
   type Project,
   settingsSchema,
   userSchema,
@@ -22,8 +23,10 @@ import { syncProductionStatus } from './version';
  *   (absent before auth → `[]`, then seeded by the app).
  * - v4: versions carry release metadata (`status`, `publishedAt`,
  *   `publishedBy`, `checksum`); status is derived from `activeVersionId`.
+ * - v5: projects carry explicit membership and creator ownership metadata.
+ * - v6: versions persist explicit artifact integrity status and check time.
  */
-export const CURRENT_SCHEMA_VERSION = 5;
+export const CURRENT_SCHEMA_VERSION = 6;
 
 export interface MigrationResult {
   data: Data;
@@ -63,6 +66,8 @@ const legacyDataSchema = z.object({
             publishedAt: z.string().nullable().optional(),
             publishedBy: z.string().nullable().optional(),
             checksum: z.string().default(''),
+            integrityStatus: integrityStatusSchema.default('unknown'),
+            integrityCheckedAt: z.string().nullable().default(null),
           })
         )
         .default([]),
@@ -128,6 +133,8 @@ export function migrate(raw: unknown): MigrationResult {
         publishedAt: v.publishedAt ?? null,
         publishedBy: v.publishedBy ?? null,
         checksum: v.checksum,
+        integrityStatus: v.integrityStatus,
+        integrityCheckedAt: v.integrityCheckedAt,
       })),
       activeVersionId
     );

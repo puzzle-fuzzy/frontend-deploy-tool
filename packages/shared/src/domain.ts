@@ -42,6 +42,12 @@ export const versionStatusSchema = z.enum([
   'archived',
   'failed',
 ]);
+export const integrityStatusSchema = z.enum([
+  'unknown',
+  'verified',
+  'missing',
+  'corrupted',
+]);
 
 export const versionSchema = z.object({
   id: z.string(),
@@ -62,6 +68,10 @@ export const versionSchema = z.object({
   publishedBy: z.string().nullable(),
   /** sha256 digest of the extracted artifact tree. */
   checksum: z.string(),
+  /** Last explicit artifact integrity result. */
+  integrityStatus: integrityStatusSchema,
+  /** ISO timestamp of the last explicit integrity inspection. */
+  integrityCheckedAt: z.string().nullable(),
 });
 
 export const projectMemberSchema = z.object({
@@ -143,6 +153,7 @@ export type User = z.infer<typeof userSchema>;
 export type SafeUser = z.infer<typeof safeUserSchema>;
 export type VersionSourceType = z.infer<typeof versionSourceTypeSchema>;
 export type VersionStatus = z.infer<typeof versionStatusSchema>;
+export type IntegrityStatus = z.infer<typeof integrityStatusSchema>;
 export type Version = z.infer<typeof versionSchema>;
 export type Project = z.infer<typeof projectSchema>;
 export type HistoryAction = z.infer<typeof historyEventSchema>['action'];

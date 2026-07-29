@@ -60,6 +60,8 @@ test('migrate backfills upload metadata defaults for legacy versions', () => {
     expect(version.size).toBe(0);
     expect(version.fileCount).toBe(0);
     expect(version.sourceType).toBe('unknown');
+    expect(version.integrityStatus).toBe('unknown');
+    expect(version.integrityCheckedAt).toBeNull();
   }
 });
 

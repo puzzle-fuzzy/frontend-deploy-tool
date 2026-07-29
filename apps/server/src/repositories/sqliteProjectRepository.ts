@@ -28,9 +28,11 @@ import type {
 import {
   configureSqlite,
   createRelationalSchema,
+  getRelationalSchemaVersion,
   hasRelationalMigration,
   hasTable,
   RELATIONAL_SCHEMA_VERSION,
+  upgradeRelationalSchema,
 } from './sqliteSchema';
 
 interface LegacyStateRow {
@@ -73,6 +75,8 @@ interface VersionRow {
   published_at: string | null;
   published_by: string | null;
   checksum: string;
+  integrity_status: Version['integrityStatus'];
+  integrity_checked_at: string | null;
 }
 
 interface MemberRow {
@@ -172,6 +176,15 @@ function initializeDatabase(
   legacyDataFile?: string
 ): void {
   if (hasRelationalMigration(database)) return;
+  const relationalVersion = getRelationalSchemaVersion(database);
+  if (relationalVersion === 1) {
+    createDatabaseBackup(database, databaseFile, 2);
+    const upgrade = database.transaction(() => {
+      upgradeRelationalSchema(database, relationalVersion);
+    });
+    upgrade.immediate();
+    return;
+  }
 
   const hasAnyRelationalTable = [
     'users',
@@ -209,18 +222,25 @@ function initializeDatabase(
   const migrateDatabase = database.transaction((data: Data) => {
     createRelationalSchema(database);
     replaceDomainData(database, data);
-    database
-      .query(
-        `INSERT INTO schema_migrations (version, applied_at)
-         VALUES (?, ?)`
-      )
-      .run(RELATIONAL_SCHEMA_VERSION, new Date().toISOString());
+    const appliedAt = new Date().toISOString();
+    for (let version = 1; version <= RELATIONAL_SCHEMA_VERSION; version += 1) {
+      database
+        .query(
+          `INSERT INTO schema_migrations (version, applied_at)
+           VALUES (?, ?)`
+        )
+        .run(version, appliedAt);
+    }
   });
   migrateDatabase.immediate(initialData);
 }
 
-function createDatabaseBackup(database: Database, databaseFile: string): void {
-  const backupFile = `${databaseFile}.pre-relational-v1.bak`;
+function createDatabaseBackup(
+  database: Database,
+  databaseFile: string,
+  targetVersion = 1
+): void {
+  const backupFile = `${databaseFile}.pre-relational-v${targetVersion}.bak`;
   if (existsSync(backupFile)) return;
   database.exec('PRAGMA wal_checkpoint(FULL)');
   database.query('VACUUM INTO ?').run(backupFile);
@@ -247,7 +267,8 @@ function loadRelationalData(database: Database): Data {
   const versionRows = database
     .query<VersionRow, []>(
       `SELECT id, project_id, name, description, created_at, size, file_count,
-              source_type, status, published_at, published_by, checksum
+              source_type, status, published_at, published_by, checksum,
+              integrity_status, integrity_checked_at
        FROM versions
        ORDER BY project_id ASC, sort_order ASC`
     )
@@ -338,6 +359,8 @@ function rowToVersion(row: VersionRow): Version {
     publishedAt: row.published_at,
     publishedBy: row.published_by,
     checksum: row.checksum,
+    integrityStatus: row.integrity_status,
+    integrityCheckedAt: row.integrity_checked_at,
   };
 }
 
@@ -570,8 +593,9 @@ function persistVersions(database: Database, projects: Project[]): void {
   const statement = database.query(
     `INSERT INTO versions (
        id, project_id, name, description, created_at, size, file_count,
-       source_type, status, published_at, published_by, checksum, sort_order
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       source_type, status, published_at, published_by, checksum,
+       integrity_status, integrity_checked_at, sort_order
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        project_id = excluded.project_id,
        name = excluded.name,
@@ -584,6 +608,8 @@ function persistVersions(database: Database, projects: Project[]): void {
        published_at = excluded.published_at,
        published_by = excluded.published_by,
        checksum = excluded.checksum,
+       integrity_status = excluded.integrity_status,
+       integrity_checked_at = excluded.integrity_checked_at,
        sort_order = excluded.sort_order`
   );
   for (const project of projects) {
@@ -601,6 +627,8 @@ function persistVersions(database: Database, projects: Project[]): void {
         version.publishedAt,
         version.publishedBy,
         version.checksum,
+        version.integrityStatus,
+        version.integrityCheckedAt,
         index
       );
     });

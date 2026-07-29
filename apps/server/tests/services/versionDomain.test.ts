@@ -19,6 +19,8 @@ const versions: Version[] = [
     publishedAt: null,
     publishedBy: null,
     checksum: '',
+    integrityStatus: 'unknown',
+    integrityCheckedAt: null,
   },
   {
     id: 'version-b',
@@ -32,6 +34,8 @@ const versions: Version[] = [
     publishedAt: null,
     publishedBy: null,
     checksum: '',
+    integrityStatus: 'unknown',
+    integrityCheckedAt: null,
   },
 ];
 

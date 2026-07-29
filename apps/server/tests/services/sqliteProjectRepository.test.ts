@@ -13,6 +13,10 @@ import type { Data } from '@deploykit/shared';
 import { appendHistoryEvent } from '../../src/domain/history';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
+import {
+  configureSqlite,
+  createRelationalSchema,
+} from '../../src/repositories/sqliteSchema';
 
 let tempDir: string;
 
@@ -86,6 +90,55 @@ test('creates the normalized relational schema', () => {
     'users',
     'versions',
   ]);
+});
+
+test('upgrades relational v1 with persisted integrity columns and a backup', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  database.exec(`
+    PRAGMA foreign_keys = OFF;
+    DROP TABLE versions;
+    CREATE TABLE versions (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      file_count INTEGER NOT NULL,
+      source_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      published_at TEXT NULL,
+      published_by TEXT NULL,
+      checksum TEXT NOT NULL,
+      sort_order INTEGER NOT NULL
+    );
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES (1, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  createSqliteProjectRepository({ databaseFile }).load();
+
+  const verify = new Database(databaseFile);
+  const columns = verify
+    .query<{ name: string }, []>('PRAGMA table_info(versions)')
+    .all()
+    .map((column) => column.name);
+  const migration = verify
+    .query<{ version: number }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  verify.close();
+
+  expect(columns).toContain('integrity_status');
+  expect(columns).toContain('integrity_checked_at');
+  expect(migration?.version).toBe(2);
+  expect(existsSync(`${databaseFile}.pre-relational-v2.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {
@@ -232,6 +285,8 @@ test('persists project, member, and version changes as normalized rows', () => {
     publishedAt: '2026-07-24T00:00:00.000Z',
     publishedBy: 'user-1',
     checksum: 'checksum-1',
+    integrityStatus: 'verified',
+    integrityCheckedAt: '2026-07-30T00:00:00.000Z',
   });
   data.projects[0].activeVersionId = 'version-1';
   repository.save(data);
@@ -263,6 +318,34 @@ test('persists project, member, and version changes as normalized rows', () => {
   expect(member?.role).toBe('member');
   expect(versionCount?.count).toBe(0);
   expect(repository.load().projects[0].versions).toEqual([]);
+});
+
+test('round-trips persisted version integrity state', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const repository = createSqliteProjectRepository({ databaseFile });
+  const data = createData();
+  data.projects[0].versions.push({
+    id: 'version-1',
+    name: 'v1',
+    description: '',
+    createdAt: '2026-07-24T00:00:00.000Z',
+    size: 10,
+    fileCount: 1,
+    sourceType: 'folder',
+    status: 'preview',
+    publishedAt: null,
+    publishedBy: null,
+    checksum: 'checksum-1',
+    integrityStatus: 'corrupted',
+    integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+  });
+
+  repository.save(data);
+
+  expect(repository.load().projects[0].versions[0]).toMatchObject({
+    integrityStatus: 'corrupted',
+    integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+  });
 });
 
 test('separate repository instances mutate the latest committed state', () => {
