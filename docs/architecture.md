@@ -134,7 +134,8 @@ apps/server/
 - `deploykit.sqlite`：启用外键、WAL、`synchronous=NORMAL` 与
   `busy_timeout`。用户、项目、成员、版本、发布、审计和会话使用独立关系表；
   聚合写用例通过同步 `mutate` + `IMMEDIATE` 事务执行行级 upsert/delete，防止
-  并发覆盖。
+  并发覆盖。审计事件只追加不截断，游标先解析到数据库自增序列，再按可见项目
+  直接查询；发布、回滚与兼容 activate 会在同一事务写入独立 `releases` 台账。
 - 旧 `deploykit_state` 单行数据库会先通过 `VACUUM INTO` 创建
   `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复

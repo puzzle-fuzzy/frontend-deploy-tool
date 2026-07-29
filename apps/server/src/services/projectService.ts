@@ -331,7 +331,13 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       const visibleHistory = visibleProjectIds
         ? data.history.filter((event) => visibleProjectIds.has(event.projectId))
         : data.history;
-      const page = paginateHistory(visibleHistory, limit, cursor);
+      const page = repo.listHistoryPage
+        ? repo.listHistoryPage({
+            projectIds: visibleProjectIds ? [...visibleProjectIds] : null,
+            limit,
+            cursor,
+          })
+        : paginateHistory(visibleHistory, limit, cursor);
       if (!page) {
         throw new ApiError(
           ErrorCode.INVALID_HISTORY_CURSOR,
@@ -358,11 +364,17 @@ export function createProjectService(repo: ProjectRepository): ProjectService {
       if (!canReadProject(actor, project)) {
         throw new ApiError(ErrorCode.FORBIDDEN, 'Project access required', 403);
       }
-      const page = paginateHistory(
-        data.history.filter((event) => event.projectId === projectId),
-        limit,
-        cursor
-      );
+      const page = repo.listHistoryPage
+        ? repo.listHistoryPage({
+            projectIds: [projectId],
+            limit,
+            cursor,
+          })
+        : paginateHistory(
+            data.history.filter((event) => event.projectId === projectId),
+            limit,
+            cursor
+          );
       if (!page) {
         throw new ApiError(
           ErrorCode.INVALID_HISTORY_CURSOR,

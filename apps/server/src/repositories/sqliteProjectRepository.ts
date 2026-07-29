@@ -11,12 +11,20 @@ import type {
   Version,
 } from '@deploykit/shared';
 import {
+  decodeHistoryCursor,
+  encodeHistoryCursor,
+  parseHistoryLimit,
+} from '../domain/history';
+import {
   CURRENT_SCHEMA_VERSION,
   createEmptyData,
   migrate,
 } from '../domain/schema';
 import { createJsonProjectRepository } from './jsonProjectRepository';
-import type { ProjectRepository } from './projectRepository';
+import type {
+  HistoryPageRequest,
+  ProjectRepository,
+} from './projectRepository';
 import {
   configureSqlite,
   createRelationalSchema,
@@ -86,6 +94,10 @@ interface AuditRow {
   metadata_json: string | null;
 }
 
+interface SequencedAuditRow extends AuditRow {
+  sequence: number;
+}
+
 export interface SqliteProjectRepositoryOptions {
   databaseFile: string;
   legacyDataFile?: string;
@@ -142,6 +154,14 @@ export function createSqliteProjectRepository({
         );
         return applyMutation.immediate(operation);
       });
+    },
+
+    listHistoryPage(
+      request
+    ): ReturnType<NonNullable<ProjectRepository['listHistoryPage']>> {
+      return withDatabase((database) =>
+        listSqliteHistoryPage(database, request)
+      );
     },
   };
 }
@@ -335,6 +355,67 @@ function rowToHistoryEvent(row: AuditRow): HistoryEvent {
       ? { metadata: JSON.parse(row.metadata_json) as Record<string, unknown> }
       : {}),
   };
+}
+
+function listSqliteHistoryPage(
+  database: Database,
+  { projectIds, limit, cursor }: HistoryPageRequest
+): ReturnType<NonNullable<ProjectRepository['listHistoryPage']>> {
+  if (projectIds?.length === 0) return cursor ? undefined : emptyHistoryPage();
+
+  const pageSize = parseHistoryLimit(limit);
+  const visibilityClause =
+    projectIds === null
+      ? ''
+      : ` AND project_id IN (${projectIds.map(() => '?').join(', ')})`;
+  const visibilityBindings = projectIds ?? [];
+  let beforeSequence: number | null = null;
+
+  if (cursor) {
+    const eventId = decodeHistoryCursor(cursor);
+    if (!eventId) return undefined;
+    const cursorRow = database
+      .query(
+        `SELECT sequence
+         FROM audit_events
+         WHERE id = ?${visibilityClause}`
+      )
+      .get(eventId, ...visibilityBindings) as { sequence: number } | null;
+    if (!cursorRow) return undefined;
+    beforeSequence = cursorRow.sequence;
+  }
+
+  const sequenceClause = beforeSequence === null ? '' : ' AND sequence < ?';
+  const rows = database
+    .query(
+      `SELECT sequence, id, action, project_id, project_name, version_id,
+              version_name, occurred_at, actor_id, metadata_json
+       FROM audit_events
+       WHERE 1 = 1${visibilityClause}${sequenceClause}
+       ORDER BY sequence DESC
+       LIMIT ?`
+    )
+    .all(
+      ...visibilityBindings,
+      ...(beforeSequence === null ? [] : [beforeSequence]),
+      pageSize + 1
+    ) as SequencedAuditRow[];
+
+  const hasMore = rows.length > pageSize;
+  const pageRows = hasMore ? rows.slice(0, pageSize) : rows;
+  const items = pageRows.map(rowToHistoryEvent);
+  const lastItem = items.at(-1);
+  return {
+    items,
+    nextCursor: hasMore && lastItem ? encodeHistoryCursor(lastItem.id) : null,
+  };
+}
+
+function emptyHistoryPage(): {
+  items: HistoryEvent[];
+  nextCursor: null;
+} {
+  return { items: [], nextCursor: null };
 }
 
 function replaceDomainData(database: Database, data: Data): void {

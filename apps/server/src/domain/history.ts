@@ -30,12 +30,12 @@ interface HistoryCursorPayload {
   eventId: string;
 }
 
-function encodeHistoryCursor(eventId: string): string {
+export function encodeHistoryCursor(eventId: string): string {
   const payload: HistoryCursorPayload = { version: 1, eventId };
   return Buffer.from(JSON.stringify(payload)).toString('base64url');
 }
 
-function decodeHistoryCursor(cursor: string): string | undefined {
+export function decodeHistoryCursor(cursor: string): string | undefined {
   try {
     const decoded = JSON.parse(
       Buffer.from(cursor, 'base64url').toString('utf8')

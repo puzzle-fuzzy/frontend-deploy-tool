@@ -8,6 +8,7 @@ import {
 } from 'node:fs';
 import { dirname } from 'node:path';
 import type { Data } from '@deploykit/shared';
+import { paginateHistory } from '../domain/history';
 import { createEmptyData, migrate } from '../domain/schema';
 import type { ProjectRepository } from './projectRepository';
 
@@ -63,6 +64,15 @@ export function createJsonProjectRepository(
       const result = operation(data);
       writeData(data);
       return result;
+    },
+
+    listHistoryPage({ projectIds, limit, cursor }) {
+      const history = loadData().history;
+      const visibleHistory =
+        projectIds === null
+          ? history
+          : history.filter((event) => projectIds.includes(event.projectId));
+      return paginateHistory(visibleHistory, limit, cursor);
     },
   };
 }

@@ -102,20 +102,20 @@ phase.
 - Modify: `apps/server/tests/services/sqliteProjectRepository.test.ts`
 - Modify: `apps/server/tests/api/contracts.test.ts`
 
-- [ ] Expose cursor encode/decode helpers while preserving the current opaque
+- [x] Expose cursor encode/decode helpers while preserving the current opaque
   event-id contract.
-- [ ] Add `listHistoryPage({ projectIds, limit, cursor })` to the repository;
+- [x] Add `listHistoryPage({ projectIds, limit, cursor })` to the repository;
   JSON delegates to the domain paginator, SQLite resolves the cursor to an
   auto-increment sequence and queries `ORDER BY sequence DESC LIMIT n+1`.
-- [ ] Persist only newly appended audit events during aggregate mutation and
+- [x] Persist only newly appended audit events during aggregate mutation and
   never delete older SQL events when the in-memory compatibility window trims.
-- [ ] Insert publish/activate/rollback events into `releases` in the same
+- [x] Insert publish/activate/rollback events into `releases` in the same
   transaction, including previous and selected version ids.
-- [ ] Add a test that writes more than 200 events over multiple mutations and
+- [x] Add a test that writes more than 200 events over multiple mutations and
   retrieves every page without duplicates, then verifies the release ledger.
-- [ ] Make `ProjectService` use repository pagination after applying actor
+- [x] Make `ProjectService` use repository pagination after applying actor
   visibility; invalid/invisible cursors remain `INVALID_HISTORY_CURSOR`.
-- [ ] Run:
+- [x] Run:
   `bun --filter @deploykit/server test tests/services/historyDomain.test.ts tests/services/sqliteProjectRepository.test.ts tests/api/contracts.test.ts`
 
 ## Task 4: Introduce durable, revocable browser and desktop sessions

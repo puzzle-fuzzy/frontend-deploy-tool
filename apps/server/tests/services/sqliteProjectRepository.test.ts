@@ -10,6 +10,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data } from '@deploykit/shared';
+import { appendHistoryEvent } from '../../src/domain/history';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 
@@ -283,5 +284,75 @@ test('separate repository instances mutate the latest committed state', () => {
   expect(first.load().projects.map((project) => project.name)).toEqual([
     'First Project',
     'Second Project',
+  ]);
+});
+
+test('retains and paginates more than 200 audit events with a release ledger', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const repository = createSqliteProjectRepository({ databaseFile });
+  repository.save(createData());
+
+  for (let batch = 0; batch < 10; batch += 1) {
+    repository.mutate((data) => {
+      const project = data.projects[0];
+      for (let offset = 0; offset < 25; offset += 1) {
+        const ordinal = batch * 25 + offset;
+        appendHistoryEvent(
+          data,
+          ordinal === 249 ? 'version.publish' : 'project.update',
+          project,
+          'user-1',
+          ordinal === 249 ? { id: 'version-live', name: 'live' } : undefined,
+          ordinal === 249 ? { previousActiveVersionId: null } : { ordinal }
+        );
+      }
+    });
+  }
+
+  expect(repository.load().history).toHaveLength(200);
+
+  const eventIds: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = repository.listHistoryPage?.({
+      projectIds: null,
+      limit: '37',
+      cursor,
+    });
+    expect(page).toBeDefined();
+    if (!page) break;
+    eventIds.push(...page.items.map((event) => event.id));
+    cursor = page.nextCursor ?? undefined;
+  } while (cursor);
+
+  expect(eventIds).toHaveLength(250);
+  expect(new Set(eventIds).size).toBe(250);
+
+  const database = new Database(databaseFile);
+  const auditCount = database
+    .query<{ count: number }, []>('SELECT COUNT(*) AS count FROM audit_events')
+    .get();
+  const releases = database
+    .query<
+      {
+        action: string;
+        version_id: string;
+        previous_version_id: string | null;
+      },
+      []
+    >(
+      `SELECT action, version_id, previous_version_id
+       FROM releases`
+    )
+    .all();
+  database.close();
+
+  expect(auditCount?.count).toBe(250);
+  expect(releases).toEqual([
+    {
+      action: 'version.publish',
+      version_id: 'version-live',
+      previous_version_id: null,
+    },
   ]);
 });
