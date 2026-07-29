@@ -39,6 +39,9 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 ### 阶段 2：可撤销身份与关系型 SQLite
 
+状态：已于 2026-07-30 完成。旧单行数据库具备迁移前一致性备份，核心元数据
+使用关系表，审计/发布台账追加写入，浏览器与桌面会话可列出、撤销并跨重启保留。
+
 - 引入持久化 session/device-session，令牌使用 `jti` 并支持注销、过期和撤销。
 - 将单行 JSON payload 迁移为 users、projects、members、versions、
   releases、audit_events、sessions 表。

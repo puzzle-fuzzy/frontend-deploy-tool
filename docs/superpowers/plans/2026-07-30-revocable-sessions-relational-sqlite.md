@@ -164,12 +164,12 @@ phase.
 - Modify: `AGENTS.md`
 - Modify: `CLAUDE.md`
 
-- [ ] Run `bun run verify`.
-- [ ] Start an app against a copied legacy database, log in, publish, restart,
+- [x] Run `bun run verify`.
+- [x] Start an app against a copied legacy database, log in, publish, restart,
   confirm `/api/me`, revoke the session, and confirm the old token returns 401.
-- [ ] Inspect the migrated database with `PRAGMA foreign_key_check`,
+- [x] Inspect the migrated database with `PRAGMA foreign_key_check`,
   `PRAGMA integrity_check`, table counts, and release/audit ordering.
-- [ ] Update all architecture claims that still describe a single JSON row,
+- [x] Update all architecture claims that still describe a single JSON row,
   200-event retention, or stateless sessions.
-- [ ] Commit each independently verified slice, then push `main` and confirm
+- [x] Commit each independently verified slice, then push `main` and confirm
   `origin/main` matches.
