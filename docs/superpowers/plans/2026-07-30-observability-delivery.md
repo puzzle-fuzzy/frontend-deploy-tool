@@ -87,10 +87,10 @@ then exits, with a bounded force-close fallback.
 
 **Acceptance criteria:**
 
-- [ ] CI runs dependency vulnerability auditing.
-- [ ] CI performs CodeQL analysis for JavaScript/TypeScript.
-- [ ] CI runs a deterministic repository secret scan.
-- [ ] Existing malicious ZIP, recovery, backup, and crash-safe persistence tests
+- [x] CI runs dependency vulnerability auditing.
+- [x] CI performs CodeQL analysis for JavaScript/TypeScript.
+- [x] CI runs a deterministic repository secret scan.
+- [x] Existing malicious ZIP, recovery, backup, and crash-safe persistence tests
       remain part of the main verification gate.
 
 ## Task 5: Operations documentation and phase gate

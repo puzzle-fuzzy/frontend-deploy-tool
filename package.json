@@ -79,7 +79,15 @@
     "format:check": "bun biome format .",
     "check": "bun biome check .",
     "check:fix": "bun biome check --write .",
-    "verify": "bun run check && bun run typecheck && bun run test && bun run build"
+    "security:secrets": "bun test scripts/scan-secrets.test.ts && bun run scripts/scan-secrets.ts",
+    "security:audit": "bun audit --audit-level=high",
+    "security": "bun run security:secrets && bun run security:audit",
+    "verify": "bun run check && bun run security:secrets && bun run typecheck && bun run test && bun run build"
+  },
+  "overrides": {
+    "brace-expansion": "5.0.8",
+    "tar": "7.5.22",
+    "tmp": "0.2.7"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
