@@ -500,6 +500,7 @@ describe('SQLite v5 artifact audit queue', () => {
     const repository = createFixture();
     repository.enqueue(enqueueInput('job-1'));
     repository.recoverAndClaim(claimInput('worker-1'));
+    const jobBeforeCompletion = repository.get(scoped('job-1'));
     const database = new Database(databaseFile);
     database.exec(`
       CREATE TRIGGER fail_audit_history
@@ -514,10 +515,7 @@ describe('SQLite v5 artifact audit queue', () => {
     expect(() => repository.complete(completeInput())).toThrow(
       'history unavailable'
     );
-    expect(repository.get(scoped('job-1'))).toMatchObject({
-      kind: 'found',
-      job: { status: 'running', reportId: null },
-    });
+    expect(repository.get(scoped('job-1'))).toEqual(jobBeforeCompletion);
     expect(readReports()).toEqual([]);
     expect(readHistory()).toEqual([]);
   });
@@ -526,6 +524,7 @@ describe('SQLite v5 artifact audit queue', () => {
     const repository = createFixture();
     repository.enqueue(enqueueInput('job-1'));
     repository.recoverAndClaim(claimInput('worker-1'));
+    const jobBeforeCompletion = repository.get(scoped('job-1'));
     const database = new Database(databaseFile);
     database.exec(`
       CREATE TRIGGER ignore_audit_job_success
@@ -540,10 +539,7 @@ describe('SQLite v5 artifact audit queue', () => {
     expect(repository.complete(completeInput())).toEqual({
       kind: 'lease-lost',
     });
-    expect(repository.get(scoped('job-1'))).toMatchObject({
-      kind: 'found',
-      job: { status: 'running', reportId: null },
-    });
+    expect(repository.get(scoped('job-1'))).toEqual(jobBeforeCompletion);
     expect(readReports()).toEqual([]);
     expect(readHistory()).toEqual([]);
   });
