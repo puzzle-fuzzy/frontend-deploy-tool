@@ -479,7 +479,7 @@ interface ArtifactAuditJobRepository {
 - Modify: `docs/backend-hardening-roadmap.md`
 - Modify: `docs/enterprise-frontend-deploy-plan.md`
 
-- [ ] **Step 1: Run the unified local gate**
+- [x] **Step 1: Run the unified local gate**
 
   ```bash
   bun run verify
@@ -489,7 +489,7 @@ interface ArtifactAuditJobRepository {
   Expected: format/lint, secret scan, all package typechecks/tests and
   production Web packaging pass.
 
-- [ ] **Step 2: Run real production-process smoke tests**
+- [x] **Step 2: Run real production-process smoke tests**
 
   With two distinct loopback hostnames and isolated SQLite/storage:
 
@@ -502,7 +502,20 @@ interface ArtifactAuditJobRepository {
   backup -> verify -> restore rehearsal -> integrity_check=ok
   ```
 
-- [ ] **Step 3: Review the next feature boundary**
+  The single-host ownership invariant deliberately prevents two complete
+  servers from sharing either the SQLite database or artifact storage.
+  Therefore this gate separates three kinds of evidence instead of weakening
+  that invariant:
+
+  - one real production server at a time proves the complete HTTP, worker,
+    release, restart, backup and restore path;
+  - a real SIGKILL fault-injection child process proves recovery after the
+    artifact deletion rename;
+  - two independent Bun repository processes prove one-winner queue claims,
+    while a live repository instance proves expired-lease takeover without a
+    worker restart.
+
+- [x] **Step 3: Review the next feature boundary**
 
   Record API tokens/CI upload as the next product phase only after the three
   production invariants pass. The next design must use hashed project-scoped
@@ -510,12 +523,49 @@ interface ArtifactAuditJobRepository {
   revocation, idempotency keys and security audit events; it must not reuse
   seven-day browser/desktop sessions.
 
-- [ ] **Step 4: Commit delivery evidence**
+- [x] **Step 4: Commit delivery evidence**
 
   ```bash
   git add docs
   git commit -m "docs: record production invariant release gates"
   ```
+
+  Delivery evidence recorded on 2026-07-31:
+
+  - `bun run verify` passed after the final remediation commits: Biome checked
+    277 files; the secret scanner passed 2 tests; all 5 workspace typechecks
+    passed; server passed 427 tests / 1730 assertions, client passed 40 tests,
+    desktop passed 23 tests; Vite transformed 2252 modules and packaged the
+    production Web bundle into `apps/server/public`. `git diff --check` also
+    passed.
+  - The CI-equivalent dependency gate
+    `npm_config_registry=https://registry.npmjs.org bun run security:audit`
+    reported no high or critical dependency vulnerability.
+  - An isolated production process with
+    `console.localhost`/`deploy.localhost`, a temporary SQLite database and
+    temporary storage completed: login, cookie-origin rejection, blocking
+    release rejection before audit, three succeeded durable audit jobs, v1/v2
+    publish, one manual v1 rollback, stale rollback rejection, three graceful
+    shutdowns, same-secret restart and verified backup restore.
+  - The deploy origin returned 404 for management API access, the management
+    origin returned 404 for deployed artifacts, and a deploy-origin cookie
+    write against the management API returned
+    `403 CSRF_VALIDATION_FAILED` without revoking the session.
+  - The active ETag changed for v2 and again for the manual rollback. The exact
+    release ledger after rejecting the stale repeat was
+    `version.publish, version.publish, version.rollback`; restore removed the
+    deliberate post-backup fourth release and recovered the v1 active pointer.
+  - A signed audit-job cursor issued before restart remained valid after both
+    a production restart and backup restore. Final relational evidence was
+    schema v5, `integrity_check=ok`, zero foreign-key violations, three
+    succeeded jobs, two current reports and three release rows. Metrics exposed
+    the bounded queue series and contained no project, version or job ID.
+  - Focused fault gates passed independently: one real SIGKILL deletion/restart
+    test (9 assertions), plus the two-Bun-process claim barrier and live
+    expired-lease takeover tests (8 assertions).
+  - Independent Task 3 contract and transaction re-reviews both concluded
+    `Spec PASS` and `Quality APPROVED`, with no remaining
+    Critical/Important/Minor finding.
 
 - [ ] **Step 5: Synchronize main**
 

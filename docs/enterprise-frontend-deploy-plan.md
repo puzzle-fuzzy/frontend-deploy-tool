@@ -808,7 +808,8 @@ Production
 
 ### 2.1 API Token
 
-为每个项目生成部署 Token。
+为每个项目生成独立部署 Token。自动化凭据不能复用浏览器或桌面端的七天
+session；两类凭据使用不同认证中间件、生命周期和审计事件。
 
 用途：
 
@@ -821,10 +822,21 @@ CI/CD 上传构建产物
 Token 权限：
 
 ```text
-只允许上传 Preview
-允许发布 Staging
-允许发布 Production
+preview:upload
+staging:publish
+production:publish
 ```
+
+实现约束：
+
+- Token 只在创建/轮换时展示一次明文，持久层只保存带版本的密码学哈希、
+  token prefix、project ID、scope、过期/撤销时间和使用元数据。
+- Token 必须绑定单一项目，默认只授予 `preview:upload`；Production scope
+  需要显式授权，不能从用户 session 或项目成员角色自动继承。
+- 支持过期、轮换、重叠迁移期和即时撤销；创建、轮换、撤销、鉴权失败与越权
+  请求进入安全审计事件。日志、指标、错误和历史元数据不得包含明文 Token。
+- CI 写请求必须携带幂等键。相同项目、Token、幂等键和请求摘要返回原结果；
+  摘要不同返回冲突，防止 CI 重试重复上传或重复发布。
 
 ---
 
@@ -845,6 +857,11 @@ CI 执行 pnpm build
 ↓
 生成预览地址
 ```
+
+CI 上传始终先创建 Preview，不等同于发布。Staging/Production 发布继续携带
+`expectedActiveVersionId`，遵守项目的 blocking 产物审计策略；审计未完成、
+报告过期或策略阻断时不能绕过。上传请求还必须复用现有请求体、文件数、解压
+体积、并发和存储配额。
 
 ---
 
@@ -880,10 +897,13 @@ CI run id
 | 验收项 | 通过标准 |
 |---|---|
 | API Token | 可以为项目生成和禁用 Token |
-| CI 上传 | CI 可以上传 dist.zip 并生成预览 |
+| Token 生命周期 | 支持过期、轮换、撤销，数据库无明文 Token |
+| Token 权限 | Token 只能访问绑定项目和显式 scope |
+| CI 上传 | CI 可以幂等上传 dist.zip 并生成预览 |
+| CI 重试 | 相同幂等键不重复创建版本，摘要冲突时拒绝 |
 | CLI 上传 | 命令行可以上传版本 |
 | Git 信息 | 部署记录显示 commit 和 branch |
-| Token 权限 | Token 不能越权发布 Production |
+| Production 发布 | 继续执行 compare-and-set 与 blocking 审计门禁 |
 
 ---
 

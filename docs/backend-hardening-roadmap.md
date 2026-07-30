@@ -162,6 +162,39 @@ SIGTERM → 同库重启恢复任务 → 发布 v2 → 手动回退 v1”。该�
 schema v4；`integrity_check=ok`、外键违规 0、成功任务 2、报告 2、发布台账 3；管理源产物和
 部署源 API 均返回 404，任务指标活动数归零且不包含任何项目/版本/任务 ID。
 
+2026-07-31 生产不变量收口证据：关系型 schema 升至 v5；审计任务状态机改为
+独立行级事务仓库，游标使用用途隔离的 HMAC-SHA256，completion 的
+job/report/history 在最终 lease 更新失败时整体回滚，health 来自单 SQL 快照。
+最终 `bun run verify` 通过（server 427 / 1730 assertions、client 40、
+desktop 23、Biome 277 files、Vite 2252 modules），CI 等价的 high/critical
+dependency audit 为 0。真实 production 双域进程完成 blocking 审计、三项任务、
+两次发布、一次回退、三次优雅停机、签名游标跨重启与备份恢复；最终
+`integrity_check=ok`、外键违规 0、成功任务 3、当前报告 2、发布台账严格为 3。
+真实 SIGKILL 删除恢复、双 Bun 进程单一领取和活租约接管均有独立聚焦证据。
+
+### 阶段 6：项目 API Token 与 CI 上传
+
+状态：仅完成边界设计，尚未实现。必须保持阶段 1—5 的浏览器信任、显式发布、
+审计门禁、幂等写入和可恢复存储不变量后再进入开发。
+
+- Token 只在创建或轮换时返回一次明文；数据库只保存带版本的密码学哈希、
+  不可逆 token ID/prefix、项目、权限、过期时间、创建者、最后使用时间和撤销时间。
+- 每个 Token 必须绑定单一项目，并使用显式
+  `preview:upload`、`staging:publish`、`production:publish` 等 scope；默认最小权限，
+  不能把项目成员角色隐式扩成自动化权限。
+- 支持过期、轮换、即时撤销和重叠期；日志、错误、指标和审计事件不得记录明文
+  Token。令牌创建、轮换、撤销、鉴权失败和越权请求进入安全审计事件。
+- CI 上传必须携带幂等键；同一项目、Token、幂等键和请求摘要重复提交返回原结果，
+  摘要不同则冲突，避免重试产生多个版本或重复发布。
+- CI 上传先生成 preview，不能等同于 production 发布；后续 staging/production
+  操作继续使用 release compare-and-set，并遵守项目 blocking 审计策略。
+- 不复用七天有效的浏览器/桌面 session，也不把现有 bearer session 当作 CI
+  凭据。API Token 使用独立认证中间件、撤销缓存边界和速率/容量预算。
+
+进入实现前的暂停点：先确定 token hash/lookup 方案、scope 矩阵、幂等记录
+保留期、CI 上传元数据契约和泄漏响应流程；任一项不能在 SQLite 事务中保持
+项目隔离与幂等性时，停止实现并重新设计。
+
 ## 动态调整规则
 
 - 每个阶段先建立失败测试，再做最小实现，再跑局部测试和全量 verify。
