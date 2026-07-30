@@ -89,6 +89,36 @@ function createFixture(tempDir: string) {
         checks: [],
       },
     ],
+    artifactAuditJobs: [
+      {
+        id: 'job-1',
+        projectId: 'p1',
+        versionId: 'v1',
+        requestedBy: 'user-1',
+        status: 'succeeded',
+        priority: 0,
+        attempts: 1,
+        maxAttempts: 3,
+        nextRunAt: '2026-07-30T00:00:00.000Z',
+        lockedBy: null,
+        lockedUntil: null,
+        artifactChecksum: checksum,
+        engineVersion: 1,
+        policy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 50 * 1024 * 1024,
+          maxFileBytes: 10 * 1024 * 1024,
+          maxFileCount: 1_000,
+        },
+        reportId: 'audit-1',
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-30T00:00:00.000Z',
+        updatedAt: '2026-07-30T00:00:01.000Z',
+        startedAt: '2026-07-30T00:00:00.000Z',
+        completedAt: '2026-07-30T00:00:01.000Z',
+      },
+    ],
   };
   const repository = createSqliteProjectRepository({ databaseFile });
   repository.save(data);
@@ -110,7 +140,12 @@ describe('createBackupService', () => {
         formatVersion: 1,
         databaseFile: 'deploykit.sqlite',
         storageDirectory: 'storage',
-        metadataCounts: { projects: 1, versions: 1, artifactAudits: 1 },
+        metadataCounts: {
+          projects: 1,
+          versions: 1,
+          artifactAudits: 1,
+          artifactAuditJobs: 1,
+        },
         artifactCounts: { files: 1, deployableVersions: 1 },
       });
       expect(verification).toMatchObject({

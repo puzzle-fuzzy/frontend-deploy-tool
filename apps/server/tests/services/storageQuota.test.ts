@@ -63,6 +63,7 @@ function data(): Data {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
   };
 }
 

@@ -23,6 +23,7 @@ test('restores project artifacts when the metadata deletion fails', () => {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
     projects: [
       {
         id: 'project-1',

@@ -177,6 +177,44 @@ export const artifactAuditReportSchema = z.object({
   checks: z.array(artifactAuditCheckSchema),
 });
 
+export const artifactAuditJobStatusSchema = z.enum([
+  'queued',
+  'running',
+  'succeeded',
+  'failed',
+  'canceled',
+]);
+
+export const artifactAuditJobSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    versionId: z.string(),
+    requestedBy: z.string(),
+    status: artifactAuditJobStatusSchema,
+    priority: z.number().int().min(0).max(100),
+    attempts: z.number().int().nonnegative(),
+    maxAttempts: z.number().int().positive().max(10),
+    nextRunAt: z.string(),
+    lockedBy: z.string().nullable(),
+    lockedUntil: z.string().nullable(),
+    artifactChecksum: z.string(),
+    engineVersion: z.number().int().positive(),
+    policy: artifactAuditPolicySchema,
+    reportId: z.string().nullable(),
+    errorCode: z.string().nullable(),
+    errorMessage: z.string().nullable(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    startedAt: z.string().nullable(),
+    completedAt: z.string().nullable(),
+  })
+  .strict()
+  .refine((job) => job.attempts <= job.maxAttempts, {
+    path: ['attempts'],
+    message: 'attempts cannot exceed maxAttempts',
+  });
+
 export const historyEventSchema = z.object({
   id: z.string(),
   action: z.enum([
@@ -222,6 +260,7 @@ export const dataSchema = z.object({
   users: z.array(userSchema),
   history: z.array(historyEventSchema),
   artifactAudits: z.array(artifactAuditReportSchema),
+  artifactAuditJobs: z.array(artifactAuditJobSchema),
 });
 
 /** Input body for creating a project (plain type, used by the service contract). */
@@ -247,6 +286,10 @@ export type ArtifactAuditExtension = z.infer<
 >;
 export type ArtifactAuditSummary = z.infer<typeof artifactAuditSummarySchema>;
 export type ArtifactAuditReport = z.infer<typeof artifactAuditReportSchema>;
+export type ArtifactAuditJobStatus = z.infer<
+  typeof artifactAuditJobStatusSchema
+>;
+export type ArtifactAuditJob = z.infer<typeof artifactAuditJobSchema>;
 export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;
 export type SafeUser = z.infer<typeof safeUserSchema>;

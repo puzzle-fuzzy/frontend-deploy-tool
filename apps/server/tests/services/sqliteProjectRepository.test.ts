@@ -55,6 +55,7 @@ function createData(projectName = 'Signal Desk'): Data {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
   };
 }
 
@@ -88,6 +89,7 @@ test('creates the normalized relational schema', () => {
   database.close();
 
   expect(tables).toEqual([
+    'artifact_audit_jobs',
     'artifact_audits',
     'audit_events',
     'project_members',
@@ -100,13 +102,50 @@ test('creates the normalized relational schema', () => {
   ]);
 });
 
-test('upgrades relational v1 through v3 with policy, audit, integrity, and backup', () => {
+test('upgrades the deployed relational v3 schema to v4 with a backup', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  database.exec(`
+    DROP TABLE artifact_audit_jobs;
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const jobColumns = verify
+    .query<{ name: string }, []>('PRAGMA table_info(artifact_audit_jobs)')
+    .all()
+    .map((column) => column.name);
+  verify.close();
+
+  expect(loaded.artifactAuditJobs).toEqual([]);
+  expect(migration?.version).toBe(4);
+  expect(jobColumns).toContain('locked_until');
+  expect(jobColumns).toContain('policy_json');
+  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
+});
+
+test('upgrades relational v1 through v4 with policy, audit, jobs, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
   database.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE artifact_audit_jobs;
     DROP TABLE artifact_audits;
     DROP TABLE projects;
     DROP TABLE versions;
@@ -166,17 +205,18 @@ test('upgrades relational v1 through v3 with policy, audit, integrity, and backu
   expect(columns).toContain('integrity_checked_at');
   expect(projectColumns).toContain('audit_enforcement');
   expect(projectColumns).toContain('audit_max_total_bytes');
-  expect(migration?.version).toBe(3);
-  expect(existsSync(`${databaseFile}.pre-relational-v3.bak`)).toBe(true);
+  expect(migration?.version).toBe(4);
+  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
 });
 
-test('upgrades the deployed relational v2 schema to v3 with a backup', () => {
+test('upgrades the deployed relational v2 schema to v4 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
   database.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE artifact_audit_jobs;
     DROP TABLE artifact_audits;
     DROP TABLE projects;
     CREATE TABLE projects (
@@ -214,10 +254,10 @@ test('upgrades the deployed relational v2 schema to v3 with a backup', () => {
   verify.close();
 
   expect(loaded.projects).toEqual([]);
-  expect(migration?.version).toBe(3);
+  expect(migration?.version).toBe(4);
   expect(auditColumns).toContain('engine_version');
   expect(auditColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v3.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {
@@ -501,6 +541,54 @@ test('round-trips project audit policy and replaces a version current report', (
       status: 'passed',
     }),
   ]);
+});
+
+test('round-trips artifact audit job leases, snapshots, and terminal fields', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const repository = createSqliteProjectRepository({ databaseFile });
+  const data = createData();
+  data.projects[0].versions.push({
+    id: 'version-1',
+    name: 'v1',
+    description: '',
+    createdAt: '2026-07-30T00:00:00.000Z',
+    size: 10,
+    fileCount: 1,
+    sourceType: 'folder',
+    status: 'preview',
+    publishedAt: null,
+    publishedBy: null,
+    checksum: 'checksum-1',
+    integrityStatus: 'verified',
+    integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+  });
+  data.artifactAuditJobs.push({
+    id: 'job-1',
+    projectId: 'project-1',
+    versionId: 'version-1',
+    requestedBy: 'user-1',
+    status: 'running',
+    priority: 7,
+    attempts: 1,
+    maxAttempts: 3,
+    nextRunAt: '2026-07-30T00:00:00.000Z',
+    lockedBy: 'worker-1',
+    lockedUntil: '2026-07-30T00:01:30.000Z',
+    artifactChecksum: 'checksum-1',
+    engineVersion: 1,
+    policy: { ...data.projects[0].auditPolicy },
+    reportId: null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: '2026-07-30T00:00:00.000Z',
+    updatedAt: '2026-07-30T00:00:05.000Z',
+    startedAt: '2026-07-30T00:00:05.000Z',
+    completedAt: null,
+  });
+
+  repository.save(data);
+
+  expect(repository.load().artifactAuditJobs).toEqual(data.artifactAuditJobs);
 });
 
 test('separate repository instances mutate the latest committed state', () => {

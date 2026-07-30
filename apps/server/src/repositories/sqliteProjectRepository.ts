@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type {
+  ArtifactAuditJob,
   ArtifactAuditReport,
   Data,
   HistoryAction,
@@ -11,7 +12,10 @@ import type {
   User,
   Version,
 } from '@deploykit/shared';
-import { artifactAuditReportSchema } from '@deploykit/shared';
+import {
+  artifactAuditJobSchema,
+  artifactAuditReportSchema,
+} from '@deploykit/shared';
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -123,6 +127,30 @@ interface ArtifactAuditRow {
   checks_json: string;
 }
 
+interface ArtifactAuditJobRow {
+  id: string;
+  project_id: string;
+  version_id: string;
+  requested_by: string;
+  status: ArtifactAuditJob['status'];
+  priority: number;
+  attempts: number;
+  max_attempts: number;
+  next_run_at: string;
+  locked_by: string | null;
+  locked_until: string | null;
+  artifact_checksum: string;
+  engine_version: number;
+  policy_json: string;
+  report_id: string | null;
+  error_code: string | null;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+  started_at: string | null;
+  completed_at: string | null;
+}
+
 export interface SqliteProjectRepositoryOptions {
   databaseFile: string;
   legacyDataFile?: string;
@@ -211,6 +239,7 @@ function initializeDatabase(
     'users',
     'projects',
     'versions',
+    'artifact_audit_jobs',
     'artifact_audits',
     'project_members',
     'audit_events',
@@ -365,6 +394,18 @@ function loadRelationalData(database: Database): Data {
     )
     .all()
     .map(rowToArtifactAuditReport);
+  const artifactAuditJobs = database
+    .query<ArtifactAuditJobRow, []>(
+      `SELECT id, project_id, version_id, requested_by, status, priority,
+              attempts, max_attempts, next_run_at, locked_by, locked_until,
+              artifact_checksum, engine_version, policy_json, report_id,
+              error_code, error_message, created_at, updated_at, started_at,
+              completed_at
+       FROM artifact_audit_jobs
+       ORDER BY priority DESC, created_at ASC`
+    )
+    .all()
+    .map(rowToArtifactAuditJob);
 
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -372,6 +413,7 @@ function loadRelationalData(database: Database): Data {
     users,
     history,
     artifactAudits,
+    artifactAuditJobs,
   };
 }
 
@@ -435,6 +477,32 @@ function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
     policy: JSON.parse(row.policy_json) as ArtifactAuditReport['policy'],
     summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
     checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
+  });
+}
+
+function rowToArtifactAuditJob(row: ArtifactAuditJobRow): ArtifactAuditJob {
+  return artifactAuditJobSchema.parse({
+    id: row.id,
+    projectId: row.project_id,
+    versionId: row.version_id,
+    requestedBy: row.requested_by,
+    status: row.status,
+    priority: row.priority,
+    attempts: row.attempts,
+    maxAttempts: row.max_attempts,
+    nextRunAt: row.next_run_at,
+    lockedBy: row.locked_by,
+    lockedUntil: row.locked_until,
+    artifactChecksum: row.artifact_checksum,
+    engineVersion: row.engine_version,
+    policy: JSON.parse(row.policy_json) as ArtifactAuditJob['policy'],
+    reportId: row.report_id,
+    errorCode: row.error_code,
+    errorMessage: row.error_message,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    startedAt: row.started_at,
+    completedAt: row.completed_at,
   });
 }
 
@@ -504,6 +572,7 @@ function replaceDomainData(database: Database, data: Data): void {
     DELETE FROM sessions;
     DELETE FROM project_members;
     UPDATE projects SET active_version_id = NULL;
+    DELETE FROM artifact_audit_jobs;
     DELETE FROM artifact_audits;
     DELETE FROM versions;
     DELETE FROM projects;
@@ -515,6 +584,7 @@ function replaceDomainData(database: Database, data: Data): void {
   persistProjects(database, data.projects);
   persistVersions(database, data.projects);
   persistArtifactAudits(database, data.artifactAudits);
+  persistArtifactAuditJobs(database, data.artifactAuditJobs);
   persistMembers(database, data.projects, new Set(data.users.map((u) => u.id)));
   for (const event of [...data.history].reverse()) {
     insertAuditEvent(database, event);
@@ -530,6 +600,7 @@ function persistDomainDiff(
   persistProjects(database, after.projects);
   persistVersions(database, after.projects);
   persistArtifactAudits(database, after.artifactAudits);
+  persistArtifactAuditJobs(database, after.artifactAuditJobs);
   persistMembers(
     database,
     after.projects,
@@ -562,6 +633,16 @@ function persistDomainDiff(
   const afterArtifactAuditIds = new Set(
     after.artifactAudits.map((report) => report.id)
   );
+  const afterArtifactAuditJobIds = new Set(
+    after.artifactAuditJobs.map((job) => job.id)
+  );
+  for (const job of before.artifactAuditJobs) {
+    if (!afterArtifactAuditJobIds.has(job.id)) {
+      database
+        .query('DELETE FROM artifact_audit_jobs WHERE id = ?')
+        .run(job.id);
+    }
+  }
   for (const report of before.artifactAudits) {
     if (!afterArtifactAuditIds.has(report.id)) {
       database.query('DELETE FROM artifact_audits WHERE id = ?').run(report.id);
@@ -704,6 +785,66 @@ function persistArtifactAudits(
       JSON.stringify(report.policy),
       JSON.stringify(report.summary),
       JSON.stringify(report.checks)
+    );
+  }
+}
+
+function persistArtifactAuditJobs(
+  database: Database,
+  jobs: ArtifactAuditJob[]
+): void {
+  const statement = database.query(
+    `INSERT INTO artifact_audit_jobs (
+       id, project_id, version_id, requested_by, status, priority, attempts,
+       max_attempts, next_run_at, locked_by, locked_until, artifact_checksum,
+       engine_version, policy_json, report_id, error_code, error_message,
+       created_at, updated_at, started_at, completed_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(id) DO UPDATE SET
+       project_id = excluded.project_id,
+       version_id = excluded.version_id,
+       requested_by = excluded.requested_by,
+       status = excluded.status,
+       priority = excluded.priority,
+       attempts = excluded.attempts,
+       max_attempts = excluded.max_attempts,
+       next_run_at = excluded.next_run_at,
+       locked_by = excluded.locked_by,
+       locked_until = excluded.locked_until,
+       artifact_checksum = excluded.artifact_checksum,
+       engine_version = excluded.engine_version,
+       policy_json = excluded.policy_json,
+       report_id = excluded.report_id,
+       error_code = excluded.error_code,
+       error_message = excluded.error_message,
+       created_at = excluded.created_at,
+       updated_at = excluded.updated_at,
+       started_at = excluded.started_at,
+       completed_at = excluded.completed_at`
+  );
+  for (const job of jobs) {
+    statement.run(
+      job.id,
+      job.projectId,
+      job.versionId,
+      job.requestedBy,
+      job.status,
+      job.priority,
+      job.attempts,
+      job.maxAttempts,
+      job.nextRunAt,
+      job.lockedBy,
+      job.lockedUntil,
+      job.artifactChecksum,
+      job.engineVersion,
+      JSON.stringify(job.policy),
+      job.reportId,
+      job.errorCode,
+      job.errorMessage,
+      job.createdAt,
+      job.updatedAt,
+      job.startedAt,
+      job.completedAt
     );
   }
 }

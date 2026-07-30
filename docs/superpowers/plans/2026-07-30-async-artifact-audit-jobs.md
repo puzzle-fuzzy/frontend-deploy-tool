@@ -93,12 +93,12 @@ interface ArtifactAuditJob {
 - Extends `Data` with `artifactAuditJobs: ArtifactAuditJob[]`.
 - Advances document schema from v7 to v8 and relational schema from v3 to v4.
 
-- [ ] **Step 1: Write migration and round-trip tests**
+- [x] **Step 1: Write migration and round-trip tests**
 
 Add tests proving v7/relational-v3 data receives an empty job list, creates a
 `.pre-relational-v4.bak`, and round-trips every nullable and JSON policy field.
 
-- [ ] **Step 2: Run focused tests and observe the missing schema**
+- [x] **Step 2: Run focused tests and observe the missing schema**
 
 Run:
 
@@ -109,13 +109,13 @@ bun test apps/server/tests/services/schemaMigration.test.ts \
 
 Expected: failures because `artifactAuditJobs` and relational v4 do not exist.
 
-- [ ] **Step 3: Add strict shared schemas and stable errors**
+- [x] **Step 3: Add strict shared schemas and stable errors**
 
 Add Zod schemas for the status and job shape. Export them through
 `@deploykit/shared`. Add `AUDIT_JOB_NOT_FOUND`, `AUDIT_JOB_CONFLICT`, and
 `AUDIT_JOB_FAILED` to the stable error code set.
 
-- [ ] **Step 4: Implement document and relational migrations**
+- [x] **Step 4: Implement document and relational migrations**
 
 Create `artifact_audit_jobs` with project/version foreign keys, strict status
 checks, policy JSON, lock fields, and these indexes:
@@ -131,11 +131,11 @@ Backfill document data with an empty array, include jobs in aggregate parsing,
 delete job rows before their referenced versions, include the table in verified
 backup counts, and preserve the v3-to-v4 database backup before any DDL.
 
-- [ ] **Step 5: Re-run focused tests**
+- [x] **Step 5: Re-run focused tests**
 
 Expected: the migration and repository tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add packages/shared/src apps/server/src/domain/schema.ts \

@@ -13,6 +13,7 @@ function makeData(): Data {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
   };
 }
 

@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 3;
+export const RELATIONAL_SCHEMA_VERSION = 4;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -93,6 +93,49 @@ const RELATIONAL_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS artifact_audits_project_created_idx
     ON artifact_audits(project_id, created_at DESC);
+
+  CREATE TABLE IF NOT EXISTS artifact_audit_jobs (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    requested_by TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (
+      status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')
+    ),
+    priority INTEGER NOT NULL CHECK (priority >= 0 AND priority <= 100),
+    attempts INTEGER NOT NULL CHECK (attempts >= 0),
+    max_attempts INTEGER NOT NULL CHECK (
+      max_attempts > 0 AND max_attempts <= 10 AND attempts <= max_attempts
+    ),
+    next_run_at TEXT NOT NULL,
+    locked_by TEXT NULL,
+    locked_until TEXT NULL,
+    artifact_checksum TEXT NOT NULL,
+    engine_version INTEGER NOT NULL CHECK (engine_version > 0),
+    policy_json TEXT NOT NULL,
+    report_id TEXT NULL,
+    error_code TEXT NULL,
+    error_message TEXT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT NULL,
+    completed_at TEXT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE,
+    FOREIGN KEY (report_id) REFERENCES artifact_audits(id)
+      ON DELETE SET NULL ON UPDATE SET NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS artifact_audit_jobs_claim_idx
+    ON artifact_audit_jobs(
+      status,
+      next_run_at,
+      priority DESC,
+      created_at
+    );
+
+  CREATE INDEX IF NOT EXISTS artifact_audit_jobs_version_created_idx
+    ON artifact_audit_jobs(project_id, version_id, created_at DESC);
 
   CREATE TABLE IF NOT EXISTS project_members (
     project_id TEXT NOT NULL,
@@ -256,6 +299,58 @@ export function upgradeRelationalSchema(
       .query(
         `INSERT INTO schema_migrations (version, applied_at)
          VALUES (3, ?)`
+      )
+      .run(new Date().toISOString());
+  }
+  if (fromVersion < 4) {
+    database.exec(`
+      CREATE TABLE artifact_audit_jobs (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        version_id TEXT NOT NULL,
+        requested_by TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (
+          status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')
+        ),
+        priority INTEGER NOT NULL CHECK (priority >= 0 AND priority <= 100),
+        attempts INTEGER NOT NULL CHECK (attempts >= 0),
+        max_attempts INTEGER NOT NULL CHECK (
+          max_attempts > 0 AND max_attempts <= 10 AND attempts <= max_attempts
+        ),
+        next_run_at TEXT NOT NULL,
+        locked_by TEXT NULL,
+        locked_until TEXT NULL,
+        artifact_checksum TEXT NOT NULL,
+        engine_version INTEGER NOT NULL CHECK (engine_version > 0),
+        policy_json TEXT NOT NULL,
+        report_id TEXT NULL,
+        error_code TEXT NULL,
+        error_message TEXT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        started_at TEXT NULL,
+        completed_at TEXT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE,
+        FOREIGN KEY (report_id) REFERENCES artifact_audits(id)
+          ON DELETE SET NULL ON UPDATE SET NULL
+      );
+
+      CREATE INDEX artifact_audit_jobs_claim_idx
+        ON artifact_audit_jobs(
+          status,
+          next_run_at,
+          priority DESC,
+          created_at
+        );
+
+      CREATE INDEX artifact_audit_jobs_version_created_idx
+        ON artifact_audit_jobs(project_id, version_id, created_at DESC);
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (4, ?)`
       )
       .run(new Date().toISOString());
   }

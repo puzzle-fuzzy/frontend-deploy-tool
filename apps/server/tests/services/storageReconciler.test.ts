@@ -82,6 +82,7 @@ describe('reconcileStorage', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
 
     mkdirSync(join(storageDir, '.staging', 'incomplete'), {
@@ -195,6 +196,7 @@ describe('reconcileStorage', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     mkdirSync(join(storageDir, 'p1', 'healthy-preview'), { recursive: true });
     writeFileSync(
@@ -230,6 +232,7 @@ describe('reconcileStorage', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     mkdirSync(stagingDir, { recursive: true });
     writeFileSync(join(stagingDir, 'index.html'), 'partial');

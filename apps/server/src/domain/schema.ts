@@ -1,4 +1,5 @@
 import {
+  artifactAuditJobSchema,
   artifactAuditPolicySchema,
   artifactAuditReportSchema,
   type Data,
@@ -31,8 +32,9 @@ import { syncProductionStatus } from './version';
  * - v5: projects carry explicit membership and creator ownership metadata.
  * - v6: versions persist explicit artifact integrity status and check time.
  * - v7: projects carry artifact-audit policy and current per-version reports.
+ * - v8: durable artifact-audit jobs carry snapshots, leases, and outcomes.
  */
-export const CURRENT_SCHEMA_VERSION = 7;
+export const CURRENT_SCHEMA_VERSION = 8;
 
 export interface MigrationResult {
   data: Data;
@@ -106,6 +108,7 @@ const legacyDataSchema = z.object({
       })
     )
     .default([]),
+  artifactAuditJobs: z.array(artifactAuditJobSchema).default([]),
 });
 
 export function createEmptyData(): Data {
@@ -115,6 +118,7 @@ export function createEmptyData(): Data {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
   };
 }
 
@@ -201,6 +205,13 @@ export function migrate(raw: unknown): MigrationResult {
           (project) =>
             project.id === report.projectId &&
             project.versions.some((version) => version.id === report.versionId)
+        )
+      ),
+      artifactAuditJobs: input.artifactAuditJobs.filter((job) =>
+        projects.some(
+          (project) =>
+            project.id === job.projectId &&
+            project.versions.some((version) => version.id === job.versionId)
         )
       ),
     },

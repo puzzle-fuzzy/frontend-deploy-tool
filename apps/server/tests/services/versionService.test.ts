@@ -93,6 +93,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -139,6 +140,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -187,6 +189,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -244,6 +247,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     let saved = false;
     const repo: ProjectRepository = {
@@ -290,6 +294,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -334,6 +339,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     let absentDuringMutation = false;
     const repo: ProjectRepository = {
@@ -372,6 +378,7 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
+      artifactAuditJobs: [],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -417,6 +424,7 @@ describe('createVersionService', () => {
         users: [],
         history: [],
         artifactAudits: [],
+        artifactAuditJobs: [],
       };
       const repo: ProjectRepository = {
         load: () => data,
@@ -461,6 +469,7 @@ describe('createVersionService', () => {
         users: [],
         history: [],
         artifactAudits: [],
+        artifactAuditJobs: [],
       };
       const repo: ProjectRepository = {
         load: () => data,

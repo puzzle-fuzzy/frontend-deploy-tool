@@ -51,6 +51,7 @@ function fixture(version: Partial<Version> = {}): Data {
     users: [],
     history: [],
     artifactAudits: [],
+    artifactAuditJobs: [],
   } as Data;
 }
 
