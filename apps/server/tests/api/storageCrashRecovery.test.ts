@@ -84,18 +84,51 @@ describe('storage crash recovery', () => {
 
     const secondReady = join(fixture.tempDir, 'second-ready');
     const second = spawnWorker(fixture, 'hold', secondReady);
-    const exitCode = await Promise.race([
-      second.exited,
-      Bun.sleep(2_000).then(() => null),
-    ]);
-    if (exitCode === null) second.kill('SIGKILL');
-    const stderr = await new Response(second.stderr).text();
-
-    expect(exitCode).not.toBeNull();
-    expect(exitCode).not.toBe(0);
-    expect(stderr).toContain('RUNTIME_OWNERSHIP_HELD');
+    await expectWorkerOwnershipFailure(second);
     expect(existsSync(secondReady)).toBe(false);
     expect(first.exitCode).toBeNull();
+  });
+
+  test('sharing either database or storage with a live runtime fails closed', async () => {
+    const fixture = createFixture();
+    const firstReady = join(fixture.tempDir, 'first-ready');
+    const first = spawnWorker(fixture, 'hold', firstReady);
+    expect(await waitForFile(firstReady)).toBe(true);
+
+    const sharedDatabase = spawnWorker(
+      fixture,
+      'hold',
+      join(fixture.tempDir, 'shared-database-ready'),
+      { storageDir: join(fixture.tempDir, 'other-storage') }
+    );
+    await expectWorkerOwnershipFailure(sharedDatabase);
+
+    const sharedStorage = spawnWorker(
+      fixture,
+      'hold',
+      join(fixture.tempDir, 'shared-storage-ready'),
+      {
+        databaseFile: join(fixture.tempDir, 'other.sqlite'),
+        dataFile: join(fixture.tempDir, 'other.json'),
+      }
+    );
+    await expectWorkerOwnershipFailure(sharedStorage);
+    expect(first.exitCode).toBeNull();
+  });
+
+  test('SIGKILL releases both kernel sidecar locks for immediate restart', async () => {
+    const fixture = createFixture();
+    const firstReady = join(fixture.tempDir, 'first-ready');
+    const first = spawnWorker(fixture, 'hold', firstReady);
+    expect(await waitForFile(firstReady)).toBe(true);
+
+    first.kill('SIGKILL');
+    expect(await first.exited).not.toBe(0);
+
+    const replacementReady = join(fixture.tempDir, 'replacement-ready');
+    const replacement = spawnWorker(fixture, 'hold', replacementReady);
+    expect(await waitForFile(replacementReady)).toBe(true);
+    expect(replacement.exitCode).toBeNull();
   });
 
   test('readiness remains unavailable while a recovery conflict is quarantined', async () => {
@@ -230,17 +263,24 @@ function createFixture() {
 function spawnWorker(
   fixture: ReturnType<typeof createFixture>,
   mode: 'hold' | 'delete-version' | 'delete-project',
-  readyFile: string
+  readyFile: string,
+  overrides: Partial<
+    Pick<
+      ReturnType<typeof createFixture>,
+      'databaseFile' | 'dataFile' | 'storageDir' | 'publicDir'
+    >
+  > = {}
 ) {
+  const paths = { ...fixture, ...overrides };
   const child = Bun.spawn([process.execPath, workerPath], {
     cwd: join(import.meta.dir, '..', '..', '..', '..'),
     env: {
       ...process.env,
       CRASH_WORKER_MODE: mode,
-      DATABASE_FILE: fixture.databaseFile,
-      DATA_FILE: fixture.dataFile,
-      STORAGE_DIR: fixture.storageDir,
-      PUBLIC_DIR: fixture.publicDir,
+      DATABASE_FILE: paths.databaseFile,
+      DATA_FILE: paths.dataFile,
+      STORAGE_DIR: paths.storageDir,
+      PUBLIC_DIR: paths.publicDir,
       READY_FILE: readyFile,
     },
     stdout: 'pipe',
@@ -248,6 +288,22 @@ function spawnWorker(
   });
   childProcesses.push(child);
   return child;
+}
+
+async function expectWorkerOwnershipFailure(
+  child: ReturnType<typeof Bun.spawn>
+): Promise<void> {
+  const exitCode = await Promise.race([
+    child.exited,
+    Bun.sleep(2_000).then(() => null),
+  ]);
+  if (exitCode === null) child.kill('SIGKILL');
+  const stderr = await new Response(
+    child.stderr as ReadableStream<Uint8Array>
+  ).text();
+  expect(exitCode).not.toBeNull();
+  expect(exitCode).not.toBe(0);
+  expect(stderr).toContain('RUNTIME_OWNERSHIP_HELD');
 }
 
 async function waitForFile(path: string): Promise<boolean> {

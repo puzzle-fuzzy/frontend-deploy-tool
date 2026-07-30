@@ -63,9 +63,11 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 状态和备份/验证/恢复命令均已通过全仓验证与真实命令行恢复演练。
 
 - 项目/版本删除先进入回收区，再提交元数据，失败可恢复。
-- 真实 runtime 对规范化 SQLite/存储 pair 执行本机单实例所有权；进程死亡后
-  启动恢复先于 GC/orphan 对账，引用仍在则恢复、引用已删则完成提交。
-- 非法 manifest 或原路径冲突进入持久隔离并让 readiness 返回非 200；
+- 真实 runtime 分别对规范化 SQLite 与存储路径持有 SQLite sidecar 内核事务锁；
+  任一资源共享都会 fail closed，进程死亡自动释放。启动恢复先于 GC/orphan
+  对账，引用仍在则恢复、引用已删则完成提交。
+- 非法 manifest、symlink、无法以目录身份/checksum 证明的歧义恢复或原路径冲突
+  进入持久隔离并让 readiness 返回非 200；
   运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
@@ -80,8 +82,9 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 `integrity_check=ok`、外键违规为 0；GC dry-run 不修改数据，真实 GC 仅移除
 过期 staging 和已提交 trash，保留未提交 trash。2026-07-30 后续回归新增真实
 子进程在 active-version/project artifact rename 后 `SIGKILL`，同库重启保持
-产物、active pointer 与历史不变；双启动 fail closed。Task 2 聚焦测试
-30/30、server 全量 306/306 通过。
+产物、active pointer 与历史不变；双启动 fail closed。后续 review 加固验证
+同库/异存储、异库/同存储互斥、SIGKILL 自动释放，以及 v1/v2/v3 与 symlink/
+身份/checksum 恢复分支。
 
 ### 阶段 4：可观测性、交付和静态服务
 

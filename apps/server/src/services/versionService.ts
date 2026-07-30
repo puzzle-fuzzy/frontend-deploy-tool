@@ -375,7 +375,21 @@ export function createVersionService(
     },
 
     deleteVersion(projectId, versionId, actorId) {
-      const lease = artifactRecovery.stageVersionDeletion(projectId, versionId);
+      const snapshotVersion = repo
+        .load()
+        .projects.find((project) => project.id === projectId)
+        ?.versions.find((version) => version.id === versionId);
+      const lease = artifactRecovery.stageVersionDeletion(
+        projectId,
+        versionId,
+        snapshotVersion
+          ? {
+              versionChecksums: {
+                [snapshotVersion.id]: snapshotVersion.checksum,
+              },
+            }
+          : undefined
+      );
       try {
         repo.mutate((data) => {
           const project = data.projects.find((p) => p.id === projectId);

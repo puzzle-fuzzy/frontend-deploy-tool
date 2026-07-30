@@ -28,6 +28,7 @@ interface ShutdownControllerOptions {
   server: DrainableServer;
   databaseFile?: string;
   timeoutMs: number;
+  forceCloseTimeoutMs?: number;
   drainBackground?: () => Promise<void>;
   releaseOwnership?: () => void;
   logger?: RuntimeLogger;
@@ -56,6 +57,7 @@ export function createShutdownController({
   server,
   databaseFile,
   timeoutMs,
+  forceCloseTimeoutMs = Math.min(timeoutMs, 1_000),
   drainBackground,
   releaseOwnership,
   logger = defaultRuntimeLogger,
@@ -69,7 +71,12 @@ export function createShutdownController({
 
   const runShutdown = async (signal: ShutdownSignal): Promise<void> => {
     const finishWithFailure = async (): Promise<void> => {
-      await forceClose(server);
+      await forceClose(
+        server,
+        forceCloseTimeoutMs,
+        scheduleTimeout,
+        cancelTimeout
+      );
       try {
         checkpointIfConfigured(databaseFile, checkpoint);
       } catch (error) {
@@ -199,8 +206,17 @@ export function installShutdownHandlers(
   const onSigterm = () => {
     void controller.shutdown('SIGTERM');
   };
-  signalProcess.once('SIGINT', onSigint);
-  signalProcess.once('SIGTERM', onSigterm);
+  let sigintInstalled = false;
+  try {
+    signalProcess.once('SIGINT', onSigint);
+    sigintInstalled = true;
+    signalProcess.once('SIGTERM', onSigterm);
+  } catch (error) {
+    if (sigintInstalled) {
+      signalProcess.off('SIGINT', onSigint);
+    }
+    throw error;
+  }
   return () => {
     signalProcess.off('SIGINT', onSigint);
     signalProcess.off('SIGTERM', onSigterm);
@@ -229,12 +245,24 @@ export const defaultRuntimeLogger: RuntimeLogger = (entry) => {
   }
 };
 
-async function forceClose(server: DrainableServer): Promise<void> {
-  try {
-    await server.stop(true);
-  } catch {
-    // The process exits non-zero below; a second stop failure cannot be healed.
-  }
+async function forceClose(
+  server: DrainableServer,
+  timeoutMs: number,
+  scheduleTimeout: (callback: () => void, timeoutMs: number) => unknown,
+  cancelTimeout: (handle: unknown) => void
+): Promise<void> {
+  let timeoutHandle: unknown;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutHandle = scheduleTimeout(resolve, timeoutMs);
+  });
+  const stop = Promise.resolve()
+    .then(() => server.stop(true))
+    .then(
+      () => undefined,
+      () => undefined
+    );
+  await Promise.race([stop, timeout]);
+  cancelTimeout(timeoutHandle);
 }
 
 function checkpointIfConfigured(

@@ -33,9 +33,10 @@ filesystem atomic rename, Bun test, Hono `app.request()`, shell black-box tests.
   to mutate management state through the management session cookie.
 - Bearer-authenticated desktop and future CI clients remain usable without
   browser-only CSRF headers.
-- Only one server process may own a database/storage pair. Multi-host shared
-  SQLite or shared local artifact storage remains unsupported and must fail
-  closed instead of behaving nondeterministically.
+- Only one server process may own either a database resource or a storage
+  resource. Same-database/different-storage and different-database/same-storage
+  combinations must both fail closed. Multi-host shared SQLite or local
+  artifact storage remains unsupported.
 - Recovery must never auto-publish another version. It may restore an
   interrupted deletion only when metadata still references the exact artifact.
 - Queue lease recovery and claiming must be one atomic persistence operation.
@@ -177,15 +178,18 @@ recoverInterruptedArtifactOperations(
 };
 ```
 
-- A lock record identifies the exact database/storage pair and current PID.
-- A second live process for the same pair fails startup before reconciliation
-  or HTTP serving.
-- Stale ownership left by a dead PID is replaceable on the same host.
-- Trash manifests include operation kind, project/version target, original
-  path, recovery path, and committed state.
+- Two sorted SQLite sidecars outside the owned resources hold open exclusive
+  transactions for the database and storage paths independently. PID/token
+  fields are diagnostic only.
+- A second live process sharing either resource fails startup before
+  reconciliation or HTTP serving. Process death releases both kernel locks.
+- Version 3 trash manifests include operation kind, project/version target,
+  original path, recovery path, committed state, artifact identity and durable
+  version checksums; deployed version 1/2 manifests remain readable.
 - At startup, metadata still referencing an interrupted target restores it;
   metadata no longer referencing it finalizes the committed marker; conflicting
-  paths are quarantined and make readiness fail.
+  paths, symlinks, malformed commit state and unproven ambiguous cleanup are
+  quarantined and make readiness fail.
 
 - [x] **Step 1: Add failing process-death and double-start tests**
 
@@ -208,10 +212,11 @@ recoverInterruptedArtifactOperations(
 
 - [x] **Step 3: Implement ownership and manifest recovery**
 
-  Acquire ownership before storage reconciliation. Make lock creation atomic,
-  record and validate PID ownership, and release during graceful shutdown.
-  Extend recovery manifests and run interrupted-operation recovery before
-  orphan reconciliation or GC.
+  Acquire both sorted SQLite sidecar transaction locks before storage
+  reconciliation and release them on connection close/process death. Extend
+  recovery manifests with durable artifact identity/checksum proof, reject
+  symlinks, and run interrupted-operation recovery before orphan
+  reconciliation or GC.
 
 - [x] **Step 4: Harden readiness and restore operations**
 

@@ -54,12 +54,19 @@ test('committed deletion remains recoverable with a committed marker', () => {
         readFileSync(join(lease.recoveryPath ?? '', 'manifest.json'), 'utf8')
       )
     ).toMatchObject({
-      version: 2,
+      version: 3,
       operation: 'delete',
       kind: 'project',
       target: { projectId: 'project-1', versionId: null },
       originalPath: 'project-1',
       committed: true,
+      artifactIdentity: {
+        device: expect.any(Number),
+        inode: expect.any(Number),
+        birthtimeMs: expect.any(Number),
+        ctimeMs: expect.any(Number),
+      },
+      expectedVersionChecksums: {},
     });
     expect(
       existsSync(

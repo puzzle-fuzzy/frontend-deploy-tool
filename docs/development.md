@@ -48,10 +48,13 @@ DEPLOY_BASE_URL=https://deploy.example.net
 会直接阻止启动，不会悄悄改用默认值。启动后可检查
 `/health/live`（进程）与 `/health/ready`（元数据仓库和恢复冲突）。
 
-后端真实运行入口把规范化的 `DATABASE_FILE + STORAGE_DIR` 视为一个本机所有权
-pair。相同 pair 的第二个活进程会在对账和监听端口前以
-`RUNTIME_OWNERSHIP_HELD` 退出；进程死亡留下的 PID 记录由同机重启接管。
-这是本机进程锁，不支持多主机同时读写同一份 SQLite/本地存储。
+后端真实运行入口会按路径排序获取
+`<DATABASE_FILE>.runtime-lock.sqlite` 与
+`<STORAGE_DIR>.runtime-lock.sqlite` 两个 SQLite `BEGIN EXCLUSIVE` 事务锁。
+数据库或存储任一资源已有活跃 owner，第二个进程都会在对账和监听端口前以
+`RUNTIME_OWNERSHIP_HELD` 退出；若进程死亡，SQLite 连接关闭会由内核立即释放
+两把锁。sidecar 内的 PID/token 只是诊断数据，不参与正确性判断。这是本机
+进程锁，不支持多主机同时读写同一份 SQLite/本地存储。
 
 ## 测试
 
@@ -95,7 +98,10 @@ bun run test          # Vitest + React Testing Library
 
 服务启动时会先恢复 `.recovery/trash/` 中断删除，再以 SQLite 元数据为真源
 执行 GC/orphan 对账。元数据仍引用目标则恢复原路径，已不引用则补
-`COMMITTED`；严格路径校验失败或原路径冲突会隔离到
+`COMMITTED`。恢复会拒绝 operation/artifacts/recovery 树中的任何 symlink；
+原路径已存在但 recovery 缺失时，仅凭 version 3 manifest 的目录身份或持久化
+checksum 证明恢复完成，否则不会清理旧 manifest。严格路径、身份或 checksum
+校验失败会隔离到
 `.recovery/conflicts/`，此时 `/health/ready` 保持 `503`，必须先人工处理。
 随后才清理过期 staging，将孤儿正式产物移动到 `.recovery/orphans/`；缺少入口
 文件的已记录版本会进入 `failed`，缺失的线上版本安全下线且不自动选择替代版本。

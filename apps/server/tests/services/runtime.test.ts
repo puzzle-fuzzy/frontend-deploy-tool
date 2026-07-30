@@ -1,13 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import {
-  existsSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -18,7 +12,7 @@ import {
 } from '../../src/runtime';
 import {
   acquireRuntimeOwnership,
-  getRuntimeOwnershipPath,
+  getRuntimeOwnershipPaths,
 } from '../../src/services/runtimeOwnership';
 
 describe('shutdown runtime', () => {
@@ -178,6 +172,41 @@ describe('shutdown runtime', () => {
     expect(exits).toEqual([1]);
   });
 
+  test('checkpoints, releases ownership, and exits when force stop never settles', async () => {
+    const calls: string[] = [];
+    const exits: number[] = [];
+    const controller = createShutdownController({
+      server: {
+        stop: (force) => {
+          calls.push(force ? 'force-stop' : 'drain');
+          return new Promise(() => {});
+        },
+      },
+      databaseFile: '/tmp/deploykit.sqlite',
+      timeoutMs: 25,
+      forceCloseTimeoutMs: 25,
+      logger: () => {},
+      checkpoint: () => calls.push('checkpoint'),
+      releaseOwnership: () => calls.push('release-ownership'),
+      exit: (code) => exits.push(code),
+      scheduleTimeout: (callback) => {
+        queueMicrotask(callback);
+        return 'timer';
+      },
+      cancelTimeout: () => {},
+    });
+
+    await controller.shutdown('SIGTERM');
+
+    expect(calls).toEqual([
+      'drain',
+      'force-stop',
+      'checkpoint',
+      'release-ownership',
+    ]);
+    expect(exits).toEqual([1]);
+  });
+
   test('installs one-shot SIGINT and SIGTERM handlers', async () => {
     const emitter = new EventEmitter();
     const signals: string[] = [];
@@ -197,6 +226,30 @@ describe('shutdown runtime', () => {
     await Promise.resolve();
     expect(signals).toEqual(['SIGTERM', 'SIGINT']);
     dispose();
+  });
+
+  test('removes a partially installed signal handler when registration fails', () => {
+    const calls: string[] = [];
+    const signalProcess = {
+      once(signal: 'SIGINT' | 'SIGTERM') {
+        calls.push(`once:${signal}`);
+        if (signal === 'SIGTERM') throw new Error('registration failed');
+      },
+      off(signal: 'SIGINT' | 'SIGTERM') {
+        calls.push(`off:${signal}`);
+      },
+    };
+
+    expect(() =>
+      installShutdownHandlers(
+        {
+          shutdown: async () => {},
+          isShuttingDown: () => false,
+        },
+        signalProcess
+      )
+    ).toThrow('registration failed');
+    expect(calls).toEqual(['once:SIGINT', 'once:SIGTERM', 'off:SIGINT']);
   });
 });
 
@@ -219,22 +272,39 @@ describe('runtime ownership', () => {
     }
   });
 
-  test('release does not delete an ownership record with another token', () => {
+  test('locks database and storage resources independently and uses sidecars', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-'));
     const databaseFile = join(tempDir, 'deploykit.sqlite');
     const storageDir = join(tempDir, 'storage');
+    const otherDatabaseFile = join(tempDir, 'other.sqlite');
+    const otherStorageDir = join(tempDir, 'other-storage');
     try {
       const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
-      const ownershipPath = getRuntimeOwnershipPath(databaseFile, storageDir);
-      const record = JSON.parse(readFileSync(ownershipPath, 'utf8'));
-      writeFileSync(
-        ownershipPath,
-        JSON.stringify({ ...record, ownerToken: 'another-owner-token-value' }),
-        'utf8'
+      expect(() =>
+        acquireRuntimeOwnership(databaseFile, otherStorageDir)
+      ).toThrow('RUNTIME_OWNERSHIP_HELD');
+      expect(() =>
+        acquireRuntimeOwnership(otherDatabaseFile, storageDir)
+      ).toThrow('RUNTIME_OWNERSHIP_HELD');
+      expect(getRuntimeOwnershipPaths(databaseFile, storageDir)).toEqual(
+        [...getRuntimeOwnershipPaths(databaseFile, storageDir)].sort()
       );
+      for (const path of getRuntimeOwnershipPaths(databaseFile, storageDir)) {
+        expect(path.startsWith(`${storageDir}/`)).toBe(false);
+        expect(existsSync(path)).toBe(true);
+      }
 
       ownership.release();
-      expect(existsSync(ownershipPath)).toBe(true);
+      const databaseReuse = acquireRuntimeOwnership(
+        databaseFile,
+        otherStorageDir
+      );
+      databaseReuse.release();
+      const storageReuse = acquireRuntimeOwnership(
+        otherDatabaseFile,
+        storageDir
+      );
+      storageReuse.release();
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

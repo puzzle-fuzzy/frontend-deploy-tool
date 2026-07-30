@@ -242,7 +242,22 @@ export function createProjectService(
     },
 
     deleteProject(id: string, actorId: string): Project {
-      const lease = options.artifactRecovery?.stageProjectDeletion(id);
+      const snapshotProject = repo
+        .load()
+        .projects.find((project) => project.id === id);
+      const lease = options.artifactRecovery?.stageProjectDeletion(
+        id,
+        snapshotProject
+          ? {
+              versionChecksums: Object.fromEntries(
+                snapshotProject.versions.map((version) => [
+                  version.id,
+                  version.checksum,
+                ])
+              ),
+            }
+          : undefined
+      );
       try {
         const removed = repo.mutate((data) => {
           const idx = data.projects.findIndex((p) => p.id === id);

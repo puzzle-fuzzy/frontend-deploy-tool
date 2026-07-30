@@ -75,8 +75,8 @@ function crashAfterArtifactRename(
   };
 
   return {
-    stageProjectDeletion(projectId) {
-      const lease = delegate.stageProjectDeletion(projectId);
+    stageProjectDeletion(projectId, evidence) {
+      const lease = delegate.stageProjectDeletion(projectId, evidence);
       if (
         workerMode === 'delete-project' &&
         lease.moved &&
@@ -87,8 +87,12 @@ function crashAfterArtifactRename(
       }
       return lease;
     },
-    stageVersionDeletion(projectId, versionId) {
-      const lease = delegate.stageVersionDeletion(projectId, versionId);
+    stageVersionDeletion(projectId, versionId, evidence) {
+      const lease = delegate.stageVersionDeletion(
+        projectId,
+        versionId,
+        evidence
+      );
       if (
         workerMode === 'delete-version' &&
         lease.moved &&

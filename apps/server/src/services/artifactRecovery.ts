@@ -1,5 +1,5 @@
 import {
-  existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
@@ -10,6 +10,7 @@ import {
 import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
+import { checksumDirectory } from './artifactService';
 
 export interface ArtifactRecoveryLease {
   readonly moved: boolean;
@@ -19,23 +20,39 @@ export interface ArtifactRecoveryLease {
   rollback(): void;
 }
 
+export interface ArtifactRecoveryEvidence {
+  /** Durable upload checksums keyed by version ID. */
+  versionChecksums: Record<string, string>;
+}
+
 export interface ArtifactRecoveryService {
-  stageProjectDeletion(projectId: string): ArtifactRecoveryLease;
+  stageProjectDeletion(
+    projectId: string,
+    evidence?: ArtifactRecoveryEvidence
+  ): ArtifactRecoveryLease;
   stageVersionDeletion(
     projectId: string,
-    versionId: string
+    versionId: string,
+    evidence?: ArtifactRecoveryEvidence
   ): ArtifactRecoveryLease;
 }
 
 export interface InterruptedArtifactRecoveryReport {
   restored: number;
   committed: number;
-  /** Total unresolved conflict directories after this recovery pass. */
+  /** Total unresolved conflict entries after this recovery pass. */
   conflicts: number;
 }
 
+interface ArtifactIdentity {
+  device: number;
+  inode: number;
+  birthtimeMs: number;
+  ctimeMs: number;
+}
+
 interface RecoveryManifest {
-  version: 2;
+  version: 3;
   operation: 'delete';
   kind: 'project' | 'version';
   target: {
@@ -47,6 +64,12 @@ interface RecoveryManifest {
   committed: boolean;
   stagedAt: string;
   committedAt: string | null;
+  artifactIdentity: ArtifactIdentity | null;
+  expectedVersionChecksums: Record<string, string>;
+}
+
+interface ParsedRecoveryManifest extends Omit<RecoveryManifest, 'version'> {
+  sourceVersion: 1 | 2 | 3;
 }
 
 interface LegacyRecoveryManifest {
@@ -65,13 +88,15 @@ export function createArtifactRecoveryService(
   const stage = (
     kind: RecoveryManifest['kind'],
     projectId: string,
-    versionId: string | null
+    versionId: string | null,
+    evidence: ArtifactRecoveryEvidence | undefined
   ): ArtifactRecoveryLease => {
     const sourcePath =
       versionId === null
         ? join(storageDir, projectId)
         : join(storageDir, projectId, versionId);
-    if (!existsSync(sourcePath)) return createNoopLease();
+    if (!pathExists(sourcePath)) return createNoopLease();
+    assertNoSymlinks(sourcePath);
 
     const operationId = `${Date.now()}-${createId()}`;
     const operationDir = join(storageDir, '.recovery', 'trash', operationId);
@@ -80,7 +105,7 @@ export function createArtifactRecoveryService(
         ? join(operationDir, 'artifacts', projectId)
         : join(operationDir, 'artifacts', projectId, versionId);
     let manifest: RecoveryManifest = {
-      version: 2,
+      version: 3,
       operation: 'delete',
       kind,
       target: { projectId, versionId },
@@ -89,13 +114,26 @@ export function createArtifactRecoveryService(
       committed: false,
       stagedAt: new Date().toISOString(),
       committedAt: null,
+      // A valid pre-rename manifest makes even a crash between rename and the
+      // identity update recoverable. Ambiguous cleanup never trusts null.
+      artifactIdentity: null,
+      expectedVersionChecksums: sanitizeChecksums(evidence?.versionChecksums),
     };
 
     mkdirSync(dirname(artifactPath), { recursive: true });
     writeRecoveryManifest(operationDir, manifest);
     try {
       renameSync(sourcePath, artifactPath);
+      manifest = {
+        ...manifest,
+        artifactIdentity: readArtifactIdentity(artifactPath),
+      };
+      writeRecoveryManifest(operationDir, manifest);
     } catch (error) {
+      if (!pathExists(sourcePath) && pathExists(artifactPath)) {
+        mkdirSync(dirname(sourcePath), { recursive: true });
+        renameSync(artifactPath, sourcePath);
+      }
       rmSync(operationDir, { recursive: true, force: true });
       throw error;
     }
@@ -117,11 +155,13 @@ export function createArtifactRecoveryService(
         if (state === 'committed') {
           throw new Error('Cannot roll back a committed artifact deletion');
         }
-        if (existsSync(sourcePath)) {
+        if (pathExists(sourcePath)) {
           throw new Error(
             'Cannot restore artifacts because the original path exists'
           );
         }
+        assertNoSymlinks(artifactPath);
+        assertExistingAncestorsHaveNoSymlinks(storageDir, dirname(sourcePath));
         mkdirSync(dirname(sourcePath), { recursive: true });
         renameSync(artifactPath, sourcePath);
         rmSync(operationDir, { recursive: true, force: true });
@@ -131,11 +171,11 @@ export function createArtifactRecoveryService(
   };
 
   return {
-    stageProjectDeletion(projectId) {
-      return stage('project', projectId, null);
+    stageProjectDeletion(projectId, evidence) {
+      return stage('project', projectId, null, evidence);
     },
-    stageVersionDeletion(projectId, versionId) {
-      return stage('version', projectId, versionId);
+    stageVersionDeletion(projectId, versionId, evidence) {
+      return stage('version', projectId, versionId, evidence);
     },
   };
 }
@@ -154,14 +194,18 @@ export function recoverInterruptedArtifactOperations(
   const report: InterruptedArtifactRecoveryReport = {
     restored: 0,
     committed: 0,
-    conflicts: countDirectories(conflictRoot),
+    conflicts: countEntries(conflictRoot),
   };
   const snapshot = repo.load();
 
-  for (const entry of listDirectories(trashRoot)) {
+  for (const entry of listEntries(trashRoot)) {
     const operationDir = join(trashRoot, entry.name);
-    let manifest: RecoveryManifest;
+    let manifest: ParsedRecoveryManifest;
     try {
+      if (!entry.isDirectory()) {
+        throw new Error('Recovery operation must be a directory');
+      }
+      assertNoSymlinks(operationDir);
       manifest = parseRecoveryManifest(
         readFileSync(join(operationDir, 'manifest.json'), 'utf8'),
         storageDir,
@@ -186,10 +230,10 @@ export function recoverInterruptedArtifactOperations(
     const recoveryPath = join(storageDir, manifest.recoveryPath);
 
     if (!metadataReferencesTarget) {
-      if (!manifest.committed || !existsSync(join(operationDir, 'COMMITTED'))) {
+      if (!manifest.committed || !pathExists(join(operationDir, 'COMMITTED'))) {
         const committedAt = new Date().toISOString();
         writeRecoveryManifest(operationDir, {
-          ...manifest,
+          ...toVersion3Manifest(manifest),
           committed: true,
           committedAt,
         });
@@ -199,15 +243,24 @@ export function recoverInterruptedArtifactOperations(
       continue;
     }
 
-    const originalExists = existsSync(originalPath);
-    const recoveryExists = existsSync(recoveryPath);
+    const originalExists = pathExists(originalPath);
+    const recoveryExists = pathExists(recoveryPath);
     if (originalExists && recoveryExists) {
       quarantineConflict(operationDir, conflictRoot, entry.name);
       report.conflicts += 1;
       continue;
     }
     if (originalExists) {
-      // Rollback already restored the source and only cleanup was interrupted.
+      try {
+        assertNoSymlinks(originalPath);
+        if (!canProveRestoredArtifact(manifest, originalPath)) {
+          throw new Error('Restored artifact identity cannot be proven');
+        }
+      } catch {
+        quarantineConflict(operationDir, conflictRoot, entry.name);
+        report.conflicts += 1;
+        continue;
+      }
       rmSync(operationDir, { recursive: true, force: true });
       report.restored += 1;
       continue;
@@ -218,10 +271,17 @@ export function recoverInterruptedArtifactOperations(
       continue;
     }
 
-    mkdirSync(dirname(originalPath), { recursive: true });
-    renameSync(recoveryPath, originalPath);
-    rmSync(operationDir, { recursive: true, force: true });
-    report.restored += 1;
+    try {
+      assertNoSymlinks(recoveryPath);
+      assertExistingAncestorsHaveNoSymlinks(storageDir, dirname(originalPath));
+      mkdirSync(dirname(originalPath), { recursive: true });
+      renameSync(recoveryPath, originalPath);
+      rmSync(operationDir, { recursive: true, force: true });
+      report.restored += 1;
+    } catch {
+      quarantineConflict(operationDir, conflictRoot, entry.name);
+      report.conflicts += 1;
+    }
   }
 
   return report;
@@ -231,13 +291,13 @@ function parseRecoveryManifest(
   source: string,
   storageDir: string,
   operationId: string
-): RecoveryManifest {
+): ParsedRecoveryManifest {
   const value: unknown = JSON.parse(source);
-  let manifest: RecoveryManifest;
+  let manifest: ParsedRecoveryManifest;
   if (isRecord(value) && value.version === 1) {
     const legacy = parseLegacyManifest(value);
     manifest = {
-      version: 2,
+      sourceVersion: 1,
       operation: 'delete',
       kind: legacy.kind,
       target: {
@@ -249,28 +309,52 @@ function parseRecoveryManifest(
       committed: false,
       stagedAt: legacy.stagedAt,
       committedAt: null,
+      artifactIdentity: null,
+      expectedVersionChecksums: {},
     };
-  } else if (
-    isRecord(value) &&
-    value.version === 2 &&
-    value.operation === 'delete' &&
-    (value.kind === 'project' || value.kind === 'version') &&
-    isRecord(value.target) &&
-    typeof value.target.projectId === 'string' &&
-    (typeof value.target.versionId === 'string' ||
-      value.target.versionId === null) &&
-    typeof value.originalPath === 'string' &&
-    typeof value.recoveryPath === 'string' &&
-    typeof value.committed === 'boolean' &&
-    typeof value.stagedAt === 'string' &&
-    (typeof value.committedAt === 'string' || value.committedAt === null)
-  ) {
-    manifest = value as unknown as RecoveryManifest;
+  } else if (isVersion2Manifest(value)) {
+    manifest = {
+      sourceVersion: 2,
+      operation: 'delete',
+      kind: value.kind,
+      target: {
+        projectId: value.target.projectId,
+        versionId: value.target.versionId,
+      },
+      originalPath: value.originalPath,
+      recoveryPath: value.recoveryPath,
+      committed: value.committed,
+      stagedAt: value.stagedAt,
+      committedAt: value.committedAt,
+      artifactIdentity: null,
+      expectedVersionChecksums: {},
+    };
+  } else if (isVersion3Manifest(value)) {
+    manifest = {
+      sourceVersion: 3,
+      operation: 'delete',
+      kind: value.kind,
+      target: {
+        projectId: value.target.projectId,
+        versionId: value.target.versionId,
+      },
+      originalPath: value.originalPath,
+      recoveryPath: value.recoveryPath,
+      committed: value.committed,
+      stagedAt: value.stagedAt,
+      committedAt: value.committedAt,
+      artifactIdentity: value.artifactIdentity,
+      expectedVersionChecksums: value.expectedVersionChecksums,
+    };
   } else {
     throw new Error('Recovery manifest is malformed');
   }
 
+  validateCommittedState(manifest);
   validateTarget(manifest);
+  if (!isSafePathComponent(operationId)) {
+    throw new Error('Recovery operation ID is invalid');
+  }
   const expectedOriginalPath =
     manifest.target.versionId === null
       ? manifest.target.projectId
@@ -297,6 +381,61 @@ function parseRecoveryManifest(
   return manifest;
 }
 
+function isVersion2Manifest(value: unknown): value is {
+  version: 2;
+  operation: 'delete';
+  kind: 'project' | 'version';
+  target: { projectId: string; versionId: string | null };
+  originalPath: string;
+  recoveryPath: string;
+  committed: boolean;
+  stagedAt: string;
+  committedAt: string | null;
+} {
+  return (
+    isCommonManifest(value) &&
+    value.version === 2 &&
+    !('artifactIdentity' in value) &&
+    !('expectedVersionChecksums' in value)
+  );
+}
+
+function isVersion3Manifest(value: unknown): value is RecoveryManifest {
+  return (
+    isCommonManifest(value) &&
+    value.version === 3 &&
+    (value.artifactIdentity === null ||
+      isArtifactIdentity(value.artifactIdentity)) &&
+    isChecksumRecord(value.expectedVersionChecksums)
+  );
+}
+
+function isCommonManifest(value: unknown): value is Record<string, unknown> & {
+  operation: 'delete';
+  kind: 'project' | 'version';
+  target: { projectId: string; versionId: string | null };
+  originalPath: string;
+  recoveryPath: string;
+  committed: boolean;
+  stagedAt: string;
+  committedAt: string | null;
+} {
+  return (
+    isRecord(value) &&
+    value.operation === 'delete' &&
+    (value.kind === 'project' || value.kind === 'version') &&
+    isRecord(value.target) &&
+    typeof value.target.projectId === 'string' &&
+    (typeof value.target.versionId === 'string' ||
+      value.target.versionId === null) &&
+    typeof value.originalPath === 'string' &&
+    typeof value.recoveryPath === 'string' &&
+    typeof value.committed === 'boolean' &&
+    typeof value.stagedAt === 'string' &&
+    (typeof value.committedAt === 'string' || value.committedAt === null)
+  );
+}
+
 function parseLegacyManifest(
   value: Record<string, unknown>
 ): LegacyRecoveryManifest {
@@ -313,7 +452,16 @@ function parseLegacyManifest(
   return value as unknown as LegacyRecoveryManifest;
 }
 
-function validateTarget(manifest: RecoveryManifest): void {
+function validateCommittedState(manifest: ParsedRecoveryManifest): void {
+  if (
+    (manifest.committed && manifest.committedAt === null) ||
+    (!manifest.committed && manifest.committedAt !== null)
+  ) {
+    throw new Error('Recovery manifest commit state is inconsistent');
+  }
+}
+
+function validateTarget(manifest: ParsedRecoveryManifest): void {
   const { projectId, versionId } = manifest.target;
   if (
     !isSafePathComponent(projectId) ||
@@ -352,6 +500,159 @@ function isSafePathComponent(value: string): boolean {
   );
 }
 
+function sanitizeChecksums(
+  checksums: Record<string, string> | undefined
+): Record<string, string> {
+  if (!checksums) return {};
+  return Object.fromEntries(
+    Object.entries(checksums).filter(
+      ([versionId, checksum]) =>
+        isSafePathComponent(versionId) && isSha256(checksum)
+    )
+  );
+}
+
+function isChecksumRecord(value: unknown): value is Record<string, string> {
+  return (
+    isRecord(value) &&
+    Object.entries(value).every(
+      ([versionId, checksum]) =>
+        isSafePathComponent(versionId) &&
+        typeof checksum === 'string' &&
+        isSha256(checksum)
+    )
+  );
+}
+
+function isSha256(value: string): boolean {
+  return /^[a-f0-9]{64}$/i.test(value);
+}
+
+function isArtifactIdentity(value: unknown): value is ArtifactIdentity {
+  return (
+    isRecord(value) &&
+    isSafeIdentityInteger(value.device) &&
+    isSafeIdentityInteger(value.inode) &&
+    isFiniteTimestamp(value.birthtimeMs) &&
+    isFiniteTimestamp(value.ctimeMs)
+  );
+}
+
+function isSafeIdentityInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function isFiniteTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
+}
+
+function readArtifactIdentity(path: string): ArtifactIdentity {
+  const stats = lstatSync(path);
+  if (stats.isSymbolicLink()) {
+    throw new Error('Recovery artifacts must not contain symbolic links');
+  }
+  return {
+    device: stats.dev,
+    inode: stats.ino,
+    birthtimeMs: stats.birthtimeMs,
+    ctimeMs: stats.ctimeMs,
+  };
+}
+
+function canProveRestoredArtifact(
+  manifest: ParsedRecoveryManifest,
+  originalPath: string
+): boolean {
+  if (manifest.sourceVersion !== 3) return false;
+  if (
+    manifest.artifactIdentity &&
+    identitiesMatch(
+      manifest.artifactIdentity,
+      readArtifactIdentity(originalPath)
+    )
+  ) {
+    return true;
+  }
+  return checksumsMatch(manifest, originalPath);
+}
+
+function identitiesMatch(
+  expected: ArtifactIdentity,
+  actual: ArtifactIdentity
+): boolean {
+  return (
+    actual.device === expected.device &&
+    actual.inode === expected.inode &&
+    actual.birthtimeMs === expected.birthtimeMs &&
+    actual.ctimeMs >= expected.ctimeMs
+  );
+}
+
+function checksumsMatch(
+  manifest: ParsedRecoveryManifest,
+  originalPath: string
+): boolean {
+  const expected = manifest.expectedVersionChecksums;
+  if (manifest.kind === 'version') {
+    const versionId = manifest.target.versionId;
+    const expectedChecksum = versionId ? expected[versionId] : undefined;
+    return (
+      expectedChecksum !== undefined &&
+      checksumDirectory(originalPath) === expectedChecksum
+    );
+  }
+
+  const expectedVersions = Object.keys(expected).sort();
+  if (expectedVersions.length === 0) return false;
+  const actualVersions = readdirSync(originalPath, {
+    withFileTypes: true,
+  })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .sort();
+  if (
+    actualVersions.length !== expectedVersions.length ||
+    actualVersions.some(
+      (versionId, index) => versionId !== expectedVersions[index]
+    )
+  ) {
+    return false;
+  }
+  return expectedVersions.every(
+    (versionId) =>
+      checksumDirectory(join(originalPath, versionId)) === expected[versionId]
+  );
+}
+
+function assertNoSymlinks(path: string): void {
+  const stats = lstatSync(path);
+  if (stats.isSymbolicLink()) {
+    throw new Error('Recovery artifacts must not contain symbolic links');
+  }
+  if (!stats.isDirectory()) return;
+  for (const entry of readdirSync(path)) {
+    assertNoSymlinks(join(path, entry));
+  }
+}
+
+function assertExistingAncestorsHaveNoSymlinks(
+  root: string,
+  target: string
+): void {
+  const relativeTarget = relative(root, target);
+  if (relativeTarget === '') return;
+  validateRelativePath(relativeTarget);
+  let current = root;
+  for (const component of relativeTarget.split(/[\\/]/)) {
+    current = join(current, component);
+    if (!pathExists(current)) break;
+    const stats = lstatSync(current);
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error('Recovery target ancestors must be real directories');
+    }
+  }
+}
+
 function writeRecoveryManifest(
   operationDir: string,
   manifest: RecoveryManifest
@@ -363,6 +664,24 @@ function writeRecoveryManifest(
   renameSync(temporaryPath, manifestPath);
 }
 
+function toVersion3Manifest(
+  manifest: ParsedRecoveryManifest
+): RecoveryManifest {
+  return {
+    version: 3,
+    operation: manifest.operation,
+    kind: manifest.kind,
+    target: manifest.target,
+    originalPath: manifest.originalPath,
+    recoveryPath: manifest.recoveryPath,
+    committed: manifest.committed,
+    stagedAt: manifest.stagedAt,
+    committedAt: manifest.committedAt,
+    artifactIdentity: manifest.artifactIdentity,
+    expectedVersionChecksums: manifest.expectedVersionChecksums,
+  };
+}
+
 function quarantineConflict(
   operationDir: string,
   conflictRoot: string,
@@ -371,23 +690,35 @@ function quarantineConflict(
   mkdirSync(conflictRoot, { recursive: true });
   let target = join(conflictRoot, operationId);
   let suffix = 1;
-  while (existsSync(target)) {
+  while (pathExists(target)) {
     target = join(conflictRoot, `${operationId}-${suffix}`);
     suffix += 1;
   }
   renameSync(operationDir, target);
 }
 
-function countDirectories(path: string): number {
-  return listDirectories(path).length;
+function countEntries(path: string): number {
+  return listEntries(path).length;
 }
 
-function listDirectories(path: string) {
-  return existsSync(path)
-    ? readdirSync(path, { withFileTypes: true }).filter((entry) =>
-        entry.isDirectory()
-      )
-    : [];
+function listEntries(path: string) {
+  return pathExists(path) ? readdirSync(path, { withFileTypes: true }) : [];
+}
+
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (
+      isRecord(error) &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'ENOENT'
+    ) {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

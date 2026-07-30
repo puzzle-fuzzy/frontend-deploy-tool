@@ -1,180 +1,173 @@
+import { Database } from 'bun:sqlite';
 import { randomBytes } from 'node:crypto';
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 
 export interface RuntimeOwnership {
   release(): void;
 }
 
-interface RuntimeOwnershipRecord {
-  version: 1;
+interface RuntimePair {
   databaseFile: string;
   storageDir: string;
-  pid: number;
-  ownerToken: string;
-  acquiredAt: string;
+}
+
+interface HeldSidecarLock {
+  database: Database;
+  path: string;
 }
 
 export const RUNTIME_OWNERSHIP_HELD = 'RUNTIME_OWNERSHIP_HELD';
-export const RUNTIME_OWNERSHIP_INVALID = 'RUNTIME_OWNERSHIP_INVALID';
 
 /**
- * Acquires the single-host ownership record for a database/storage pair.
+ * Acquires kernel-released SQLite transaction locks for both resources.
  *
- * The record intentionally uses a local PID and therefore does not coordinate
- * multiple hosts sharing a filesystem. DeployKit storage must remain local to
- * the one runtime that owns the paired SQLite database.
+ * Diagnostics are written inside the held transactions, but correctness comes
+ * only from SQLite's open transaction locks. Process death or connection close
+ * releases them without PID reuse or compare-delete races.
  */
 export function acquireRuntimeOwnership(
   databaseFile: string,
   storageDir: string
 ): RuntimeOwnership {
   const pair = normalizeRuntimePair(databaseFile, storageDir);
-  mkdirSync(dirname(pair.databaseFile), { recursive: true });
-  const ownershipPath = getRuntimeOwnershipPath(
+  const ownerToken = randomBytes(24).toString('base64url');
+  const lockPaths = getRuntimeOwnershipPaths(
     pair.databaseFile,
     pair.storageDir
   );
-  const ownerToken = randomBytes(24).toString('base64url');
-  const record: RuntimeOwnershipRecord = {
-    version: 1,
-    ...pair,
-    pid: process.pid,
-    ownerToken,
-    acquiredAt: new Date().toISOString(),
-  };
+  const held: HeldSidecarLock[] = [];
 
-  for (let attempt = 0; attempt < 8; attempt += 1) {
+  try {
+    for (const path of lockPaths) {
+      mkdirSync(dirname(path), { recursive: true });
+      const database = new Database(path, { create: true });
+      try {
+        database.exec('PRAGMA busy_timeout = 0');
+        database.exec('BEGIN EXCLUSIVE');
+        database.exec(`
+          CREATE TABLE IF NOT EXISTS runtime_ownership_diagnostics (
+            singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+            database_file TEXT NOT NULL,
+            storage_dir TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            owner_token TEXT NOT NULL,
+            acquired_at TEXT NOT NULL
+          )
+        `);
+        database
+          .query(
+            `INSERT INTO runtime_ownership_diagnostics (
+               singleton,
+               database_file,
+               storage_dir,
+               pid,
+               owner_token,
+               acquired_at
+             ) VALUES (1, ?, ?, ?, ?, ?)
+             ON CONFLICT(singleton) DO UPDATE SET
+               database_file = excluded.database_file,
+               storage_dir = excluded.storage_dir,
+               pid = excluded.pid,
+               owner_token = excluded.owner_token,
+               acquired_at = excluded.acquired_at`
+          )
+          .run(
+            pair.databaseFile,
+            pair.storageDir,
+            process.pid,
+            ownerToken,
+            new Date().toISOString()
+          );
+        held.push({ database, path });
+      } catch (error) {
+        closeWithoutCommit(database);
+        if (isSqliteLockError(error)) {
+          throw new Error(
+            `[${RUNTIME_OWNERSHIP_HELD}] Runtime resource is already owned: "${path}" for database "${pair.databaseFile}" and storage "${pair.storageDir}"`
+          );
+        }
+        throw error;
+      }
+    }
+  } catch (error) {
     try {
-      writeFileSync(ownershipPath, JSON.stringify(record, null, 2), {
-        encoding: 'utf8',
-        flag: 'wx',
-        mode: 0o600,
-      });
-      return createOwnershipLease(ownershipPath, ownerToken);
-    } catch (error) {
-      if (!isFileExistsError(error)) throw error;
+      releaseSidecarLocks(held, false);
+    } catch {
+      // Preserve the stable acquisition diagnostic. Closing each connection
+      // above already attempted the kernel lock release.
     }
-
-    let current: RuntimeOwnershipRecord;
-    try {
-      current = readOwnershipRecord(ownershipPath);
-    } catch (error) {
-      if (isFileMissingError(error)) continue;
-      throw error;
-    }
-    if (
-      current.databaseFile !== pair.databaseFile ||
-      current.storageDir !== pair.storageDir
-    ) {
-      throw new Error(
-        `[${RUNTIME_OWNERSHIP_INVALID}] Ownership record does not match the normalized database/storage pair`
-      );
-    }
-    if (isProcessAlive(current.pid)) {
-      throw new Error(
-        `[${RUNTIME_OWNERSHIP_HELD}] Runtime ownership is held by live PID ${current.pid} for database "${pair.databaseFile}" and storage "${pair.storageDir}"`
-      );
-    }
-
-    // Revalidate the observed token immediately before stale removal. The
-    // following loop still uses `wx` as the ownership gate, so a racing
-    // replacement is observed rather than intentionally overwritten.
-    let verified: RuntimeOwnershipRecord;
-    try {
-      verified = readOwnershipRecord(ownershipPath);
-    } catch (error) {
-      if (isFileMissingError(error)) continue;
-      throw error;
-    }
-    if (verified.ownerToken !== current.ownerToken) continue;
-    if (isProcessAlive(verified.pid)) {
-      throw new Error(
-        `[${RUNTIME_OWNERSHIP_HELD}] Runtime ownership became live while replacing stale PID ${current.pid}`
-      );
-    }
-    try {
-      unlinkSync(ownershipPath);
-    } catch (error) {
-      if (!isFileMissingError(error)) throw error;
-    }
+    throw error;
   }
 
-  throw new Error(
-    `[${RUNTIME_OWNERSHIP_HELD}] Runtime ownership changed repeatedly while acquiring the lock`
-  );
-}
-
-export function getRuntimeOwnershipPath(
-  databaseFile: string,
-  storageDir: string
-): string {
-  const pair = normalizeRuntimePair(databaseFile, storageDir);
-  return `${pair.databaseFile}.runtime-ownership`;
-}
-
-function createOwnershipLease(
-  ownershipPath: string,
-  ownerToken: string
-): RuntimeOwnership {
   let released = false;
   return {
     release() {
       if (released) return;
       released = true;
-      let current: RuntimeOwnershipRecord;
-      try {
-        current = readOwnershipRecord(ownershipPath);
-      } catch (error) {
-        if (isFileMissingError(error)) return;
-        throw error;
-      }
-      if (current.ownerToken !== ownerToken) return;
-      try {
-        unlinkSync(ownershipPath);
-      } catch (error) {
-        if (!isFileMissingError(error)) throw error;
-      }
+      releaseSidecarLocks(held, true);
     },
   };
 }
 
-function readOwnershipRecord(path: string): RuntimeOwnershipRecord {
-  let value: unknown;
-  try {
-    value = JSON.parse(readFileSync(path, 'utf8'));
-  } catch (error) {
-    if (isFileMissingError(error)) throw error;
-    throw new Error(
-      `[${RUNTIME_OWNERSHIP_INVALID}] Cannot parse runtime ownership record: ${errorMessage(error)}`
-    );
-  }
-  if (
-    !isRecord(value) ||
-    value.version !== 1 ||
-    typeof value.databaseFile !== 'string' ||
-    typeof value.storageDir !== 'string' ||
-    !Number.isSafeInteger(value.pid) ||
-    (value.pid as number) <= 0 ||
-    typeof value.ownerToken !== 'string' ||
-    value.ownerToken.length < 16 ||
-    typeof value.acquiredAt !== 'string'
-  ) {
-    throw new Error(
-      `[${RUNTIME_OWNERSHIP_INVALID}] Runtime ownership record is malformed`
-    );
-  }
-  return value as unknown as RuntimeOwnershipRecord;
+/** Returns the deterministic, sorted, de-duplicated sidecar lock paths. */
+export function getRuntimeOwnershipPaths(
+  databaseFile: string,
+  storageDir: string
+): string[] {
+  const pair = normalizeRuntimePair(databaseFile, storageDir);
+  return [
+    `${pair.databaseFile}.runtime-lock.sqlite`,
+    `${pair.storageDir}.runtime-lock.sqlite`,
+  ]
+    .filter((path, index, paths) => paths.indexOf(path) === index)
+    .sort();
 }
 
-function normalizeRuntimePair(databaseFile: string, storageDir: string) {
+function releaseSidecarLocks(
+  held: HeldSidecarLock[],
+  commitDiagnostics: boolean
+): void {
+  let firstError: unknown;
+  for (const lock of [...held].reverse()) {
+    try {
+      lock.database.exec(commitDiagnostics ? 'COMMIT' : 'ROLLBACK');
+    } catch (error) {
+      firstError ??= error;
+      try {
+        lock.database.exec('ROLLBACK');
+      } catch {
+        // Closing the connection below is the final kernel lock release.
+      }
+    } finally {
+      try {
+        lock.database.close();
+      } catch (error) {
+        firstError ??= error;
+      }
+    }
+  }
+  held.length = 0;
+  if (firstError) throw firstError;
+}
+
+function closeWithoutCommit(database: Database): void {
+  try {
+    database.exec('ROLLBACK');
+  } catch {
+    // BEGIN may not have succeeded.
+  }
+  try {
+    database.close();
+  } catch {
+    // Preserve the acquisition error that explains why ownership failed.
+  }
+}
+
+function normalizeRuntimePair(
+  databaseFile: string,
+  storageDir: string
+): RuntimePair {
   return {
     databaseFile: canonicalizePath(databaseFile),
     storageDir: canonicalizePath(storageDir),
@@ -197,31 +190,13 @@ function canonicalizePath(path: string): string {
   return join(canonicalAncestor, ...missingParts);
 }
 
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return !(
-      isRecord(error) &&
-      typeof error.code === 'string' &&
-      error.code === 'ESRCH'
-    );
-  }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
-
-function isFileExistsError(error: unknown): boolean {
-  return isRecord(error) && error.code === 'EEXIST';
-}
-
-function isFileMissingError(error: unknown): boolean {
-  return isRecord(error) && error.code === 'ENOENT';
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function isSqliteLockError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { code?: unknown; errno?: unknown };
+  return (
+    candidate.code === 'SQLITE_BUSY' ||
+    candidate.code === 'SQLITE_LOCKED' ||
+    candidate.errno === 5 ||
+    candidate.errno === 6
+  );
 }
