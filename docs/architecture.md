@@ -359,7 +359,8 @@ storage 内的备份副本，属于敏感数据：父目录必须仅由受信服
 - `App.tsx` — 共享 Provider 与应用路由入口；Web 与 Electron 复用同一客户端。
 - `features/` — 按领域拆分：认证、项目、版本、设置、成员与历史时间线。
 - `api/` — 传输无关 `ApiClient` 契约；Web 使用 `hono/client`，Electron 通过 IPC 实现同一接口。
-- 类型来自 `@deploykit/shared`（`src/types` 再导出）。
+- 类型来自 `@deploykit/shared`，由 `src/domain.ts` / `src/errors.ts` 经
+  `src/index.ts` 统一导出。
 
 ## 数据模型（packages/shared）
 

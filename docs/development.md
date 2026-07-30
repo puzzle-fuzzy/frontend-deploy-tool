@@ -240,8 +240,8 @@ jobs:
           persist-credentials: false
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
-      - run: bun run build
-      - run: (cd dist && zip -qr ../deploykit-artifact.zip .)
+      - run: bun --filter @deploykit/web build
+      - run: (cd apps/web/dist && zip -qr ../../../deploykit-artifact.zip .)
       - name: Upload preview
         run: |
           curl --fail-with-body --silent --show-error \
@@ -271,9 +271,9 @@ deploykit-preview:
   stage: deploy
   script:
     - bun install --frozen-lockfile
-    - bun run build
+    - bun --filter @deploykit/web build
     - apt-get update && apt-get install -y zip curl
-    - (cd dist && zip -qr ../deploykit-artifact.zip .)
+    - (cd apps/web/dist && zip -qr ../../../deploykit-artifact.zip .)
     - export DEPLOYKIT_IDEMPOTENCY_KEY="gitlab-${CI_PIPELINE_ID}-${CI_JOB_NAME_SLUG}"
     - >
       curl --fail-with-body --silent --show-error

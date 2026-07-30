@@ -39,18 +39,18 @@
 Enterprise docs §6.1, §7.4, Phase 1 acceptance. Quick, high-value, currently missing.
 
 - [x] Block dangerous files at upload (both zip extraction and folder write).
-  - Current `SYSTEM_METADATA` ([artifactService.ts:21](apps/server/src/services/artifactService.ts#L21)) only catches OS junk (`.DS_Store`, `Thumbs.db`, `__MACOSX`, `._*`).
-  - Reject entries whose path contains: `.env` / `.env.*`, `*.pem`, `*.key`, `id_rsa`, `.git/`, `node_modules/`, `.svn/`, `.hg/`.
-  - Tests: a zip and a folder upload containing `.env` / `.git/` / `id_rsa` are rejected with a clear error code.
+  - ZIP and folder uploads reject `.env` / `.env.*`, `*.pem`, `*.key`,
+    `id_rsa`, `.git/`, `node_modules/`, `.svn/` and `.hg/`, while still
+    ignoring ordinary OS metadata.
+  - Tests cover both upload forms and stable rejection codes.
 - [x] Require `index.html` after extraction/flatten; reject the upload if it is absent.
-  - Today `flattenOutput` ([artifactService.ts:78](apps/server/src/services/artifactService.ts#L78)) silently no-ops when no `index.html` exists anywhere → upload succeeds, deploy 404s.
-  - Phase 1 acceptance: "没有 index.html 时上传失败".
-  - Note: Version Audit (P4) detects a missing `index.html` at *audit* time; this is the *upload*-time gate and must exist independently.
+  - This is an upload-time structural gate; audit-time checks remain a
+    separate defense.
 - [x] Stop auto-publishing the first version.
-  - Today the first upload sets `activeVersionId` immediately ([versionService.ts:142](apps/server/src/services/versionService.ts#L142)), violating principle §6.1 "上传≠上线".
-  - Change: every upload (including the first) creates a **preview-only** version; production is reached only by an explicit publish action.
-  - The `no-active` state already returns 404 "No active version" ([deployResolver.ts:37](apps/server/src/services/deployResolver.ts#L37)), so a project with versions but no active version is already handled server-side.
-  - Update affected server tests (first-upload activation assertions) and surface "no production version yet" in the UI.
+  - Every upload, including the first, now creates a **preview-only** version;
+    production is reached only through an explicit publish action.
+  - A project with previews but no active version remains intentionally
+    unpublished and returns the existing no-active response.
 
 ## P1 — Authentication, users & permissions
 
