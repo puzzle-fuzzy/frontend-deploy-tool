@@ -1,5 +1,5 @@
 import { Database } from 'bun:sqlite';
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -522,6 +522,73 @@ describe('SQLite v5 artifact audit queue', () => {
     expect(readHistory()).toEqual([]);
   });
 
+  test('rolls report and history back when the final lease update is ignored', () => {
+    const repository = createFixture();
+    repository.enqueue(enqueueInput('job-1'));
+    repository.recoverAndClaim(claimInput('worker-1'));
+    const database = new Database(databaseFile);
+    database.exec(`
+      CREATE TRIGGER ignore_audit_job_success
+      BEFORE UPDATE OF status ON artifact_audit_jobs
+      WHEN OLD.id = 'job-1' AND NEW.status = 'succeeded'
+      BEGIN
+        SELECT RAISE(IGNORE);
+      END;
+    `);
+    database.close();
+
+    expect(repository.complete(completeInput())).toEqual({
+      kind: 'lease-lost',
+    });
+    expect(repository.get(scoped('job-1'))).toMatchObject({
+      kind: 'found',
+      job: { status: 'running', reportId: null },
+    });
+    expect(readReports()).toEqual([]);
+    expect(readHistory()).toEqual([]);
+  });
+
+  test('reads every queue health field from one consistent SQL snapshot', () => {
+    const repository = createFixture();
+    const database = new Database(databaseFile);
+    insertJob(database, {
+      id: 'job-queued',
+      status: 'queued',
+      requestedBy: 'user-1',
+      createdAt: '2026-07-29T23:59:50.000Z',
+    });
+    for (const status of ['succeeded', 'failed', 'canceled'] as const) {
+      insertJob(database, {
+        id: `job-${status}`,
+        status,
+        requestedBy: 'user-1',
+      });
+    }
+    database.close();
+    const querySpy = spyOn(Database.prototype, 'query');
+
+    try {
+      expect(repository.health({ now: NOW })).toEqual({
+        queued: 1,
+        running: 0,
+        oldestQueuedAt: '2026-07-29T23:59:50.000Z',
+        oldestQueuedAgeSeconds: 10,
+        terminal: {
+          succeeded: 1,
+          failed: 1,
+          canceled: 1,
+        },
+      });
+      expect(
+        querySpy.mock.calls
+          .map(([sql]) => sql)
+          .filter((sql) => sql.includes('FROM artifact_audit_jobs'))
+      ).toHaveLength(1);
+    } finally {
+      querySpy.mockRestore();
+    }
+  });
+
   test('paginates equal timestamps stably across new heads and anchor transitions', () => {
     const repository = createFixture();
     const database = new Database(databaseFile);
@@ -946,7 +1013,6 @@ function claimInput(workerId: string, leaseMs = 90_000) {
     now: NOW,
     leaseMs,
     engineVersion: 1,
-    retryBaseDelayMs: 2_000,
   };
 }
 

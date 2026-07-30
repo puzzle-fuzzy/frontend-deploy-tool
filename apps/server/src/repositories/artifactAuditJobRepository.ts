@@ -39,12 +39,15 @@ export type EnqueueArtifactAuditJobResult =
   | { kind: 'version-not-found' }
   | { kind: 'artifact-missing' };
 
+/**
+ * Expired leases become immediately eligible for recovery. Exponential
+ * backoff applies only to executor failures through `FailArtifactAuditJobInput`.
+ */
 export interface RecoverAndClaimArtifactAuditJobInput {
   workerId: string;
   now: string;
   leaseMs: number;
   engineVersion: number;
-  retryBaseDelayMs: number;
 }
 
 export interface RecoverAndClaimArtifactAuditJobResult {

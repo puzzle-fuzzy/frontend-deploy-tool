@@ -32,6 +32,8 @@ import {
   RELATIONAL_SCHEMA_VERSION,
 } from './sqliteSchema';
 
+class ArtifactAuditJobLeaseLost extends Error {}
+
 export interface SqliteArtifactAuditJobRepositoryOptions {
   databaseFile: string;
   cursorCodec: ArtifactAuditJobCursorCodec;
@@ -499,7 +501,7 @@ export function createSqliteArtifactAuditJobRepository(
                 nextInput.workerId,
                 nextInput.now
               );
-            if (!completedRow) return { kind: 'lease-lost' };
+            if (!completedRow) throw new ArtifactAuditJobLeaseLost();
             return {
               kind: 'transitioned',
               job: rowToArtifactAuditJob(completedRow),
@@ -507,7 +509,14 @@ export function createSqliteArtifactAuditJobRepository(
             };
           }
         );
-        return complete.immediate(input);
+        try {
+          return complete.immediate(input);
+        } catch (error) {
+          if (error instanceof ArtifactAuditJobLeaseLost) {
+            return { kind: 'lease-lost' };
+          }
+          throw error;
+        }
       });
     },
     fail(input: FailArtifactAuditJobInput) {
@@ -572,35 +581,42 @@ export function createSqliteArtifactAuditJobRepository(
     },
     health(input) {
       return withDatabase((database) => {
-        const counts = database
-          .query<{ status: ArtifactAuditJob['status']; count: number }, []>(
-            `SELECT status, COUNT(*) AS count
-             FROM artifact_audit_jobs
-             GROUP BY status`
+        const snapshot = database
+          .query<
+            {
+              queued: number;
+              running: number;
+              succeeded: number;
+              failed: number;
+              canceled: number;
+              oldest_queued_at: string | null;
+            },
+            []
+          >(
+            `SELECT
+               COUNT(CASE WHEN status = 'queued' THEN 1 END) AS queued,
+               COUNT(CASE WHEN status = 'running' THEN 1 END) AS running,
+               COUNT(CASE WHEN status = 'succeeded' THEN 1 END) AS succeeded,
+               COUNT(CASE WHEN status = 'failed' THEN 1 END) AS failed,
+               COUNT(CASE WHEN status = 'canceled' THEN 1 END) AS canceled,
+               MIN(CASE WHEN status = 'queued' THEN created_at END)
+                 AS oldest_queued_at
+             FROM artifact_audit_jobs`
           )
-          .all();
-        const byStatus = new Map(
-          counts.map((entry) => [entry.status, entry.count])
-        );
-        const oldestQueuedAt =
-          database
-            .query<{ created_at: string }, []>(
-              `SELECT created_at
-               FROM artifact_audit_jobs
-               WHERE status = 'queued'
-               ORDER BY created_at ASC, id ASC
-               LIMIT 1`
-            )
-            .get()?.created_at ?? null;
+          .get();
+        if (!snapshot) {
+          throw new Error('Artifact audit queue health query returned no row');
+        }
+        const oldestQueuedAt = snapshot.oldest_queued_at;
         return {
-          queued: byStatus.get('queued') ?? 0,
-          running: byStatus.get('running') ?? 0,
+          queued: snapshot.queued,
+          running: snapshot.running,
           oldestQueuedAt,
           oldestQueuedAgeSeconds: calculateQueueAge(oldestQueuedAt, input.now),
           terminal: {
-            succeeded: byStatus.get('succeeded') ?? 0,
-            failed: byStatus.get('failed') ?? 0,
-            canceled: byStatus.get('canceled') ?? 0,
+            succeeded: snapshot.succeeded,
+            failed: snapshot.failed,
+            canceled: snapshot.canceled,
           },
         };
       });

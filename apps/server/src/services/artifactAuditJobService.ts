@@ -203,7 +203,6 @@ export function createArtifactAuditJobService(
         leaseMs,
         now: now().toISOString(),
         engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
-        retryBaseDelayMs,
       });
       recordCount(result.recovered.retried, () => {
         dependencies.recordOutcome?.('retried');

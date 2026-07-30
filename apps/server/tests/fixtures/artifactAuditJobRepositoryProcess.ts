@@ -31,7 +31,6 @@ if (command === 'claim') {
     now: '2026-07-30T00:00:00.000Z',
     leaseMs: 90_000,
     engineVersion: 1,
-    retryBaseDelayMs: 2_000,
   });
   process.stdout.write(
     JSON.stringify({

@@ -115,6 +115,12 @@ A permanent SQLite trigger aborts the `version.audit` history insert. The
 exception reaches the trigger and the immediate transaction rolls back: the job
 remains running with no report ID, and report/history counts stay zero.
 
+A post-review regression also makes the final lease-guarded job `UPDATE` return
+no row via `BEFORE UPDATE ... RAISE(IGNORE)`. The repository now throws an
+internal sentinel inside the immediate transaction to force rollback, then maps
+it to public `lease-lost` outside the transaction. The job, report and history
+all remain unchanged.
+
 The aggregate adapter preserves an explicitly old JSON mtime across an empty
 poll. An injected persistence rejection after completion mutation leaves the
 durable JSON job running and report/history empty.
@@ -149,7 +155,8 @@ The three contract groups first failed independently:
   the v5-only queue repository.
 - Added oldest queued age and retained terminal gauges plus fixed-label lease
   recovery (`retried|failed`) and admission rejection
-  (`global|requester|project`) counters.
+  (`global|requester|project`) counters. All SQLite health fields now come from
+  one conditional-aggregate query and therefore one read snapshot.
 - Updated the environment example, README, architecture and hardening roadmap.
 
 ### Evidence
@@ -180,7 +187,9 @@ additions and is recorded below.
 - The initial read-only review's coverage suggestions were added before the
   original final gates. A later adversarial review found that canonical
   Base64URL alone did not authenticate cursor semantics; the HMAC codec and
-  explicit production/CLI/test repository wiring close that gap.
+  explicit production/CLI/test repository wiring close that gap. The same
+  review found a final-update rollback gap and a split health snapshot; both
+  now have deterministic regressions and single-transaction/single-query fixes.
 
 ### Final gates
 

@@ -333,7 +333,6 @@ describe('createArtifactAuditJobService', () => {
         now: currentTime.toISOString(),
         leaseMs: 90_000,
         engineVersion: 1,
-        retryBaseDelayMs: 2_000,
       })
     ).toEqual({
       job: null,
@@ -365,7 +364,6 @@ describe('createArtifactAuditJobService', () => {
       now: currentTime.toISOString(),
       leaseMs: 90_000,
       engineVersion: 1,
-      retryBaseDelayMs: 2_000,
     });
     const rejectingRepository: ProjectRepository = {
       load: repo.load,
