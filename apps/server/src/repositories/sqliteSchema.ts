@@ -239,9 +239,10 @@ const RELATIONAL_SCHEMA_SQL = `
     revoked_at TEXT NULL,
     replaced_by_token_id TEXT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-    FOREIGN KEY (replaced_by_token_id) REFERENCES project_api_tokens(id)
-      ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+    UNIQUE (project_id, id),
+    FOREIGN KEY (project_id, replaced_by_token_id)
+      REFERENCES project_api_tokens(project_id, id)
+      DEFERRABLE INITIALLY DEFERRED
   );
 
   CREATE INDEX IF NOT EXISTS project_api_tokens_project_created_idx
@@ -295,12 +296,36 @@ const RELATIONAL_SCHEMA_SQL = `
     expires_at TEXT NOT NULL,
     PRIMARY KEY (project_id, token_id, idempotency_key),
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-    FOREIGN KEY (token_id) REFERENCES project_api_tokens(id) ON DELETE CASCADE,
-    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+    FOREIGN KEY (project_id, token_id)
+      REFERENCES project_api_tokens(project_id, id) ON DELETE CASCADE
   );
 
   CREATE INDEX IF NOT EXISTS ci_idempotency_records_expiry_idx
     ON ci_idempotency_records(expires_at, project_id, token_id);
+
+  CREATE TRIGGER IF NOT EXISTS ci_idempotency_version_project_insert_guard
+  BEFORE INSERT ON ci_idempotency_records
+  FOR EACH ROW
+  WHEN NOT EXISTS (
+    SELECT 1
+    FROM versions
+    WHERE id = NEW.version_id AND project_id = NEW.project_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'CI idempotency version project mismatch');
+  END;
+
+  CREATE TRIGGER IF NOT EXISTS ci_idempotency_version_project_update_guard
+  BEFORE UPDATE OF project_id, version_id ON ci_idempotency_records
+  FOR EACH ROW
+  WHEN NOT EXISTS (
+    SELECT 1
+    FROM versions
+    WHERE id = NEW.version_id AND project_id = NEW.project_id
+  )
+  BEGIN
+    SELECT RAISE(ABORT, 'CI idempotency version project mismatch');
+  END;
 `;
 
 export function configureSqlite(database: Database): void {
@@ -511,7 +536,7 @@ export function upgradeRelationalSchema(
   }
   if (fromVersion < 6) {
     database.exec(`
-      CREATE TABLE IF NOT EXISTS project_api_tokens (
+      CREATE TABLE project_api_tokens (
         id TEXT PRIMARY KEY,
         project_id TEXT NOT NULL,
         name TEXT NOT NULL,
@@ -529,19 +554,20 @@ export function upgradeRelationalSchema(
         revoked_at TEXT NULL,
         replaced_by_token_id TEXT NULL,
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
-        FOREIGN KEY (replaced_by_token_id) REFERENCES project_api_tokens(id)
-          ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+        UNIQUE (project_id, id),
+        FOREIGN KEY (project_id, replaced_by_token_id)
+          REFERENCES project_api_tokens(project_id, id)
+          DEFERRABLE INITIALLY DEFERRED
       );
 
-      CREATE INDEX IF NOT EXISTS project_api_tokens_project_created_idx
+      CREATE INDEX project_api_tokens_project_created_idx
         ON project_api_tokens(project_id, created_at DESC, id DESC);
 
-      CREATE INDEX IF NOT EXISTS project_api_tokens_expiry_idx
+      CREATE INDEX project_api_tokens_expiry_idx
         ON project_api_tokens(expires_at, id)
         WHERE revoked_at IS NULL;
 
-      CREATE TABLE IF NOT EXISTS api_token_security_events (
+      CREATE TABLE api_token_security_events (
         sequence INTEGER PRIMARY KEY AUTOINCREMENT,
         id TEXT NOT NULL UNIQUE,
         project_id TEXT NOT NULL,
@@ -571,10 +597,10 @@ export function upgradeRelationalSchema(
         occurred_at TEXT NOT NULL
       );
 
-      CREATE INDEX IF NOT EXISTS api_token_security_events_project_sequence_idx
+      CREATE INDEX api_token_security_events_project_sequence_idx
         ON api_token_security_events(project_id, sequence DESC);
 
-      CREATE TABLE IF NOT EXISTS ci_idempotency_records (
+      CREATE TABLE ci_idempotency_records (
         project_id TEXT NOT NULL,
         token_id TEXT NOT NULL,
         idempotency_key TEXT NOT NULL,
@@ -585,13 +611,36 @@ export function upgradeRelationalSchema(
         expires_at TEXT NOT NULL,
         PRIMARY KEY (project_id, token_id, idempotency_key),
         FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-        FOREIGN KEY (token_id) REFERENCES project_api_tokens(id)
-          ON DELETE CASCADE,
-        FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+        FOREIGN KEY (project_id, token_id)
+          REFERENCES project_api_tokens(project_id, id) ON DELETE CASCADE
       );
 
-      CREATE INDEX IF NOT EXISTS ci_idempotency_records_expiry_idx
+      CREATE INDEX ci_idempotency_records_expiry_idx
         ON ci_idempotency_records(expires_at, project_id, token_id);
+
+      CREATE TRIGGER ci_idempotency_version_project_insert_guard
+      BEFORE INSERT ON ci_idempotency_records
+      FOR EACH ROW
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM versions
+        WHERE id = NEW.version_id AND project_id = NEW.project_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'CI idempotency version project mismatch');
+      END;
+
+      CREATE TRIGGER ci_idempotency_version_project_update_guard
+      BEFORE UPDATE OF project_id, version_id ON ci_idempotency_records
+      FOR EACH ROW
+      WHEN NOT EXISTS (
+        SELECT 1
+        FROM versions
+        WHERE id = NEW.version_id AND project_id = NEW.project_id
+      )
+      BEGIN
+        SELECT RAISE(ABORT, 'CI idempotency version project mismatch');
+      END;
     `);
     database
       .query(

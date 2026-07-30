@@ -111,6 +111,9 @@ test('upgrades the deployed relational v3 schema to v6 with a backup', () => {
   configureSqlite(database);
   createRelationalSchema(database);
   database.exec(`
+    DROP TABLE ci_idempotency_records;
+    DROP TABLE api_token_security_events;
+    DROP TABLE project_api_tokens;
     DROP TABLE artifact_audit_jobs;
     DELETE FROM schema_migrations;
     INSERT INTO schema_migrations (version, applied_at)
@@ -194,6 +197,50 @@ test('upgrades relational v5 to v6 with token tables and a backup', () => {
   expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
 });
 
+test('refuses to mark v6 applied when a token table has drifted', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  database.exec(`
+    DROP TABLE ci_idempotency_records;
+    DROP TABLE api_token_security_events;
+    DROP TABLE project_api_tokens;
+    CREATE TABLE project_api_tokens (
+      id TEXT PRIMARY KEY,
+      project_id TEXT NOT NULL
+    );
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z'),
+      (4, '2026-07-30T00:00:00.000Z'),
+      (5, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
+    'table project_api_tokens already exists'
+  );
+
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const tokenColumns = verify
+    .query<{ name: string }, []>('PRAGMA table_info(project_api_tokens)')
+    .all()
+    .map((column) => column.name);
+  verify.close();
+  expect(migration?.version).toBe(5);
+  expect(tokenColumns).toEqual(['id', 'project_id']);
+  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+});
+
 test('upgrades relational v1 through v6 with policy, audit, jobs, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
@@ -201,6 +248,9 @@ test('upgrades relational v1 through v6 with policy, audit, jobs, integrity, and
   createRelationalSchema(database);
   database.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE ci_idempotency_records;
+    DROP TABLE api_token_security_events;
+    DROP TABLE project_api_tokens;
     DROP TABLE artifact_audit_jobs;
     DROP TABLE artifact_audits;
     DROP TABLE projects;
@@ -272,6 +322,9 @@ test('upgrades the deployed relational v2 schema to v6 with a backup', () => {
   createRelationalSchema(database);
   database.exec(`
     PRAGMA foreign_keys = OFF;
+    DROP TABLE ci_idempotency_records;
+    DROP TABLE api_token_security_events;
+    DROP TABLE project_api_tokens;
     DROP TABLE artifact_audit_jobs;
     DROP TABLE artifact_audits;
     DROP TABLE projects;

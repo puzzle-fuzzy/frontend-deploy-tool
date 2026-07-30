@@ -9,7 +9,7 @@ export const API_TOKEN_HASH_VERSION = 1;
 
 /** Persistence-only token record. `secretDigest` is never API-visible. */
 export interface ApiTokenRecord extends ApiTokenMetadata {
-  hashVersion: number;
+  hashVersion: typeof API_TOKEN_HASH_VERSION;
   secretDigest: string;
 }
 
@@ -38,7 +38,7 @@ export interface RecordApiTokenAuthenticationFailureInput {
 export interface ApiTokenLookup {
   id: string;
   projectId: string;
-  hashVersion: number;
+  hashVersion: typeof API_TOKEN_HASH_VERSION;
   secretDigest: string;
   scopes: ApiTokenScope[];
   expiresAt: string;

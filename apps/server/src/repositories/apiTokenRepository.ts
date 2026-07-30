@@ -14,6 +14,7 @@ import type {
   RecordApiTokenAuthenticationFailureInput,
   RotateApiTokenRecordInput,
 } from '../domain/apiToken';
+import { API_TOKEN_HASH_VERSION } from '../domain/apiToken';
 import { createId } from '../utils/id';
 import { configureSqlite, hasTable } from './sqliteSchema';
 
@@ -82,6 +83,7 @@ export function createMemoryApiTokenRepository(): ApiTokenRepository {
 
   return {
     create(input) {
+      assertTokenRecord(input.token);
       if (tokens.has(input.token.id)) {
         throw new Error('API token id already exists');
       }
@@ -112,11 +114,13 @@ export function createMemoryApiTokenRepository(): ApiTokenRepository {
       return token ? toLookup(token) : null;
     },
     rotate(input) {
+      assertTokenRecord(input.replacement);
       const current = tokens.get(input.currentTokenId);
       if (
         !current ||
         current.projectId !== input.replacement.projectId ||
         current.revokedAt !== null ||
+        current.replacedByTokenId !== null ||
         tokens.has(input.replacement.id)
       ) {
         return null;
@@ -274,14 +278,31 @@ export function createSqliteApiTokenRepository(
                  WHERE id = ? AND project_id = ?`
               )
               .get(nextInput.currentTokenId, nextInput.replacement.projectId);
-            if (!current || current.revoked_at !== null) return null;
+            const replacementExists = database
+              .query<{ present: number }, [string]>(
+                `SELECT 1 AS present
+                 FROM project_api_tokens
+                 WHERE id = ?
+                 LIMIT 1`
+              )
+              .get(nextInput.replacement.id);
+            if (
+              !current ||
+              current.revoked_at !== null ||
+              current.replaced_by_token_id !== null ||
+              replacementExists
+            ) {
+              return null;
+            }
 
             const updated = database
               .query(
                 `UPDATE project_api_tokens
                  SET expires_at = ?, revoked_at = ?,
                      replaced_by_token_id = ?
-                 WHERE id = ? AND project_id = ? AND revoked_at IS NULL`
+                 WHERE id = ? AND project_id = ?
+                   AND revoked_at IS NULL
+                   AND replaced_by_token_id IS NULL`
               )
               .run(
                 nextInput.previousExpiresAt,
@@ -413,6 +434,7 @@ const TOKEN_SELECT = `SELECT id, project_id, name, hash_version, secret_digest,
                       FROM project_api_tokens`;
 
 function insertToken(database: Database, token: ApiTokenRecord): void {
+  assertTokenRecord(token);
   database
     .query(
       `INSERT INTO project_api_tokens (
@@ -480,6 +502,9 @@ function rowToMetadata(row: ApiTokenRow): ApiTokenMetadata {
 }
 
 function rowToLookup(row: ApiTokenRow): ApiTokenLookup {
+  if (row.hash_version !== API_TOKEN_HASH_VERSION) {
+    throw new Error(`Unsupported API token hash version: ${row.hash_version}`);
+  }
   return {
     id: row.id,
     projectId: row.project_id,
@@ -511,6 +536,16 @@ function rowToSecurityEvent(
 
 function parseScopes(value: string) {
   return apiTokenScopeSchema.array().parse(JSON.parse(value));
+}
+
+function assertTokenRecord(token: ApiTokenRecord): void {
+  if (token.hashVersion !== API_TOKEN_HASH_VERSION) {
+    throw new Error(`Unsupported API token hash version: ${token.hashVersion}`);
+  }
+  if (!/^[0-9a-f]{64}$/.test(token.secretDigest)) {
+    throw new Error('API token digest must be a lowercase SHA-256 digest');
+  }
+  apiTokenScopeSchema.array().parse(token.scopes);
 }
 
 function toMetadata(token: ApiTokenRecord): ApiTokenMetadata {

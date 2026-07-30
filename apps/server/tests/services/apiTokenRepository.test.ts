@@ -12,6 +12,7 @@ import {
   createSqliteApiTokenRepository,
 } from '../../src/repositories/apiTokenRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
+import { configureSqlite } from '../../src/repositories/sqliteSchema';
 
 let tempDir: string;
 
@@ -144,6 +145,221 @@ describe('API token repositories', () => {
       })
     ).toThrow('injected security event failure');
     expect(repository.findById(replacement.id)?.revokedAt).toBeNull();
+  });
+
+  test('memory and SQLite repositories reject a colliding replacement id', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    createSqliteProjectRepository({ databaseFile }).save(createData());
+    const repositories = [
+      createMemoryApiTokenRepository(),
+      createSqliteApiTokenRepository(databaseFile),
+    ];
+
+    for (const repository of repositories) {
+      const initial = createToken('token-1', 'a'.repeat(64));
+      const occupied = createToken('token-2', 'b'.repeat(64), {
+        createdAt: '2026-07-31T00:01:00.000Z',
+      });
+      repository.create({ token: initial, projectName: 'Signal Desk' });
+      repository.create({ token: occupied, projectName: 'Signal Desk' });
+
+      expect(
+        repository.rotate({
+          currentTokenId: initial.id,
+          replacement: createToken(occupied.id, 'c'.repeat(64)),
+          projectName: 'Signal Desk',
+          actorId: 'user-1',
+          rotatedAt: '2026-07-31T01:00:00.000Z',
+          previousExpiresAt: '2026-07-31T01:15:00.000Z',
+          revokePrevious: false,
+        })
+      ).toBeNull();
+      expect(repository.list('project-1')).toContainEqual(
+        expect.objectContaining({
+          id: initial.id,
+          replacedByTokenId: null,
+          expiresAt: initial.expiresAt,
+        })
+      );
+    }
+  });
+
+  test('memory and SQLite repositories rotate each token at most once', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    createSqliteProjectRepository({ databaseFile }).save(createData());
+    const repositories = [
+      createMemoryApiTokenRepository(),
+      createSqliteApiTokenRepository(databaseFile),
+    ];
+
+    for (const repository of repositories) {
+      const initial = createToken('token-1', 'a'.repeat(64));
+      const firstReplacement = createToken('token-2', 'b'.repeat(64), {
+        createdAt: '2026-07-31T01:00:00.000Z',
+      });
+      repository.create({ token: initial, projectName: 'Signal Desk' });
+      expect(
+        repository.rotate({
+          currentTokenId: initial.id,
+          replacement: firstReplacement,
+          projectName: 'Signal Desk',
+          actorId: 'user-1',
+          rotatedAt: '2026-07-31T01:00:00.000Z',
+          previousExpiresAt: '2026-07-31T01:15:00.000Z',
+          revokePrevious: false,
+        })
+      ).toMatchObject({ id: firstReplacement.id });
+
+      expect(
+        repository.rotate({
+          currentTokenId: initial.id,
+          replacement: createToken('token-3', 'c'.repeat(64), {
+            createdAt: '2026-07-31T01:01:00.000Z',
+          }),
+          projectName: 'Signal Desk',
+          actorId: 'user-1',
+          rotatedAt: '2026-07-31T01:01:00.000Z',
+          previousExpiresAt: '2026-07-31T01:16:00.000Z',
+          revokePrevious: false,
+        })
+      ).toBeNull();
+      expect(repository.list('project-1').map((token) => token.id)).toEqual([
+        firstReplacement.id,
+        initial.id,
+      ]);
+      expect(
+        repository
+          .listSecurityEvents('project-1')
+          .filter((event) => event.action === 'api_token.rotate')
+      ).toHaveLength(1);
+    }
+  });
+
+  test('SQLite idempotency rows reject cross-project token or version links', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const data = createData();
+    data.projects.push(createSecondProject());
+    createSqliteProjectRepository({ databaseFile }).save(data);
+    const repository = createSqliteApiTokenRepository(databaseFile);
+    repository.create({
+      token: createToken('token-1', 'a'.repeat(64)),
+      projectName: 'Signal Desk',
+    });
+    repository.create({
+      token: createToken('token-2', 'b'.repeat(64), {
+        projectId: 'project-2',
+      }),
+      projectName: 'Other Project',
+    });
+
+    const database = new Database(databaseFile);
+    configureSqlite(database);
+    const insert = database.query(
+      `INSERT INTO ci_idempotency_records (
+         project_id, token_id, idempotency_key, request_digest, version_id,
+         version_name, created_at, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    expect(() =>
+      insert.run(
+        'project-1',
+        'token-2',
+        'wrong-token',
+        'd'.repeat(64),
+        'version-1',
+        'version-1',
+        '2026-07-31T00:00:00.000Z',
+        '2026-08-01T00:00:00.000Z'
+      )
+    ).toThrow();
+    expect(() =>
+      insert.run(
+        'project-1',
+        'token-1',
+        'wrong-version',
+        'e'.repeat(64),
+        'version-2',
+        'version-2',
+        '2026-07-31T00:00:00.000Z',
+        '2026-08-01T00:00:00.000Z'
+      )
+    ).toThrow();
+    database.close();
+  });
+
+  test('aggregate save can delete a creator account without deleting its token', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const projectRepository = createSqliteProjectRepository({ databaseFile });
+    projectRepository.save(createData());
+    const repository = createSqliteApiTokenRepository(databaseFile);
+    repository.create({
+      token: createToken('token-1', 'a'.repeat(64)),
+      projectName: 'Signal Desk',
+    });
+    const withoutCreator = createData();
+    withoutCreator.users = [];
+    withoutCreator.projects[0].members = [];
+
+    projectRepository.save(withoutCreator);
+
+    expect(repository.list('project-1')).toEqual([
+      expect.objectContaining({
+        id: 'token-1',
+        createdBy: 'user-1',
+      }),
+    ]);
+  });
+
+  test('version deletion retains an unexpired idempotency result snapshot', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const projectRepository = createSqliteProjectRepository({ databaseFile });
+    projectRepository.save(createData());
+    const repository = createSqliteApiTokenRepository(databaseFile);
+    repository.create({
+      token: createToken('token-1', 'a'.repeat(64)),
+      projectName: 'Signal Desk',
+    });
+    const database = new Database(databaseFile);
+    configureSqlite(database);
+    database
+      .query(
+        `INSERT INTO ci_idempotency_records (
+           project_id, token_id, idempotency_key, request_digest, version_id,
+           version_name, created_at, expires_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        'project-1',
+        'token-1',
+        'ci-run-1',
+        'd'.repeat(64),
+        'version-1',
+        'version-1',
+        '2026-07-31T00:00:00.000Z',
+        '2026-08-01T00:00:00.000Z'
+      );
+    database.close();
+
+    projectRepository.mutate((data) => {
+      data.projects[0].versions = [];
+    });
+
+    const verify = new Database(databaseFile);
+    const stored = verify
+      .query<
+        { version_id: string; version_name: string },
+        [string, string, string]
+      >(
+        `SELECT version_id, version_name
+         FROM ci_idempotency_records
+         WHERE project_id = ? AND token_id = ? AND idempotency_key = ?`
+      )
+      .get('project-1', 'token-1', 'ci-run-1');
+    verify.close();
+    expect(stored).toEqual({
+      version_id: 'version-1',
+      version_name: 'version-1',
+    });
   });
 
   test('project deletion removes live tokens but retains security evidence', () => {
@@ -361,6 +577,44 @@ function createData(): Data {
     history: [],
     artifactAudits: [],
     artifactAuditJobs: [],
+  };
+}
+
+function createSecondProject(): Data['projects'][number] {
+  return {
+    id: 'project-2',
+    name: 'Other Project',
+    slug: 'other-project',
+    description: '',
+    createdAt: '2026-07-31T00:00:00.000Z',
+    updatedAt: '2026-07-31T00:00:00.000Z',
+    versions: [
+      {
+        id: 'version-2',
+        name: 'version-2',
+        description: '',
+        createdAt: '2026-07-31T00:00:00.000Z',
+        size: 1,
+        fileCount: 1,
+        sourceType: 'folder',
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+        checksum: 'f'.repeat(64),
+        integrityStatus: 'verified',
+        integrityCheckedAt: '2026-07-31T00:00:00.000Z',
+      },
+    ],
+    activeVersionId: null,
+    settings: { spaMode: false, routingType: 'path' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
+    createdBy: 'user-1',
+    members: [],
   };
 }
 
