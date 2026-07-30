@@ -1,17 +1,25 @@
 import { Database } from 'bun:sqlite';
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
-import { RELATIONAL_SCHEMA_VERSION } from '../repositories/sqliteSchema';
+import {
+  configureSqlite,
+  getRelationalSchemaVersion,
+  RELATIONAL_SCHEMA_VERSION,
+  upgradeRelationalSchema,
+} from '../repositories/sqliteSchema';
 import { createId } from '../utils/id';
 import {
   canonicalizeResourcePath,
@@ -95,6 +103,7 @@ interface BackupServiceDependencies {
 const DATABASE_AUXILIARY_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
 type DatabaseAuxiliarySuffix = (typeof DATABASE_AUXILIARY_SUFFIXES)[number];
 const BACKUP_DATABASE_SNAPSHOT_UNSAFE = 'BACKUP_DATABASE_SNAPSHOT_UNSAFE';
+const BACKUP_MIGRATION_PREFLIGHT_FAILED = 'BACKUP_MIGRATION_PREFLIGHT_FAILED';
 const RESTORE_CONTROL_LAYOUT_UNSAFE = 'RESTORE_CONTROL_LAYOUT_UNSAFE';
 const RESTORE_DATABASE_STAGE_UNSAFE = 'RESTORE_DATABASE_STAGE_UNSAFE';
 
@@ -644,6 +653,13 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
       errors.push('Manifest schema version does not match the database');
     }
     compareCounts(manifest.metadataCounts, metadata.counts, 'metadata', errors);
+    if (
+      metadata.schemaVersion === manifest.schemaVersion &&
+      manifest.schemaVersion < RELATIONAL_SCHEMA_VERSION
+    ) {
+      const migrationError = verifyBackupMigration(databaseFile, manifest);
+      if (migrationError) errors.push(migrationError);
+    }
 
     const artifactTree = inspectTree(storageDir);
     if (artifactTree.symlinks.length > 0) {
@@ -668,6 +684,107 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
   }
 
   return { valid: errors.length === 0, errors, warnings, manifest };
+}
+
+function verifyBackupMigration(
+  sourceDatabaseFile: string,
+  manifest: BackupManifest
+): string | undefined {
+  let temporaryRoot: string | undefined;
+  let failure: unknown;
+  let cleanupFailure: unknown;
+  try {
+    temporaryRoot = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-migration-preflight-')
+    );
+    const temporaryDatabaseFile = join(
+      temporaryRoot,
+      basename(sourceDatabaseFile)
+    );
+    copyFileSync(sourceDatabaseFile, temporaryDatabaseFile);
+
+    const database = new Database(temporaryDatabaseFile);
+    try {
+      configureSqlite(database);
+      const sourceVersion = getRelationalSchemaVersion(database);
+      if (sourceVersion !== manifest.schemaVersion) {
+        throw new Error(
+          `copied database reports schema v${sourceVersion}, expected v${manifest.schemaVersion}`
+        );
+      }
+      const migrate = database.transaction(() => {
+        upgradeRelationalSchema(database, sourceVersion);
+      });
+      migrate.immediate();
+
+      const migratedVersion = getRelationalSchemaVersion(database);
+      if (migratedVersion !== RELATIONAL_SCHEMA_VERSION) {
+        throw new Error(
+          `migration ended at schema v${migratedVersion}, expected v${RELATIONAL_SCHEMA_VERSION}`
+        );
+      }
+      // Re-query every relational table used by backup metadata. This catches
+      // a claimed migration version whose table set is missing or malformed.
+      inspectOpenDatabase(database);
+
+      const integrityRows = database
+        .query<{ integrity_check: string }, []>('PRAGMA integrity_check')
+        .all();
+      if (
+        integrityRows.length !== 1 ||
+        integrityRows[0]?.integrity_check !== 'ok'
+      ) {
+        throw new Error(
+          `migrated SQLite integrity check failed: ${
+            integrityRows.map((row) => row.integrity_check).join(', ') ||
+            'no result'
+          }`
+        );
+      }
+      const foreignKeyFailures = database
+        .query<Record<string, unknown>, []>('PRAGMA foreign_key_check')
+        .all();
+      if (foreignKeyFailures.length > 0) {
+        throw new Error(
+          `migrated SQLite foreign key check found ${foreignKeyFailures.length} violation(s)`
+        );
+      }
+    } finally {
+      database.close();
+    }
+  } catch (error) {
+    failure = error;
+  } finally {
+    if (temporaryRoot) {
+      try {
+        rmSync(temporaryRoot, { recursive: true, force: true });
+      } catch (error) {
+        cleanupFailure = error;
+      }
+    }
+  }
+
+  if (!failure && !cleanupFailure) return undefined;
+  const failureMessage = failure
+    ? migrationPreflightErrorMessage(failure, temporaryRoot)
+    : 'migration checks completed';
+  const cleanupMessage = cleanupFailure
+    ? `; temporary cleanup failed: ${migrationPreflightErrorMessage(
+        cleanupFailure,
+        temporaryRoot
+      )}`
+    : '';
+  return `[${BACKUP_MIGRATION_PREFLIGHT_FAILED}] Schema v${manifest.schemaVersion} migration dry-run to v${RELATIONAL_SCHEMA_VERSION} failed: ${failureMessage}${cleanupMessage}`;
+}
+
+function migrationPreflightErrorMessage(
+  error: unknown,
+  temporaryRoot: string | undefined
+): string {
+  const message = error instanceof Error ? error.message : String(error);
+  return temporaryRoot
+    ? message.replaceAll(temporaryRoot, '<temporary>')
+    : message;
 }
 
 function inspectBackupDatabaseSnapshot(

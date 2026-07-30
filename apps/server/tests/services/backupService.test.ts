@@ -284,30 +284,15 @@ describe('createBackupService', () => {
       service.createBackup(backupDir);
 
       const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
-      const database = new Database(backupDatabase);
-      database.exec(`
-        DROP TABLE ci_idempotency_records;
-        DROP TABLE api_token_security_events;
-        DROP TABLE project_api_tokens;
-        DELETE FROM schema_migrations WHERE version = 6;
-      `);
-      database.close();
-
-      const manifestPath = join(backupDir, 'manifest.json');
-      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
-        schemaVersion: number;
-        metadataCounts: Record<string, number>;
-      };
-      manifest.schemaVersion = 5;
-      delete manifest.metadataCounts.apiTokens;
-      delete manifest.metadataCounts.apiTokenSecurityEvents;
-      delete manifest.metadataCounts.ciIdempotencyRecords;
-      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      downgradeBackupToSchemaV5(backupDir);
+      const sourceBytes = readFileSync(backupDatabase);
 
       expect(service.verifyBackup(backupDir)).toMatchObject({
         valid: true,
         errors: [],
       });
+      expect(readFileSync(backupDatabase)).toEqual(sourceBytes);
+      expectDatabaseAuxiliariesAbsent(backupDatabase);
       service.restoreBackup(backupDir, { force: true });
 
       fixture.repository.load();
@@ -331,6 +316,58 @@ describe('createBackupService', () => {
       expect(existsSync(`${fixture.databaseFile}.pre-relational-v6.bak`)).toBe(
         true
       );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects schema v5 migration conflicts before acquiring or moving live state', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-v5-conflict-')
+    );
+    let ownershipAcquisitions = 0;
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-v5-conflict');
+      createBackupService(fixture).createBackup(backupDir);
+      downgradeBackupToSchemaV5(backupDir);
+
+      const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+      const drifted = new Database(backupDatabase);
+      drifted.exec(`
+        CREATE TABLE project_api_tokens (
+          id TEXT PRIMARY KEY
+        );
+      `);
+      drifted.close();
+
+      const backupBytes = readFileSync(backupDatabase);
+      const liveDatabaseBytes = readFileSync(fixture.databaseFile);
+      const liveArtifact = join(fixture.storageDir, 'p1', 'v1', 'index.html');
+      const liveArtifactBytes = readFileSync(liveArtifact);
+      const service = createBackupService(fixture, {
+        acquireOwnership() {
+          ownershipAcquisitions += 1;
+          throw new Error('live ownership must not be acquired');
+        },
+      });
+
+      const verification = service.verifyBackup(backupDir);
+      expect(verification.valid).toBe(false);
+      expect(verification.errors).toHaveLength(1);
+      expect(verification.errors[0]).toContain(
+        'BACKUP_MIGRATION_PREFLIGHT_FAILED'
+      );
+      expect(verification.errors[0]).toContain('project_api_tokens');
+      expect(() => service.restoreBackup(backupDir, { force: true })).toThrow(
+        'BACKUP_MIGRATION_PREFLIGHT_FAILED'
+      );
+
+      expect(ownershipAcquisitions).toBe(0);
+      expect(readFileSync(fixture.databaseFile)).toEqual(liveDatabaseBytes);
+      expect(readFileSync(liveArtifact)).toEqual(liveArtifactBytes);
+      expect(readFileSync(backupDatabase)).toEqual(backupBytes);
+      expectDatabaseAuxiliariesAbsent(backupDatabase);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -726,5 +763,36 @@ function checkpointDatabase(databaseFile: string): void {
     database.exec('PRAGMA journal_mode = DELETE');
   } finally {
     database.close();
+  }
+}
+
+function downgradeBackupToSchemaV5(backupDir: string): void {
+  const manifestPath = join(backupDir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    schemaVersion: number;
+    metadataCounts: Record<string, number>;
+  };
+  const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+  const database = new Database(backupDatabase);
+  try {
+    database.exec(`
+      DROP TABLE ci_idempotency_records;
+      DROP TABLE api_token_security_events;
+      DROP TABLE project_api_tokens;
+      DELETE FROM schema_migrations WHERE version = 6;
+    `);
+  } finally {
+    database.close();
+  }
+  manifest.schemaVersion = 5;
+  delete manifest.metadataCounts.apiTokens;
+  delete manifest.metadataCounts.apiTokenSecurityEvents;
+  delete manifest.metadataCounts.ciIdempotencyRecords;
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
+function expectDatabaseAuxiliariesAbsent(databaseFile: string): void {
+  for (const suffix of ['-journal', '-wal', '-shm']) {
+    expect(existsSync(`${databaseFile}${suffix}`)).toBe(false);
   }
 }
