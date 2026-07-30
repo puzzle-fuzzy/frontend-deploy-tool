@@ -28,7 +28,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 - 控制台/API 与部署产物双域隔离。
 - 当配置管理源时，非安全方法的管理 API 还按请求发起源防护：`Origin` 必须
-  精确匹配管理 origin；缺少 `Origin` 的 Cookie 写请求，以及
+  精确匹配管理 origin；任何携带 session Cookie（包括同时携带 bearer）的
+  缺失 `Origin` 写请求，以及
   `Sec-Fetch-Site: same-site|cross-site` 的写请求均在解析请求体和业务变更前
   返回 `403 CSRF_VALIDATION_FAILED`。没有浏览器 origin/fetch 元数据的 bearer
   客户端保持兼容。CORS 不能单独覆盖此风险，因为它不阻止同站兄弟源发送请求。

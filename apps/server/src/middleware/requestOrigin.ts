@@ -34,9 +34,7 @@ export function createRequestOriginProtection({
 
     const origin = c.req.header('Origin');
     const fetchSite = c.req.header('Sec-Fetch-Site');
-    const authorization = c.req.header('Authorization');
     const cookie = c.req.header('Cookie');
-    const hasBearer = authorization?.startsWith('Bearer ') ?? false;
     const hasSessionCookie = new RegExp(`(?:^|;\\s*)${SESSION_COOKIE}=`).test(
       cookie ?? ''
     );
@@ -44,7 +42,7 @@ export function createRequestOriginProtection({
     if (
       REJECTED_FETCH_SITES.has(fetchSite ?? '') ||
       (origin !== undefined && origin !== managementOrigin) ||
-      (origin === undefined && hasSessionCookie && !hasBearer)
+      (origin === undefined && hasSessionCookie)
     ) {
       throw new ApiError(
         ErrorCode.CSRF_VALIDATION_FAILED,

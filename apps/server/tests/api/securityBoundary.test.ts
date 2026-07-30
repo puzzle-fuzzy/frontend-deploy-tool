@@ -118,33 +118,105 @@ test('rejects deploy-origin writes made with a real browser session cookie', asy
     }),
   });
   expect(login.status).toBe(200);
+  const token = (await login.json()).token as string;
   const cookie = login.headers.get('Set-Cookie')?.split(';', 1)[0];
   if (!cookie) throw new Error('login did not set a session cookie');
 
-  for (const [path, body] of [
-    ['/api/auth/logout-all', undefined],
-    ['/api/projects/not-a-project/versions', new FormData()],
-    [
-      '/api/projects/not-a-project/versions/not-a-version/audit-jobs',
-      undefined,
-    ],
-  ] as const) {
-    const response = await app.request(`${MANAGEMENT_ORIGIN}${path}`, {
+  const rejectedLogout = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
+    {
       method: 'POST',
-      headers: {
-        Cookie: cookie,
-        Origin: DEPLOY_ORIGIN,
-      },
-      body,
-    });
-    expect(response.status).toBe(403);
-    expect((await response.json()).error.code).toBe('CSRF_VALIDATION_FAILED');
-  }
+      headers: { Cookie: cookie, Origin: DEPLOY_ORIGIN },
+    }
+  );
+  expect(rejectedLogout.status).toBe(403);
+  expect((await rejectedLogout.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
 
   const sessionRemainsValid = await app.request(`${MANAGEMENT_ORIGIN}/api/me`, {
     headers: { Cookie: cookie },
   });
   expect(sessionRemainsValid.status).toBe(200);
+
+  const created = await app.request(`${MANAGEMENT_ORIGIN}/api/projects`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      name: 'CSRF boundary project',
+      slug: 'csrf-boundary-project',
+      description: 'regression fixture',
+    }),
+  });
+  expect(created.status).toBe(201);
+  const project = (await created.json()) as { id: string };
+
+  const previewForm = new FormData();
+  previewForm.append(
+    'folderFiles',
+    new File(['<html><body>preview</body></html>'], 'index.html')
+  );
+  previewForm.append('versionDesc', 'preview');
+  const uploaded = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/versions`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: previewForm,
+    }
+  );
+  expect(uploaded.status).toBe(201);
+  const preview = (await uploaded.json()) as { version: { id: string } };
+
+  const attackUpload = new FormData();
+  attackUpload.append(
+    'folderFiles',
+    new File(['<html><body>attacker</body></html>'], 'index.html')
+  );
+  attackUpload.append('versionDesc', 'attacker upload');
+  const rejectedUpload = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/versions`,
+    {
+      method: 'POST',
+      headers: { Cookie: cookie, Origin: DEPLOY_ORIGIN },
+      body: attackUpload,
+    }
+  );
+  expect(rejectedUpload.status).toBe(403);
+  expect((await rejectedUpload.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+  const projectAfterRejectedUpload = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/versions`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  expect(projectAfterRejectedUpload.status).toBe(200);
+  expect((await projectAfterRejectedUpload.json()).versions).toHaveLength(1);
+
+  const auditJobsPath = `/api/projects/${project.id}/versions/${preview.version.id}/audit-jobs`;
+  const rejectedAuditEnqueue = await app.request(
+    `${MANAGEMENT_ORIGIN}${auditJobsPath}`,
+    {
+      method: 'POST',
+      headers: { Cookie: cookie, Origin: DEPLOY_ORIGIN },
+    }
+  );
+  expect(rejectedAuditEnqueue.status).toBe(403);
+  expect((await rejectedAuditEnqueue.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+  const legitimateAuditEnqueue = await app.request(
+    `${MANAGEMENT_ORIGIN}${auditJobsPath}`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+  expect(legitimateAuditEnqueue.status).toBe(202);
+  expect((await legitimateAuditEnqueue.json()).reused).toBe(false);
 });
 
 test('preserves same-origin development behavior when origins are unset', async () => {

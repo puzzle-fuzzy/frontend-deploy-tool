@@ -7,6 +7,8 @@ import { verifySessionToken } from '../../src/middleware/session';
 import { createAuthApp, withBearer } from './helpers';
 
 const SESSION_SECRET = 'test-session-secret';
+const MANAGEMENT_ORIGIN = 'http://console.example.test';
+const DEPLOY_ORIGIN = 'http://deploy.example.test';
 let tempDir: string;
 
 beforeEach(() => {
@@ -49,37 +51,41 @@ test('logout revokes the current bearer session immediately', async () => {
   expect(me.status).toBe(401);
 });
 
-test('requires an Origin for cookie writes but preserves bearer compatibility', async () => {
+test('requires an Origin for every write carrying a session cookie', async () => {
   const app = createApp({
     environment: 'test',
     dataFile: join(tempDir, 'data.json'),
     storageDir: join(tempDir, 'storage'),
     publicDir: join(tempDir, 'public'),
-    managementBaseURL: 'http://console.example.test',
-    deployBaseURL: 'http://deploy.example.test',
+    managementBaseURL: MANAGEMENT_ORIGIN,
+    deployBaseURL: DEPLOY_ORIGIN,
     adminEmail: 'admin@test.local',
     adminPassword: 'test-password',
     sessionSecret: SESSION_SECRET,
     secureCookies: false,
-    registrationEnabled: false,
+    registrationEnabled: true,
   });
   const loginResponse = await app.request(
-    'http://console.example.test/api/auth/login',
+    `${MANAGEMENT_ORIGIN}/api/auth/login`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: MANAGEMENT_ORIGIN,
+      },
       body: JSON.stringify({
         email: 'admin@test.local',
         password: 'test-password',
       }),
     }
   );
+  expect(loginResponse.status).toBe(200);
   const token = (await loginResponse.json()).token as string;
   const cookie = loginResponse.headers.get('Set-Cookie')?.split(';', 1)[0];
   if (!cookie) throw new Error('login did not set a session cookie');
 
   const cookieWithoutOrigin = await app.request(
-    'http://console.example.test/api/auth/logout-all',
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
     {
       method: 'POST',
       headers: { Cookie: cookie },
@@ -90,71 +96,128 @@ test('requires an Origin for cookie writes but preserves bearer compatibility', 
     'CSRF_VALIDATION_FAILED'
   );
 
-  const bearerWithoutOrigin = await app.request(
-    'http://console.example.test/api/auth/logout-all',
-    withBearer({ method: 'POST' }, token)
-  );
-  expect(bearerWithoutOrigin.status).toBe(200);
-
-  const sameOriginLogin = await app.request(
-    'http://console.example.test/api/auth/login',
+  const validBearerAndCookie = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'admin@test.local',
-        password: 'test-password',
-      }),
+      headers: { Cookie: cookie, Authorization: `Bearer ${token}` },
     }
   );
-  const sameOriginCookie = sameOriginLogin.headers
-    .get('Set-Cookie')
-    ?.split(';', 1)[0];
-  if (!sameOriginCookie) throw new Error('login did not set a session cookie');
-  const sameOriginWrite = await app.request(
-    'http://console.example.test/api/auth/logout-all',
+  expect(validBearerAndCookie.status).toBe(403);
+  expect((await validBearerAndCookie.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+
+  const emptyBearerAndCookie = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
+    {
+      method: 'POST',
+      headers: { Cookie: cookie, Authorization: 'Bearer ' },
+    }
+  );
+  expect(emptyBearerAndCookie.status).toBe(403);
+  expect((await emptyBearerAndCookie.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+
+  const forgedBearerAndCookie = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
     {
       method: 'POST',
       headers: {
-        Cookie: sameOriginCookie,
-        Origin: 'http://console.example.test',
+        Cookie: cookie,
+        Authorization: 'Bearer forged-token',
       },
     }
   );
-  expect(sameOriginWrite.status).toBe(200);
-
-  const fetchMetadataLogin = await app.request(
-    'http://console.example.test/api/auth/login',
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        email: 'admin@test.local',
-        password: 'test-password',
-      }),
-    }
+  expect(forgedBearerAndCookie.status).toBe(403);
+  expect((await forgedBearerAndCookie.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
   );
-  const fetchMetadataCookie = fetchMetadataLogin.headers
-    .get('Set-Cookie')
-    ?.split(';', 1)[0];
-  if (!fetchMetadataCookie) {
-    throw new Error('login did not set a session cookie');
-  }
-  const rejectedFetchMetadata = await app.request(
-    'http://console.example.test/api/auth/logout-all',
+
+  const sameSiteFetchMetadata = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
     {
       method: 'POST',
       headers: {
-        Cookie: fetchMetadataCookie,
-        Origin: 'http://console.example.test',
+        Cookie: cookie,
+        Origin: MANAGEMENT_ORIGIN,
         'Sec-Fetch-Site': 'same-site',
       },
     }
   );
-  expect(rejectedFetchMetadata.status).toBe(403);
-  expect((await rejectedFetchMetadata.json()).error.code).toBe(
+  expect(sameSiteFetchMetadata.status).toBe(403);
+  expect((await sameSiteFetchMetadata.json()).error.code).toBe(
     'CSRF_VALIDATION_FAILED'
   );
+
+  const crossSiteFetchMetadata = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: MANAGEMENT_ORIGIN,
+        'Sec-Fetch-Site': 'cross-site',
+      },
+    }
+  );
+  expect(crossSiteFetchMetadata.status).toBe(403);
+  expect((await crossSiteFetchMetadata.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+
+  const registered = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/register`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Origin: MANAGEMENT_ORIGIN,
+      },
+      body: JSON.stringify({
+        name: 'Registered user',
+        email: 'registered@example.test',
+        password: 'password123',
+      }),
+    }
+  );
+  expect(registered.status).toBe(200);
+
+  const bearerOnlyAuthorize = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/desktop/authorize`,
+    withBearer(
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          redirectUri: 'http://127.0.0.1:59123/callback',
+        }),
+      },
+      token
+    )
+  );
+  expect(bearerOnlyAuthorize.status).toBe(200);
+  const { code } = await bearerOnlyAuthorize.json();
+
+  const desktopExchange = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/desktop/exchange`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code }),
+    }
+  );
+  expect(desktopExchange.status).toBe(200);
+
+  const sameOriginWrite = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/auth/logout-all`,
+    {
+      method: 'POST',
+      headers: { Cookie: cookie, Origin: MANAGEMENT_ORIGIN },
+    }
+  );
+  expect(sameOriginWrite.status).toBe(200);
 });
 
 test('a user can list and revoke their own sessions but not another user session', async () => {

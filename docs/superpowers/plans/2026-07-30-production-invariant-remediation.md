@@ -73,7 +73,9 @@ createRequestOriginProtection({
 - Safe methods (`GET`, `HEAD`, `OPTIONS`) are unaffected.
 - When `MANAGEMENT_BASE_URL` is configured, every unsafe `/api/*` request with
   an `Origin` header must exactly match that origin.
-- Cookie-authenticated unsafe requests without `Origin` fail closed.
+- Any unsafe request carrying the session Cookie without `Origin` fails closed,
+  even when an Authorization bearer header is also present; bearer-only clients
+  remain compatible.
 - `Sec-Fetch-Site: same-site|cross-site` is rejected for unsafe management API
   requests even when another header is inconsistent.
 - Bearer requests without browser origin/fetch metadata remain supported.
