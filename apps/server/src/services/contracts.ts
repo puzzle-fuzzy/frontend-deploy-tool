@@ -1,4 +1,5 @@
 import type {
+  ArtifactAuditJob,
   ArtifactAuditPolicy,
   ArtifactAuditReport,
   CreateProjectInput,
@@ -129,6 +130,21 @@ export interface ArtifactAuditService {
     actorId: string
   ): ArtifactAuditReport;
   getArtifactAudit(projectId: string, versionId: string): ArtifactAuditReport;
+}
+
+export interface ArtifactAuditJobApiService {
+  enqueue(
+    projectId: string,
+    versionId: string,
+    actorId: string
+  ): { job: ArtifactAuditJob; reused: boolean };
+  get(projectId: string, versionId: string, jobId: string): ArtifactAuditJob;
+  cancel(
+    projectId: string,
+    versionId: string,
+    jobId: string,
+    actorId: string
+  ): ArtifactAuditJob;
 }
 
 export interface UserService {

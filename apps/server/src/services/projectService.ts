@@ -257,6 +257,9 @@ export function createProjectService(
           data.artifactAudits = data.artifactAudits.filter(
             (report) => report.projectId !== id
           );
+          data.artifactAuditJobs = data.artifactAuditJobs.filter(
+            (job) => job.projectId !== id
+          );
           appendHistoryEvent(data, 'project.delete', deleted, actorId);
           return deleted;
         });

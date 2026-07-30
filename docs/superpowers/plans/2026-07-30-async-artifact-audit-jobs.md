@@ -180,14 +180,14 @@ interface ArtifactAuditJobService {
 }
 ```
 
-- [ ] **Step 1: Write state-machine tests**
+- [x] **Step 1: Write state-machine tests**
 
 Cover deduplicated enqueue, priority/FIFO claim, lease ownership, expired lease
 recovery, heartbeat, retry backoff, max-attempt failure, queued/running
 cancellation, stale checksum/policy completion, atomic report/history success,
 and project/version cascade cleanup.
 
-- [ ] **Step 2: Run the new test and observe missing service**
+- [x] **Step 2: Run the new test and observe missing service**
 
 Run:
 
@@ -197,29 +197,29 @@ bun test apps/server/tests/services/artifactAuditJobService.test.ts
 
 Expected: failure because the service module is absent.
 
-- [ ] **Step 3: Implement pure transition helpers**
+- [x] **Step 3: Implement pure transition helpers**
 
 Keep time comparison, exponential backoff, claim eligibility, fingerprint
 comparison, and lock ownership in `domain/artifactAuditJob.ts`. Use injected
 `now()` and `createId()` dependencies in the service.
 
-- [ ] **Step 4: Implement transactional queue operations**
+- [x] **Step 4: Implement transactional queue operations**
 
 Every transition uses one synchronous `repo.mutate`. Completion validates the
 current version checksum and project policy again, replaces the current report,
 appends `version.audit`, and marks the job succeeded in the same mutation.
 Canceled or superseded jobs discard executor output.
 
-- [ ] **Step 5: Remove jobs during project/version deletion**
+- [x] **Step 5: Remove jobs during project/version deletion**
 
 Filter associated job records in the same mutations that remove reports and
 metadata. SQLite foreign keys remain the second line of defense.
 
-- [ ] **Step 6: Run service tests**
+- [x] **Step 6: Run service tests**
 
 Expected: queue and existing synchronous audit tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/domain apps/server/src/services \

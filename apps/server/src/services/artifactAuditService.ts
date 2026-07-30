@@ -5,6 +5,7 @@ import type {
   ArtifactAuditReport,
   ArtifactAuditStatus,
 } from '@deploykit/shared';
+import { hasSameArtifactAuditPolicy } from '../domain/artifactAuditJob';
 import { appendHistoryEvent } from '../domain/history';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -115,7 +116,7 @@ export function createArtifactAuditService(
         }
         if (
           currentVersion.checksum !== version.checksum ||
-          !samePolicy(currentProject.auditPolicy, policy)
+          !hasSameArtifactAuditPolicy(currentProject.auditPolicy, policy)
         ) {
           throw new ApiError(
             ErrorCode.AUDIT_FAILED,
@@ -191,16 +192,4 @@ export function createArtifactAuditService(
       return report;
     },
   };
-}
-
-function samePolicy(
-  left: ArtifactAuditPolicy,
-  right: ArtifactAuditPolicy
-): boolean {
-  return (
-    left.enforcement === right.enforcement &&
-    left.maxTotalBytes === right.maxTotalBytes &&
-    left.maxFileBytes === right.maxFileBytes &&
-    left.maxFileCount === right.maxFileCount
-  );
 }

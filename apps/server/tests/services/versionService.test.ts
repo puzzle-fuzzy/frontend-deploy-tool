@@ -294,7 +294,36 @@ describe('createVersionService', () => {
       users: [],
       history: [],
       artifactAudits: [],
-      artifactAuditJobs: [],
+      artifactAuditJobs: [
+        {
+          id: 'job-1',
+          projectId: 'p1',
+          versionId: 'v1',
+          requestedBy: 'user-1',
+          status: 'queued',
+          priority: 0,
+          attempts: 0,
+          maxAttempts: 3,
+          nextRunAt: '2026-07-30T00:00:00.000Z',
+          lockedBy: null,
+          lockedUntil: null,
+          artifactChecksum: '',
+          engineVersion: 1,
+          policy: {
+            enforcement: 'advisory',
+            maxTotalBytes: 50 * 1024 * 1024,
+            maxFileBytes: 10 * 1024 * 1024,
+            maxFileCount: 1_000,
+          },
+          reportId: null,
+          errorCode: null,
+          errorMessage: null,
+          createdAt: '2026-07-30T00:00:00.000Z',
+          updatedAt: '2026-07-30T00:00:00.000Z',
+          startedAt: null,
+          completedAt: null,
+        },
+      ],
     };
     const repo: ProjectRepository = {
       load: () => data,
@@ -316,6 +345,7 @@ describe('createVersionService', () => {
       expect(existsSync(join(trashRoot, operation, 'COMMITTED'))).toBe(true);
       expect(data.projects[0].activeVersionId).toBeNull();
       expect(data.projects[0].versions[0]?.status).toBe('preview');
+      expect(data.artifactAuditJobs).toEqual([]);
       expect(data.history[0]?.metadata).toMatchObject({
         wasActive: true,
         previousActiveVersionId: 'v1',

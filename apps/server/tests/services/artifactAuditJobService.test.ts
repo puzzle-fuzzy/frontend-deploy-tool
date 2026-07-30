@@ -1,0 +1,336 @@
+import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { Project } from '@deploykit/shared';
+import { createEmptyData } from '../../src/domain/schema';
+import { ErrorCode } from '../../src/errors';
+import { createJsonProjectRepository } from '../../src/repositories/jsonProjectRepository';
+import type { ArtifactAuditResult } from '../../src/services/artifactAuditEngine';
+import { createArtifactAuditJobService } from '../../src/services/artifactAuditJobService';
+import { checksumDirectory } from '../../src/services/artifactService';
+
+let tempDir: string;
+let storageDir: string;
+let dataFile: string;
+let currentTime: Date;
+let idSequence: number;
+
+beforeEach(() => {
+  tempDir = mkdtempSync(join(tmpdir(), 'deploykit-audit-jobs-'));
+  storageDir = join(tempDir, 'storage');
+  dataFile = join(tempDir, 'data.json');
+  currentTime = new Date('2026-07-30T00:00:00.000Z');
+  idSequence = 0;
+});
+
+afterEach(() => {
+  rmSync(tempDir, { recursive: true, force: true });
+});
+
+describe('createArtifactAuditJobService', () => {
+  test('deduplicates an active snapshot and cancels it when policy changes', () => {
+    const { repo } = createFixture();
+    const service = createService(repo);
+
+    const first = service.enqueue('project-1', 'version-1', 'owner-1');
+    const duplicate = service.enqueue('project-1', 'version-1', 'owner-1');
+    expect(duplicate).toEqual({ job: first.job, reused: true });
+
+    repo.mutate((data) => {
+      data.projects[0].auditPolicy.maxTotalBytes -= 1;
+    });
+    advance(1_000);
+    const replacement = service.enqueue('project-1', 'version-1', 'owner-1');
+    const jobs = repo.load().artifactAuditJobs;
+
+    expect(replacement.reused).toBe(false);
+    expect(replacement.job.id).not.toBe(first.job.id);
+    expect(jobs.find((job) => job.id === first.job.id)).toMatchObject({
+      status: 'canceled',
+      errorCode: ErrorCode.AUDIT_REQUIRED,
+      completedAt: currentTime.toISOString(),
+    });
+  });
+
+  test('claims, heartbeats, and atomically completes one job with a report', () => {
+    const { repo, checksum } = createFixture();
+    const outcomes: string[] = [];
+    const service = createService(repo, {
+      recordOutcome: (outcome) => outcomes.push(outcome),
+    });
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+
+    const claimed = service.claim('worker-1', 90_000);
+    expect(claimed).toMatchObject({
+      artifactDir: join(storageDir, 'project-1', 'version-1'),
+      job: {
+        id: job.id,
+        status: 'running',
+        attempts: 1,
+        lockedBy: 'worker-1',
+        lockedUntil: '2026-07-30T00:01:30.000Z',
+      },
+    });
+    expect(service.claim('worker-2', 90_000)).toBeNull();
+
+    advance(15_000);
+    expect(service.heartbeat(job.id, 'worker-1', 90_000)).toMatchObject({
+      lockedUntil: '2026-07-30T00:01:45.000Z',
+    });
+    const completed = service.complete(
+      job.id,
+      'worker-1',
+      resultFixture(checksum)
+    );
+    const stored = repo.load();
+
+    expect(completed).toMatchObject({
+      status: 'succeeded',
+      reportId: expect.any(String),
+      lockedBy: null,
+      completedAt: currentTime.toISOString(),
+    });
+    expect(stored.artifactAudits).toHaveLength(1);
+    expect(stored.artifactAudits[0]).toMatchObject({
+      id: completed.reportId,
+      artifactChecksum: checksum,
+      createdBy: 'owner-1',
+    });
+    expect(stored.history[0]).toMatchObject({
+      action: 'version.audit',
+      metadata: {
+        reportId: completed.reportId,
+        status: 'warning',
+        score: 90,
+        warningCount: 0,
+        errorCount: 0,
+        totalBytes: 1,
+        fileCount: 1,
+        artifactChecksum: checksum,
+        engineVersion: 1,
+        jobId: job.id,
+      },
+    });
+    expect(outcomes).toEqual(['succeeded']);
+  });
+
+  test('rejects completion by a different or expired lease owner', () => {
+    const { repo, checksum } = createFixture();
+    const service = createService(repo);
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+    service.claim('worker-1', 1_000);
+
+    expect(() =>
+      service.complete(job.id, 'worker-2', resultFixture(checksum))
+    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_JOB_CONFLICT }));
+
+    advance(1_001);
+    expect(() =>
+      service.complete(job.id, 'worker-1', resultFixture(checksum))
+    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_JOB_CONFLICT }));
+    expect(repo.load().artifactAudits).toEqual([]);
+  });
+
+  test('retries infrastructure failures with backoff and stops at max attempts', () => {
+    const { repo } = createFixture();
+    const outcomes: string[] = [];
+    const service = createService(repo, {
+      maxAttempts: 2,
+      retryBaseDelayMs: 2_000,
+      recordOutcome: (outcome) => outcomes.push(outcome),
+    });
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+    service.claim('worker-1', 90_000);
+
+    const retry = service.fail(job.id, 'worker-1', new Error('worker crashed'));
+    expect(retry).toMatchObject({
+      status: 'queued',
+      attempts: 1,
+      nextRunAt: '2026-07-30T00:00:02.000Z',
+      errorCode: ErrorCode.AUDIT_JOB_FAILED,
+      errorMessage: 'Artifact audit worker failed',
+    });
+    expect(service.claim('worker-1', 90_000)).toBeNull();
+
+    advance(2_000);
+    service.claim('worker-1', 90_000);
+    const failed = service.fail(
+      job.id,
+      'worker-1',
+      new Error('worker crashed')
+    );
+    expect(failed).toMatchObject({
+      status: 'failed',
+      attempts: 2,
+      completedAt: currentTime.toISOString(),
+    });
+    expect(outcomes).toEqual(['retried', 'failed']);
+  });
+
+  test('recovers expired leases and fails one that exhausted its attempts', () => {
+    const { repo } = createFixture();
+    const service = createService(repo, { maxAttempts: 1 });
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+    service.claim('worker-1', 1_000);
+    advance(1_001);
+
+    expect(service.sweepExpired()).toBe(1);
+    expect(service.get('project-1', 'version-1', job.id)).toMatchObject({
+      status: 'failed',
+      errorCode: ErrorCode.AUDIT_JOB_FAILED,
+      lockedBy: null,
+      completedAt: currentTime.toISOString(),
+    });
+  });
+
+  test('cancels queued and running jobs and discards late executor output', () => {
+    const { repo, checksum } = createFixture();
+    const service = createService(repo);
+    const queued = service.enqueue('project-1', 'version-1', 'owner-1').job;
+    expect(
+      service.cancel('project-1', 'version-1', queued.id, 'owner-1')
+    ).toMatchObject({ status: 'canceled' });
+
+    advance(1_000);
+    const running = service.enqueue('project-1', 'version-1', 'owner-1').job;
+    service.claim('worker-1', 90_000);
+    service.cancel('project-1', 'version-1', running.id, 'owner-1');
+    expect(() =>
+      service.complete(running.id, 'worker-1', resultFixture(checksum))
+    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_JOB_CONFLICT }));
+    expect(repo.load().artifactAudits).toEqual([]);
+  });
+
+  test('marks stale input terminal without replacing the current report', () => {
+    const { repo, checksum } = createFixture();
+    const service = createService(repo);
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+    service.claim('worker-1', 90_000);
+    repo.mutate((data) => {
+      data.projects[0].auditPolicy.maxFileCount -= 1;
+    });
+
+    const failed = service.complete(
+      job.id,
+      'worker-1',
+      resultFixture(checksum)
+    );
+    expect(failed).toMatchObject({
+      status: 'failed',
+      errorCode: ErrorCode.AUDIT_REQUIRED,
+      errorMessage:
+        'Artifact or audit policy changed while the job was running',
+    });
+    expect(repo.load().artifactAudits).toEqual([]);
+  });
+
+  test('keeps job reads scoped to their exact project and version', () => {
+    const { repo } = createFixture();
+    const service = createService(repo);
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+
+    expect(() => service.get('project-1', 'other-version', job.id)).toThrow(
+      expect.objectContaining({ code: ErrorCode.VERSION_NOT_FOUND })
+    );
+    expect(() => service.get('other-project', 'version-1', job.id)).toThrow(
+      expect.objectContaining({ code: ErrorCode.PROJECT_NOT_FOUND })
+    );
+    expect(() => service.get('project-1', 'version-1', 'other-job')).toThrow(
+      expect.objectContaining({ code: ErrorCode.AUDIT_JOB_NOT_FOUND })
+    );
+  });
+});
+
+function createService(
+  repo: ReturnType<typeof createJsonProjectRepository>,
+  overrides: {
+    maxAttempts?: number;
+    retryBaseDelayMs?: number;
+    recordOutcome?: (
+      outcome: 'succeeded' | 'failed' | 'canceled' | 'retried'
+    ) => void;
+  } = {}
+) {
+  return createArtifactAuditJobService(repo, storageDir, {
+    now: () => new Date(currentTime),
+    createId: () => `id-${++idSequence}`,
+    ...overrides,
+  });
+}
+
+function createFixture() {
+  const repo = createJsonProjectRepository(dataFile);
+  const data = createEmptyData();
+  const artifactDir = join(storageDir, 'project-1', 'version-1');
+  mkdirSync(artifactDir, { recursive: true });
+  writeFileSync(join(artifactDir, 'index.html'), 'x');
+  const checksum = checksumDirectory(artifactDir);
+  const project = projectFixture(checksum);
+  data.projects.push(project);
+  repo.save(data);
+  return { repo, data, project, artifactDir, checksum };
+}
+
+function projectFixture(checksum: string): Project {
+  return {
+    id: 'project-1',
+    name: 'Project',
+    slug: 'project',
+    description: '',
+    createdAt: '2026-07-30T00:00:00.000Z',
+    updatedAt: '2026-07-30T00:00:00.000Z',
+    versions: [
+      {
+        id: 'version-1',
+        name: 'v1',
+        description: '',
+        createdAt: '2026-07-30T00:00:00.000Z',
+        size: 1,
+        fileCount: 1,
+        sourceType: 'folder',
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+        checksum,
+        integrityStatus: 'verified',
+        integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+      },
+    ],
+    activeVersionId: null,
+    settings: { spaMode: false, routingType: 'path' },
+    auditPolicy: {
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    },
+    createdBy: 'owner-1',
+    members: [
+      {
+        userId: 'owner-1',
+        role: 'owner',
+        invitedAt: '2026-07-30T00:00:00.000Z',
+      },
+    ],
+  };
+}
+
+function resultFixture(checksum: string): ArtifactAuditResult {
+  return {
+    artifactChecksum: checksum,
+    status: 'warning',
+    score: 90,
+    summary: {
+      totalBytes: 1,
+      fileCount: 1,
+      largestFiles: [{ path: 'index.html', size: 1 }],
+      extensions: [{ extension: '.html', bytes: 1, count: 1 }],
+    },
+    checks: [],
+  };
+}
+
+function advance(milliseconds: number): void {
+  currentTime = new Date(currentTime.getTime() + milliseconds);
+}
