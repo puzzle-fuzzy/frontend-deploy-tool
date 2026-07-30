@@ -142,11 +142,15 @@ createRequestOriginProtection({
 
 **Files:**
 - Create: `apps/server/src/services/runtimeOwnership.ts`
+- Create: `apps/server/src/utils/runtimeResourcePath.ts`
 - Modify: `apps/server/src/services/artifactRecovery.ts`
+- Modify: `apps/server/src/services/storagePathSafety.ts`
 - Modify: `apps/server/src/services/storageReconciler.ts`
 - Modify: `apps/server/src/services/backupService.ts`
+- Modify: `apps/server/src/services/versionService.ts`
 - Modify: `apps/server/src/app.ts`
 - Modify: `apps/server/src/runtime.ts`
+- Modify: `apps/server/src/serverEntry.ts`
 - Modify: `apps/server/src/index.ts`
 - Modify: `apps/server/src/config.ts`
 - Modify: `apps/server/.env.example`
@@ -183,17 +187,28 @@ recoverInterruptedArtifactOperations(
   fields are diagnostic only.
 - A second live process sharing either resource fails startup before
   reconciliation or HTTP serving. Process death releases both kernel locks.
-- Version 3 trash manifests include operation kind, project/version target,
-  original path, recovery path, committed state, artifact identity and durable
-  version checksums; deployed version 1/2 manifests remain readable.
+- Version 4 trash manifests include operation kind, project/version target,
+  the complete target version ID set, original path, recovery path, committed
+  state, artifact identity and durable version checksums; deployed version
+  1/2/3 manifests remain readable for unambiguous recovery.
 - At startup, metadata still referencing an interrupted target restores it;
   metadata no longer referencing it finalizes the committed marker; conflicting
   paths, symlinks, malformed commit state and unproven ambiguous cleanup are
-  quarantined and make readiness fail. Every durable checksum must be
-  recomputed before identity is considered; identity is only a fallback when
-  no checksum exists. A single storage-root-relative ancestor guard protects
-  source, operation, trash and conflict paths, and conflicts freeze destructive
-  GC for that startup pass.
+  quarantined and make readiness fail. If any valid durable checksum exists,
+  its version ID set must exactly match the complete target set and every hash
+  must match; partial checksum evidence cannot fall back to identity. Identity
+  is only a fallback when zero valid checksums exist, and old version 3
+  manifests fail closed in the ambiguous cleanup branch. A single
+  storage-root-relative ancestor guard protects source, operation, upload
+  staging/final, trash and conflict paths, and conflicts freeze destructive GC
+  for that startup pass.
+- The canonical database path must remain outside storage. An existing database
+  with multiple hard links is rejected before sidecar creation. Backup and
+  restore enforce the same containment invariant.
+- Ownership is released only after HTTP and worker cleanup are both confirmed.
+  Timeout, rejection or non-settling force-stop paths retain it until process
+  death. Upload storage conflicts use path-free
+  `503 STORAGE_CONTROL_CONFLICT` API responses.
 
 - [x] **Step 1: Add failing process-death and double-start tests**
 
@@ -218,10 +233,10 @@ recoverInterruptedArtifactOperations(
 
   Acquire both sorted SQLite sidecar transaction locks before storage
   reconciliation and release them on connection close/process death. Extend
-  recovery manifests with durable artifact identity/checksum proof, reject
-  symlinks through one storage-root-relative guard covering staging, recovery,
-  trash, conflicts, and orphans, and run interrupted-operation recovery before
-  orphan reconciliation or GC.
+  version 4 recovery manifests with complete target IDs and durable artifact
+  identity/checksum proof, reject symlinks through one storage-root-relative
+  guard covering upload staging/final, recovery, trash, conflicts, and orphans,
+  and run interrupted-operation recovery before orphan reconciliation or GC.
 
 - [x] **Step 4: Harden readiness and restore operations**
 
@@ -229,6 +244,9 @@ recoverInterruptedArtifactOperations(
   startup pass must freeze GC, orphan quarantine, and metadata repair.
   Operational restore must refuse to run while runtime ownership is active;
   keep `--force` as destructive-intent confirmation, not as a lock bypass.
+  Reject database/storage containment and database hard-link aliases before
+  ownership sidecars or backup mutations. Release ownership only after
+  confirmed cleanup; fatal shutdown retains it until process exit.
 
 - [x] **Step 5: Re-run service, black-box, backup and runtime tests**
 

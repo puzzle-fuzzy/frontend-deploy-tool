@@ -1,7 +1,11 @@
 import { Database } from 'bun:sqlite';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
-import { basename, dirname, join, resolve } from 'node:path';
+import { existsSync, lstatSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
+import {
+  assertDatabaseOutsideStorage,
+  canonicalizeResourcePath,
+} from '../utils/runtimeResourcePath';
 
 export interface RuntimeOwnership {
   release(): void;
@@ -18,6 +22,8 @@ interface HeldSidecarLock {
 }
 
 export const RUNTIME_OWNERSHIP_HELD = 'RUNTIME_OWNERSHIP_HELD';
+export const RUNTIME_DATABASE_HARDLINK_UNSAFE =
+  'RUNTIME_DATABASE_HARDLINK_UNSAFE';
 
 /**
  * Acquires kernel-released SQLite transaction locks for both resources.
@@ -31,6 +37,7 @@ export function acquireRuntimeOwnership(
   storageDir: string
 ): RuntimeOwnership {
   const pair = normalizeRuntimePair(databaseFile, storageDir);
+  assertDatabaseHasSingleLink(pair.databaseFile);
   const ownerToken = randomBytes(24).toString('base64url');
   const lockPaths = getRuntimeOwnershipPaths(
     pair.databaseFile,
@@ -168,26 +175,21 @@ function normalizeRuntimePair(
   databaseFile: string,
   storageDir: string
 ): RuntimePair {
+  assertDatabaseOutsideStorage(databaseFile, storageDir);
   return {
-    databaseFile: canonicalizePath(databaseFile),
-    storageDir: canonicalizePath(storageDir),
+    databaseFile: canonicalizeResourcePath(databaseFile),
+    storageDir: canonicalizeResourcePath(storageDir),
   };
 }
 
-function canonicalizePath(path: string): string {
-  const absolute = resolve(path);
-  let existingAncestor = absolute;
-  const missingParts: string[] = [];
-  while (!existsSync(existingAncestor)) {
-    const parent = dirname(existingAncestor);
-    if (parent === existingAncestor) break;
-    missingParts.unshift(basename(existingAncestor));
-    existingAncestor = parent;
+function assertDatabaseHasSingleLink(databaseFile: string): void {
+  if (!existsSync(databaseFile)) return;
+  const stats = lstatSync(databaseFile);
+  if (stats.nlink > 1) {
+    throw new Error(
+      `[${RUNTIME_DATABASE_HARDLINK_UNSAFE}] Database file must not have hard-link aliases: "${databaseFile}"`
+    );
   }
-  const canonicalAncestor = existsSync(existingAncestor)
-    ? realpathSync.native(existingAncestor)
-    : existingAncestor;
-  return join(canonicalAncestor, ...missingParts);
 }
 
 function isSqliteLockError(error: unknown): boolean {

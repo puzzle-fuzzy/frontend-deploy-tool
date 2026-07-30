@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from 'bun:test';
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -9,6 +10,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  unlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -21,7 +23,10 @@ import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { createArtifactRecoveryService } from '../../src/services/artifactRecovery';
 import { checksumDirectory } from '../../src/services/artifactService';
-import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
+import {
+  acquireRuntimeOwnership,
+  getRuntimeOwnershipPaths,
+} from '../../src/services/runtimeOwnership';
 
 const workerPath = join(
   import.meta.dir,
@@ -123,6 +128,66 @@ describe('storage crash recovery', () => {
     expect(first.exitCode).toBeNull();
   });
 
+  test('a hard-linked database alias fails closed without releasing the live owner', async () => {
+    const fixture = createFixture();
+    const firstReady = join(fixture.tempDir, 'first-ready');
+    const first = spawnWorker(fixture, 'hold', firstReady);
+    expect(await waitForFile(firstReady)).toBe(true);
+    const databaseAlias = join(fixture.tempDir, 'deploykit-alias.sqlite');
+    linkSync(fixture.databaseFile, databaseAlias);
+
+    const alias = spawnWorker(
+      fixture,
+      'hold',
+      join(fixture.tempDir, 'alias-ready'),
+      {
+        databaseFile: databaseAlias,
+        dataFile: join(fixture.tempDir, 'alias.json'),
+        storageDir: join(fixture.tempDir, 'alias-storage'),
+      }
+    );
+    await expectWorkerFailure(alias, 'RUNTIME_DATABASE_HARDLINK_UNSAFE');
+    for (const lockPath of getRuntimeOwnershipPaths(
+      databaseAlias,
+      join(fixture.tempDir, 'alias-storage')
+    )) {
+      expect(existsSync(lockPath)).toBe(false);
+    }
+    expect(first.exitCode).toBeNull();
+    unlinkSync(databaseAlias);
+
+    const contender = spawnWorker(
+      fixture,
+      'hold',
+      join(fixture.tempDir, 'contender-ready')
+    );
+    await expectWorkerOwnershipFailure(contender);
+    expect(first.exitCode).toBeNull();
+  });
+
+  test('a runtime rejects a database nested inside artifact storage', () => {
+    const fixture = createFixture();
+    const unsafeDatabaseFile = join(
+      fixture.storageDir,
+      'metadata',
+      'deploykit.sqlite'
+    );
+    let runtime: ReturnType<typeof createDeployKitRuntime> | undefined;
+    let startupError: unknown;
+    try {
+      runtime = createDeployKitRuntime({
+        ...fixture.config,
+        databaseFile: unsafeDatabaseFile,
+      });
+    } catch (error) {
+      startupError = error;
+    }
+    runtime?.runtimeOwnership.release();
+
+    expect(errorMessage(startupError)).toContain('DATABASE_STORAGE_OVERLAP');
+    expect(existsSync(`${unsafeDatabaseFile}.runtime-lock.sqlite`)).toBe(false);
+  });
+
   test('SIGKILL releases both kernel sidecar locks for immediate restart', async () => {
     const fixture = createFixture();
     const firstReady = join(fixture.tempDir, 'first-ready');
@@ -189,6 +254,74 @@ describe('storage crash recovery', () => {
     });
     expect(existsSync(join(fixture.storageDir, '.recovery', 'conflicts'))).toBe(
       true
+    );
+  });
+
+  test('readiness fails when mixed project checksums cannot prove every target version', async () => {
+    const fixture = createFixture();
+    const artifactDir = join(fixture.storageDir, 'project-1');
+    const versionOneDir = join(artifactDir, 'version-1');
+    const checksum = checksumDirectory(versionOneDir);
+    fixture.repository.mutate((data) => {
+      const project = data.projects[0];
+      const versionOne = project?.versions[0];
+      if (!project || !versionOne)
+        throw new Error('Fixture project is missing');
+      project.versions.push({
+        ...versionOne,
+        id: 'version-2',
+        name: 'Missing legacy checksum',
+        checksum: '',
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+      });
+    });
+    const projectBefore = JSON.stringify(fixture.repository.load().projects[0]);
+    const historyBefore = JSON.stringify(fixture.repository.load().history);
+    const lease = createArtifactRecoveryService(
+      fixture.storageDir
+    ).stageProjectDeletion('project-1', {
+      targetVersionIds: ['version-1', 'version-2'],
+      versionChecksums: {
+        'version-1': checksum,
+        'version-2': '',
+      },
+    });
+    if (!lease.recoveryPath) throw new Error('Expected a staged operation');
+    const manifest = JSON.parse(
+      readFileSync(join(lease.recoveryPath, 'manifest.json'), 'utf8')
+    ) as {
+      version: number;
+      recoveryPath: string;
+      targetVersionIds: string[];
+      expectedVersionChecksums: Record<string, string>;
+    };
+    expect(manifest).toMatchObject({
+      version: 4,
+      targetVersionIds: ['version-1', 'version-2'],
+      expectedVersionChecksums: { 'version-1': checksum },
+    });
+    renameSync(join(fixture.storageDir, manifest.recoveryPath), artifactDir);
+
+    const app = createApp(fixture.config);
+    const readiness = await app.request('/health/ready');
+
+    expect(readiness.status).toBe(503);
+    expect(await readiness.json()).toEqual({
+      status: 'error',
+      reason: 'artifact_recovery_conflicts',
+      conflicts: 1,
+    });
+    expect(readFileSync(join(versionOneDir, 'index.html'), 'utf8')).toBe(
+      '<html>production</html>'
+    );
+    expect(existsSync(join(artifactDir, 'version-2'))).toBe(false);
+    expect(JSON.stringify(fixture.repository.load().projects[0])).toBe(
+      projectBefore
+    );
+    expect(JSON.stringify(fixture.repository.load().history)).toBe(
+      historyBefore
     );
   });
 
@@ -388,6 +521,13 @@ function spawnWorker(
 async function expectWorkerOwnershipFailure(
   child: ReturnType<typeof Bun.spawn>
 ): Promise<void> {
+  await expectWorkerFailure(child, 'RUNTIME_OWNERSHIP_HELD');
+}
+
+async function expectWorkerFailure(
+  child: ReturnType<typeof Bun.spawn>,
+  diagnostic: string
+): Promise<void> {
   const exitCode = await Promise.race([
     child.exited,
     Bun.sleep(2_000).then(() => null),
@@ -398,7 +538,7 @@ async function expectWorkerOwnershipFailure(
   ).text();
   expect(exitCode).not.toBeNull();
   expect(exitCode).not.toBe(0);
-  expect(stderr).toContain('RUNTIME_OWNERSHIP_HELD');
+  expect(stderr).toContain(diagnostic);
 }
 
 async function waitForFile(path: string): Promise<boolean> {
@@ -407,4 +547,8 @@ async function waitForFile(path: string): Promise<boolean> {
     await Bun.sleep(20);
   }
   return false;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

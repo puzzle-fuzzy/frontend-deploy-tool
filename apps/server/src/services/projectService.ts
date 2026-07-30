@@ -249,6 +249,9 @@ export function createProjectService(
         id,
         snapshotProject
           ? {
+              targetVersionIds: snapshotProject.versions.map(
+                (version) => version.id
+              ),
               versionChecksums: Object.fromEntries(
                 snapshotProject.versions.map((version) => [
                   version.id,

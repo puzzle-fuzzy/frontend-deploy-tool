@@ -1,7 +1,7 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, linkSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -77,12 +77,7 @@ describe('shutdown runtime', () => {
 
     await controller.shutdown('SIGTERM');
 
-    expect(calls).toEqual([
-      'drain',
-      'force-stop',
-      'checkpoint',
-      'release-ownership',
-    ]);
+    expect(calls).toEqual(['drain', 'force-stop', 'checkpoint']);
     expect(exits).toEqual([1]);
     expect(logs.map((entry) => entry.event)).toEqual([
       'shutdown_started',
@@ -139,7 +134,7 @@ describe('shutdown runtime', () => {
     });
 
     await controller.shutdown('SIGINT');
-    expect(calls).toEqual(['drain', 'force-stop', 'release-ownership']);
+    expect(calls).toEqual(['drain', 'force-stop']);
     expect(exits).toEqual([1]);
   });
 
@@ -163,16 +158,11 @@ describe('shutdown runtime', () => {
     });
 
     await controller.shutdown('SIGTERM');
-    expect(calls).toEqual([
-      'drain',
-      'worker-stop',
-      'force-stop',
-      'release-ownership',
-    ]);
+    expect(calls).toEqual(['drain', 'worker-stop', 'force-stop']);
     expect(exits).toEqual([1]);
   });
 
-  test('checkpoints, releases ownership, and exits when force stop never settles', async () => {
+  test('checkpoints, retains ownership, and exits when force stop never settles', async () => {
     const calls: string[] = [];
     const exits: number[] = [];
     const controller = createShutdownController({
@@ -198,13 +188,92 @@ describe('shutdown runtime', () => {
 
     await controller.shutdown('SIGTERM');
 
-    expect(calls).toEqual([
-      'drain',
-      'force-stop',
-      'checkpoint',
-      'release-ownership',
-    ]);
+    expect(calls).toEqual(['drain', 'force-stop', 'checkpoint']);
     expect(exits).toEqual([1]);
+  });
+
+  test('retains ownership when force stop rejects', async () => {
+    const calls: string[] = [];
+    const exits: number[] = [];
+    const controller = createShutdownController({
+      server: {
+        stop: async (force) => {
+          calls.push(force ? 'force-stop' : 'drain');
+          if (force) throw new Error('force stop failed');
+          throw new Error('drain failed');
+        },
+      },
+      timeoutMs: 1000,
+      logger: () => {},
+      releaseOwnership: () => calls.push('release-ownership'),
+      exit: (code) => exits.push(code),
+    });
+
+    await controller.shutdown('SIGTERM');
+
+    expect(calls).toEqual(['drain', 'force-stop']);
+    expect(exits).toEqual([1]);
+  });
+
+  test('runtime logging is best effort and cannot skip graceful cleanup', async () => {
+    const calls: string[] = [];
+    const exits: number[] = [];
+    const controller = createShutdownController({
+      server: {
+        stop: async () => {
+          calls.push('drain');
+        },
+      },
+      databaseFile: '/tmp/deploykit.sqlite',
+      timeoutMs: 1000,
+      logger: () => {
+        throw new Error('logger unavailable');
+      },
+      checkpoint: () => calls.push('checkpoint'),
+      releaseOwnership: () => calls.push('release-ownership'),
+      exit: (code) => exits.push(code),
+    });
+
+    await controller.shutdown('SIGTERM');
+
+    expect(calls).toEqual(['drain', 'checkpoint', 'release-ownership']);
+    expect(exits).toEqual([0]);
+  });
+
+  test('a fatal timeout keeps the real runtime lock until process exit', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-shutdown-lock-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    const exits: number[] = [];
+
+    try {
+      const controller = createShutdownController({
+        server: {
+          stop: (force) => (force ? Promise.resolve() : new Promise(() => {})),
+        },
+        databaseFile,
+        timeoutMs: 25,
+        releaseOwnership: () => ownership.release(),
+        logger: () => {},
+        exit: (code) => exits.push(code),
+        scheduleTimeout: (callback) => {
+          queueMicrotask(callback);
+          return 'timer';
+        },
+        cancelTimeout: () => {},
+      });
+
+      await controller.shutdown('SIGTERM');
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_HELD'
+      );
+      expect(exits).toEqual([1]);
+    } finally {
+      ownership.release();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('installs one-shot SIGINT and SIGTERM handlers', async () => {
@@ -309,6 +378,47 @@ describe('runtime ownership', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('rejects a hard-linked database alias without disturbing an existing owner', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const databaseAlias = join(tempDir, 'deploykit-alias.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    const aliasStorageDir = join(tempDir, 'alias-storage');
+    let first: ReturnType<typeof acquireRuntimeOwnership> | undefined;
+
+    try {
+      first = acquireRuntimeOwnership(databaseFile, storageDir);
+      const database = new Database(databaseFile, { create: true });
+      database.exec('CREATE TABLE state (value TEXT NOT NULL)');
+      database.close();
+      linkSync(databaseFile, databaseAlias);
+
+      const aliasError = acquireError(databaseAlias, aliasStorageDir);
+      expect(errorMessage(aliasError)).toContain(
+        'RUNTIME_DATABASE_HARDLINK_UNSAFE'
+      );
+      for (const lockPath of getRuntimeOwnershipPaths(
+        databaseAlias,
+        aliasStorageDir
+      )) {
+        expect(existsSync(lockPath)).toBe(false);
+      }
+
+      unlinkSync(databaseAlias);
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_HELD'
+      );
+      first.release();
+      first = undefined;
+
+      const replacement = acquireRuntimeOwnership(databaseFile, storageDir);
+      replacement.release();
+    } finally {
+      first?.release();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 test('checkpointSqlite flushes and truncates an existing WAL', () => {
@@ -333,3 +443,17 @@ test('checkpointSqlite flushes and truncates an existing WAL', () => {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+function acquireError(databaseFile: string, storageDir: string): unknown {
+  try {
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    ownership.release();
+    return null;
+  } catch (error) {
+    return error;
+  }
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

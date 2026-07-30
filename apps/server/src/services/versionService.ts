@@ -32,6 +32,10 @@ import {
   writeFolderFiles,
 } from './artifactService';
 import type { VersionService } from './contracts';
+import {
+  assertStorageMutationPathsAreSafe,
+  StoragePathConflictError,
+} from './storagePathSafety';
 
 export type { UploadVersionInput, VersionService } from './contracts';
 
@@ -166,14 +170,29 @@ export function createVersionService(
 
       const versionId = createId();
       const versionName = versionId.substring(0, 7);
-      const stagingDir = join(config.storageDir, '.staging', versionId);
+      const stagingRoot = join(config.storageDir, '.staging');
+      const stagingDir = join(stagingRoot, versionId);
       const versionDir = join(config.storageDir, projectId, versionId);
-      mkdirSync(stagingDir, { recursive: true });
+      const projectDir = join(config.storageDir, projectId);
 
       let sourceType: VersionSourceType = 'unknown';
       let promotedToFinal = false;
       let version: Version | undefined;
       try {
+        assertStorageMutationPathsAreSafe(
+          config.storageDir,
+          stagingRoot,
+          stagingDir,
+          versionDir
+        );
+        mkdirSync(stagingDir, { recursive: true });
+        assertStorageMutationPathsAreSafe(
+          config.storageDir,
+          stagingRoot,
+          stagingDir,
+          versionDir
+        );
+
         // Check file count limit
         if (config.maxFileCount && folderFiles.length > config.maxFileCount) {
           throw new ApiError(
@@ -194,20 +213,39 @@ export function createVersionService(
 
           const zipPath = join(stagingDir, 'upload.zip');
           let zipCleanupNeeded = true;
+          let zipFailed = false;
+          let zipFailure: unknown;
+          let zipCleanupFailure: unknown;
 
           try {
+            assertStorageMutationPathsAreSafe(
+              config.storageDir,
+              stagingDir,
+              zipPath
+            );
             await Bun.write(zipPath, file);
+            assertStorageMutationPathsAreSafe(
+              config.storageDir,
+              stagingDir,
+              zipPath
+            );
             await extractZip(zipPath, stagingDir, {
               maxExtractedSize: config.maxExtractedSize,
               maxFileCount: config.maxFileCount,
               maxPathLength: config.maxPathLength,
               maxCompressionRatio: config.maxCompressionRatio,
             });
+            assertStorageMutationPathsAreSafe(
+              config.storageDir,
+              stagingDir,
+              zipPath
+            );
             rmSync(zipPath, { force: true });
             zipCleanupNeeded = false;
 
             // Check extracted size limit
             if (config.maxExtractedSize) {
+              assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
               const extractedSize = getDirectorySize(stagingDir);
               if (extractedSize > config.maxExtractedSize) {
                 throw new ApiError(
@@ -217,19 +255,34 @@ export function createVersionService(
               }
             }
 
+            assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
             flattenOutput(stagingDir);
+            assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+          } catch (error) {
+            zipFailed = true;
+            zipFailure = error;
           } finally {
             // Ensure ZIP temp file is cleaned up in all cases
             if (zipCleanupNeeded) {
               try {
+                assertStorageMutationPathsAreSafe(
+                  config.storageDir,
+                  stagingDir,
+                  zipPath
+                );
                 rmSync(zipPath, { force: true });
-              } catch {
-                // Ignore cleanup errors
+              } catch (cleanupError) {
+                zipCleanupFailure = cleanupError;
               }
             }
           }
+          if (zipFailed) throw zipFailure;
+          if (zipCleanupFailure instanceof StoragePathConflictError) {
+            throw zipCleanupFailure;
+          }
         } else if (folderFiles.length > 0) {
           sourceType = 'folder';
+          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
           const { extractedBytes: totalSize } = await writeFolderFiles(
             stagingDir,
             folderFiles,
@@ -239,6 +292,7 @@ export function createVersionService(
               maxPathLength: config.maxPathLength,
             }
           );
+          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
 
           // Check total size limit for folder uploads
           if (config.maxExtractedSize && totalSize > config.maxExtractedSize) {
@@ -248,7 +302,9 @@ export function createVersionService(
             );
           }
 
+          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
           flattenOutput(stagingDir);
+          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
         } else if (file && file.size > 0) {
           throw new ApiError(
             ErrorCode.INVALID_UPLOAD,
@@ -260,8 +316,10 @@ export function createVersionService(
 
         // A deployable build must expose an index.html; otherwise the upload
         // would "succeed" but /deploy/:slug/ would 404.
+        assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
         assertIndexHtml(stagingDir);
 
+        assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
         version = {
           id: versionId,
           name: versionName,
@@ -278,22 +336,38 @@ export function createVersionService(
           integrityCheckedAt: null,
         };
 
-        mkdirSync(join(config.storageDir, projectId), { recursive: true });
+        assertStorageMutationPathsAreSafe(
+          config.storageDir,
+          stagingDir,
+          projectDir,
+          versionDir
+        );
+        mkdirSync(projectDir, { recursive: true });
+        assertStorageMutationPathsAreSafe(
+          config.storageDir,
+          stagingDir,
+          projectDir,
+          versionDir
+        );
         renameSync(stagingDir, versionDir);
         promotedToFinal = true;
+        assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
       } catch (err) {
-        removeDir(stagingDir);
-        if (promotedToFinal) removeDir(versionDir);
-        if (err instanceof ApiError) throw err;
-        throw new ApiError(
-          ErrorCode.FILE_PROCESSING_FAILED,
-          `File processing failed: ${err instanceof Error ? err.message : String(err)}`,
-          500
+        const failure = cleanupFailedUpload(
+          config.storageDir,
+          promotedToFinal ? versionDir : stagingDir,
+          err
         );
+        throw normalizeUploadProcessingError(failure);
       }
 
       if (!version) {
-        removeDir(versionDir);
+        const cleanupFailure = cleanupFailedUpload(
+          config.storageDir,
+          versionDir
+        );
+        if (cleanupFailure)
+          throw normalizeUploadProcessingError(cleanupFailure);
         throw new ApiError(
           ErrorCode.FILE_PROCESSING_FAILED,
           'File processing failed before version metadata was created',
@@ -303,6 +377,7 @@ export function createVersionService(
       // Upload ≠ go-live (principle §6.1): every version starts preview-only.
       // Production is reached only by an explicit publish (activateVersion).
       try {
+        assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
         repo.mutate((data) => {
           const project = data.projects.find(
             (candidate) => candidate.id === projectId
@@ -344,8 +419,15 @@ export function createVersionService(
           );
         });
       } catch (error) {
-        removeDir(versionDir);
-        throw error;
+        const failure = cleanupFailedUpload(
+          config.storageDir,
+          versionDir,
+          error
+        );
+        if (failure instanceof StoragePathConflictError) {
+          throw normalizeUploadProcessingError(failure);
+        }
+        throw failure;
       }
       return { version: { id: version.id, name: version.name } };
     },
@@ -384,6 +466,7 @@ export function createVersionService(
         versionId,
         snapshotVersion
           ? {
+              targetVersionIds: [snapshotVersion.id],
               versionChecksums: {
                 [snapshotVersion.id]: snapshotVersion.checksum,
               },
@@ -459,4 +542,37 @@ function commitRecoveryLease(
       error
     );
   }
+}
+
+function cleanupFailedUpload(
+  storageDir: string,
+  target: string,
+  failure?: unknown
+): unknown | null {
+  try {
+    assertStorageMutationPathsAreSafe(storageDir, target);
+    removeDir(target);
+    return failure ?? null;
+  } catch (cleanupError) {
+    // Cleanup is compensating work. Once upload or metadata processing has
+    // already failed, its diagnostic remains authoritative even if a later
+    // guard or filesystem removal also fails.
+    return failure ?? cleanupError;
+  }
+}
+
+function normalizeUploadProcessingError(error: unknown): ApiError {
+  if (error instanceof StoragePathConflictError) {
+    return new ApiError(
+      ErrorCode.STORAGE_CONTROL_CONFLICT,
+      'Artifact storage control paths are unsafe',
+      503
+    );
+  }
+  if (error instanceof ApiError) return error;
+  return new ApiError(
+    ErrorCode.FILE_PROCESSING_FAILED,
+    `File processing failed: ${error instanceof Error ? error.message : String(error)}`,
+    500
+  );
 }

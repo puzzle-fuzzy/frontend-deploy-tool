@@ -80,30 +80,21 @@ export function createShutdownController({
       try {
         checkpointIfConfigured(databaseFile, checkpoint);
       } catch (error) {
-        logger({
+        logBestEffort(logger, {
           timestamp: new Date().toISOString(),
           level: 'error',
           event: 'shutdown_failed',
           signal,
           error: errorMessage(error),
         });
-      } finally {
-        try {
-          releaseOwnership?.();
-        } catch (error) {
-          logger({
-            timestamp: new Date().toISOString(),
-            level: 'error',
-            event: 'shutdown_failed',
-            signal,
-            error: errorMessage(error),
-          });
-        }
-        exit(1);
       }
+      // A failed or timed-out drain cannot prove that HTTP and background work
+      // have stopped touching the database/storage pair. Keep the kernel-backed
+      // ownership locks until process death instead of advertising false reuse.
+      exit(1);
     };
 
-    logger({
+    logBestEffort(logger, {
       timestamp: new Date().toISOString(),
       level: 'info',
       event: 'shutdown_started',
@@ -129,7 +120,7 @@ export function createShutdownController({
     cancelTimeout(timeoutHandle);
 
     if (outcome.kind === 'timeout') {
-      logger({
+      logBestEffort(logger, {
         timestamp: new Date().toISOString(),
         level: 'warn',
         event: 'shutdown_timeout',
@@ -141,7 +132,7 @@ export function createShutdownController({
     }
 
     if (outcome.kind === 'failed') {
-      logger({
+      logBestEffort(logger, {
         timestamp: new Date().toISOString(),
         level: 'error',
         event: 'shutdown_failed',
@@ -152,37 +143,37 @@ export function createShutdownController({
       return;
     }
 
+    let shutdownError: unknown;
     try {
       checkpointIfConfigured(databaseFile, checkpoint);
+    } catch (error) {
+      shutdownError = error;
+    }
+    try {
       releaseOwnership?.();
-      logger({
+    } catch (error) {
+      shutdownError ??= error;
+    }
+
+    if (!shutdownError) {
+      logBestEffort(logger, {
         timestamp: new Date().toISOString(),
         level: 'info',
         event: 'shutdown_completed',
         signal,
       });
       exit(0);
-    } catch (error) {
-      logger({
-        timestamp: new Date().toISOString(),
-        level: 'error',
-        event: 'shutdown_failed',
-        signal,
-        error: errorMessage(error),
-      });
-      try {
-        releaseOwnership?.();
-      } catch (releaseError) {
-        logger({
-          timestamp: new Date().toISOString(),
-          level: 'error',
-          event: 'shutdown_failed',
-          signal,
-          error: errorMessage(releaseError),
-        });
-      }
-      exit(1);
+      return;
     }
+
+    logBestEffort(logger, {
+      timestamp: new Date().toISOString(),
+      level: 'error',
+      event: 'shutdown_failed',
+      signal,
+      error: errorMessage(shutdownError),
+    });
+    exit(1);
   };
 
   return {
@@ -274,4 +265,12 @@ function checkpointIfConfigured(
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function logBestEffort(logger: RuntimeLogger, entry: RuntimeLogEntry): void {
+  try {
+    logger(entry);
+  } catch {
+    // Observability must never interrupt shutdown or resource cleanup.
+  }
 }

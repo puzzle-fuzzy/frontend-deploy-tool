@@ -5,11 +5,13 @@ import {
   mkdtempSync,
   readdirSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data, Project, Version } from '@deploykit/shared';
+import { zip } from 'fflate';
 import type { AppConfig } from '../../src/config';
 import { ApiError, ErrorCode } from '../../src/errors';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
@@ -127,6 +129,63 @@ describe('createVersionService', () => {
     }
   });
 
+  test('promotes a validated zip upload without leaving staging files', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.versions = [];
+    demoProject.activeVersionId = null;
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+    };
+    const zipBytes = await new Promise<Uint8Array>((resolve, reject) => {
+      zip(
+        {
+          'index.html': new TextEncoder().encode('<html>zip</html>'),
+        },
+        (error, bytes) => (error ? reject(error) : resolve(bytes))
+      );
+    });
+    const zipBuffer = new ArrayBuffer(zipBytes.byteLength);
+    new Uint8Array(zipBuffer).set(zipBytes);
+
+    try {
+      const result = await createVersionService(
+        repo,
+        config(storageDir)
+      ).uploadVersion(
+        'p1',
+        {
+          versionDesc: 'zip build',
+          file: new File([zipBuffer], 'site.zip'),
+          folderFiles: [],
+        },
+        'user-1'
+      );
+
+      expect(
+        existsSync(join(storageDir, 'p1', result.version.id, 'index.html'))
+      ).toBe(true);
+      expect(existsSync(join(storageDir, '.staging', result.version.id))).toBe(
+        false
+      );
+      expect(data.projects[0].versions[0]?.sourceType).toBe('zip');
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('cleans staging and final artifacts when metadata commit fails', async () => {
     const storageDir = mkdtempSync(
       join(tmpdir(), 'deploykit-version-service-')
@@ -173,6 +232,58 @@ describe('createVersionService', () => {
       );
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves the original failure when guarded cleanup also fails', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const externalDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-external-')
+    );
+    const stagingRoot = join(storageDir, '.staging');
+    const demoProject = project();
+    demoProject.versions = [];
+    demoProject.activeVersionId = null;
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: () => {
+        rmSync(stagingRoot, { recursive: true, force: true });
+        symlinkSync(externalDir, stagingRoot);
+        throw new Error('metadata commit failed');
+      },
+    };
+    writeFileSync(join(externalDir, 'marker.txt'), 'outside');
+
+    try {
+      await expect(
+        createVersionService(repo, config(storageDir)).uploadVersion(
+          'p1',
+          {
+            versionDesc: 'failed guarded cleanup',
+            file: null,
+            folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+          },
+          'user-1'
+        )
+      ).rejects.toThrow('metadata commit failed');
+
+      expect(readdirSync(externalDir)).toEqual(['marker.txt']);
+      expect(data.projects[0].versions).toEqual([]);
+      expect(data.history).toEqual([]);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+      rmSync(externalDir, { recursive: true, force: true });
     }
   });
 

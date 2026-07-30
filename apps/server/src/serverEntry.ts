@@ -69,6 +69,7 @@ export async function startDeployKitServer(
       timeoutMs: config.shutdownTimeoutMs ?? 30_000,
       drainBackground: () => runtime.artifactAuditWorker.stop(),
       releaseOwnership: () => runtime.runtimeOwnership.release(),
+      logger,
     });
     disposeSignalHandlers = installHandlers(shutdown);
     if (config.artifactAuditWorkerEnabled ?? true) {
@@ -94,30 +95,30 @@ export async function startDeployKitServer(
 
     const cleanup: Promise<unknown>[] = [];
     if (server) {
-      cleanup.push(invokeBestEffort(() => server?.stop(true)));
+      cleanup.push(invokeCleanup(() => server?.stop(true)));
     }
-    cleanup.push(invokeBestEffort(() => runtime.artifactAuditWorker.stop()));
-    await waitBounded(
-      Promise.allSettled(cleanup),
+    cleanup.push(invokeCleanup(() => runtime.artifactAuditWorker.stop()));
+    const cleanupConfirmed = await waitBounded(
+      Promise.all(cleanup),
       cleanupTimeoutMs,
       scheduleTimeout,
       cancelTimeout
     );
-    try {
-      runtime.runtimeOwnership.release();
-    } catch {
-      // The original startup failure remains the actionable diagnostic.
+    if (cleanupConfirmed) {
+      try {
+        runtime.runtimeOwnership.release();
+      } catch {
+        // The original startup failure remains the actionable diagnostic.
+      }
     }
     throw error;
   }
 }
 
-function invokeBestEffort(work: () => unknown): Promise<unknown> {
-  try {
-    return Promise.resolve(work());
-  } catch {
-    return Promise.resolve();
-  }
+function invokeCleanup(work: () => unknown): Promise<void> {
+  return Promise.resolve()
+    .then(work)
+    .then(() => undefined);
 }
 
 async function waitBounded(
@@ -125,11 +126,16 @@ async function waitBounded(
   timeoutMs: number,
   scheduleTimeout: (callback: () => void, timeoutMs: number) => unknown,
   cancelTimeout: (handle: unknown) => void
-): Promise<void> {
+): Promise<boolean> {
   let timeoutHandle: unknown;
-  const timeout = new Promise<void>((resolve) => {
-    timeoutHandle = scheduleTimeout(resolve, timeoutMs);
+  const timeout = new Promise<boolean>((resolve) => {
+    timeoutHandle = scheduleTimeout(() => resolve(false), timeoutMs);
   });
-  await Promise.race([work.then(() => undefined), timeout]);
+  const completed = work.then(
+    () => true,
+    () => false
+  );
+  const cleanupConfirmed = await Promise.race([completed, timeout]);
   cancelTimeout(timeoutHandle);
+  return cleanupConfirmed;
 }

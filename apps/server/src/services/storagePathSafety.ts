@@ -9,6 +9,13 @@ const STORAGE_CONTROL_PATHS = [
   join('.recovery', 'orphans'),
 ] as const;
 
+export class StoragePathConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StoragePathConflictError';
+  }
+}
+
 /**
  * Rejects every DeployKit-owned control directory when it or an existing
  * ancestor below storage is a symlink. Call this before a reconciliation pass
@@ -20,8 +27,25 @@ export function assertStorageControlPathsAreSafe(storageDir: string): void {
     assertStoragePathHasNoSymlinkAncestors(storageDir, target);
     const stats = tryLstat(target);
     if (stats && !stats.isDirectory()) {
-      throw new Error('Storage control paths must be directories');
+      throw new StoragePathConflictError(
+        'Storage control paths must be directories'
+      );
     }
+  }
+}
+
+/**
+ * Applies the complete control-root invariant plus confinement checks for each
+ * path involved in one storage mutation. Call immediately before destructive
+ * or write operations rather than relying on a startup-only check.
+ */
+export function assertStorageMutationPathsAreSafe(
+  storageDir: string,
+  ...targets: string[]
+): void {
+  assertStorageControlPathsAreSafe(storageDir);
+  for (const target of targets) {
+    assertStoragePathHasNoSymlinkAncestors(storageDir, target);
   }
 }
 
@@ -40,7 +64,9 @@ export function assertStoragePathHasNoSymlinkAncestors(
     relativeTarget === '..' ||
     relativeTarget.startsWith(`..${sep}`)
   ) {
-    throw new Error('Storage path must remain inside the storage root');
+    throw new StoragePathConflictError(
+      'Storage path must remain inside the storage root'
+    );
   }
 
   let current = storageDir;
@@ -49,12 +75,14 @@ export function assertStoragePathHasNoSymlinkAncestors(
     const stats = tryLstat(current);
     if (!stats) break;
     if (stats.isSymbolicLink()) {
-      throw new Error(
+      throw new StoragePathConflictError(
         'Storage paths and ancestors must not contain symbolic links'
       );
     }
     if (!stats.isDirectory() && current !== target) {
-      throw new Error('Storage path ancestors must be directories');
+      throw new StoragePathConflictError(
+        'Storage path ancestors must be directories'
+      );
     }
   }
 }

@@ -66,11 +66,14 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 - 真实 runtime 分别对规范化 SQLite 与存储路径持有 SQLite sidecar 内核事务锁；
   任一资源共享都会 fail closed，进程死亡自动释放。启动恢复先于 GC/orphan
   对账，引用仍在则恢复、引用已删则完成提交。
-- 非法 manifest、storage-root 下任一祖先 symlink、无法以 checksum 优先且
-  identity 仅无 checksum 时兜底证明的歧义恢复，或原路径冲突，都会进入持久
-  隔离并让 readiness 返回非 200；统一守卫覆盖 staging/recovery/trash/
-  conflicts/orphans 控制根，冲突轮次暂停 GC、orphan 隔离和元数据修复；
-  运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
+- version 4 manifest 持久化完整目标 version ID 集合；存在任何有效 checksum
+  时，其 key 集合必须完整且逐项匹配，部分 checksum 不能回退 identity，零个
+  有效 checksum 时才允许 identity 兜底。非法/旧 v3 歧义 manifest、
+  storage-root 下任一祖先 symlink 或原路径冲突都会进入持久隔离并让 readiness
+  返回非 200；统一守卫覆盖 staging/recovery/trash/conflicts/orphans 控制根，
+  冲突轮次暂停 GC、orphan 隔离和元数据修复。
+- 数据库不得等于或位于 artifact storage 内，已有数据库 hard link 会在 sidecar
+  创建前拒绝；运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
 - 增加校验和巡检和明确的损坏状态。
@@ -85,8 +88,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 过期 staging 和已提交 trash，保留未提交 trash。2026-07-30 后续回归新增真实
 子进程在 active-version/project artifact rename 后 `SIGKILL`，同库重启保持
 产物、active pointer 与历史不变；双启动 fail closed。后续 review 加固验证
-同库/异存储、异库/同存储互斥、SIGKILL 自动释放，以及 v1/v2/v3 与 symlink/
-身份/checksum 恢复分支。
+同库/异存储、异库/同存储互斥、SIGKILL 自动释放、hard-link/存储重叠拒绝，
+以及 v1/v2/v3/v4 与 symlink/身份/checksum 恢复分支。
 
 ### 阶段 4：可观测性、交付和静态服务
 
@@ -97,7 +100,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 - 所有响应携带请求 ID；访问日志为结构化 JSON。
 - 增加请求延迟、上传、发布、失败、磁盘和数据库指标。
 - 服务支持 SIGTERM/SIGINT 优雅退出、SQLite checkpoint 与 runtime ownership
-  release；超时和 drain 失败路径也释放。
+  release；只有 HTTP 和 worker cleanup 全部确认完成才显式释放，超时、
+  drain/force-stop 失败或未完成会保留 ownership 到进程退出。
 - 活跃别名使用 revalidate/ETag，显式版本 URL 才允许 immutable。
 - CI 增加依赖漏洞、CodeQL、secret scan、恶意 ZIP 和崩溃恢复测试。
 

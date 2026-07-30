@@ -3,7 +3,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
+  readFileSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -89,6 +92,45 @@ test('rejects activating an unknown version without setting an active version', 
   const currentProject = await list.json();
   // Upload ≠ go-live and the failed activate must not set an active version.
   expect(currentProject.activeVersionId).toBeNull();
+});
+
+test('upload fails closed without writing through a symlinked staging root', async () => {
+  const project = await createProject();
+  const storageDir = join(tempDir, 'storage');
+  const externalDir = join(tempDir, 'external-staging');
+  mkdirSync(externalDir, { recursive: true });
+  writeFileSync(join(externalDir, 'marker.txt'), 'outside');
+  symlinkSync(externalDir, join(storageDir, '.staging'));
+  const projectBefore = await (
+    await request(`/api/projects/${project.id}/versions`)
+  ).json();
+  const historyBefore = await (
+    await request(`/api/projects/${project.id}/history?limit=20`)
+  ).json();
+  const form = new FormData();
+  form.append('folderFiles', new File(['<html>unsafe</html>'], 'index.html'));
+  form.append('versionDesc', 'must fail closed');
+
+  const upload = await request(`/api/projects/${project.id}/versions`, {
+    method: 'POST',
+    body: form,
+  });
+
+  expect(upload.status).toBe(503);
+  expect(await upload.json()).toEqual({
+    error: {
+      code: 'STORAGE_CONTROL_CONFLICT',
+      message: 'Artifact storage control paths are unsafe',
+    },
+  });
+  expect(readdirSync(externalDir)).toEqual(['marker.txt']);
+  expect(readFileSync(join(externalDir, 'marker.txt'), 'utf8')).toBe('outside');
+  expect(
+    await (await request(`/api/projects/${project.id}/versions`)).json()
+  ).toEqual(projectBefore);
+  expect(
+    await (await request(`/api/projects/${project.id}/history?limit=20`)).json()
+  ).toEqual(historyBefore);
 });
 
 test('exposes public liveness and repository readiness endpoints', async () => {

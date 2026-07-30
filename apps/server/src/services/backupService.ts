@@ -13,6 +13,7 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { RELATIONAL_SCHEMA_VERSION } from '../repositories/sqliteSchema';
 import { createId } from '../utils/id';
+import { assertDatabaseOutsideStorage } from '../utils/runtimeResourcePath';
 import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
 import { acquireRuntimeOwnership } from './runtimeOwnership';
@@ -88,6 +89,7 @@ export function createBackupService(
 
   return {
     createBackup(destination) {
+      assertDatabaseOutsideStorage(config.databaseFile, config.storageDir);
       if (!existsSync(config.databaseFile)) {
         throw new Error(`Database does not exist: ${config.databaseFile}`);
       }
@@ -171,6 +173,7 @@ export function createBackupService(
     },
 
     restoreBackup(backupPath, options) {
+      assertDatabaseOutsideStorage(config.databaseFile, config.storageDir);
       if (!options.force) {
         throw new Error('Restore requires an explicit force flag');
       }

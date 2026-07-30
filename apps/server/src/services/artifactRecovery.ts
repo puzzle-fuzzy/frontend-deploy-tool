@@ -25,6 +25,8 @@ export interface ArtifactRecoveryLease {
 }
 
 export interface ArtifactRecoveryEvidence {
+  /** Complete metadata version ID set for the deletion target. */
+  targetVersionIds?: string[];
   /** Durable upload checksums keyed by version ID. */
   versionChecksums: Record<string, string>;
 }
@@ -56,7 +58,7 @@ interface ArtifactIdentity {
 }
 
 interface RecoveryManifest {
-  version: 3;
+  version: 4;
   operation: 'delete';
   kind: 'project' | 'version';
   target: {
@@ -69,11 +71,19 @@ interface RecoveryManifest {
   stagedAt: string;
   committedAt: string | null;
   artifactIdentity: ArtifactIdentity | null;
+  targetVersionIds: string[];
   expectedVersionChecksums: Record<string, string>;
 }
 
-interface ParsedRecoveryManifest extends Omit<RecoveryManifest, 'version'> {
-  sourceVersion: 1 | 2 | 3;
+interface Version3RecoveryManifest
+  extends Omit<RecoveryManifest, 'version' | 'targetVersionIds'> {
+  version: 3;
+}
+
+interface ParsedRecoveryManifest
+  extends Omit<RecoveryManifest, 'version' | 'targetVersionIds'> {
+  sourceVersion: 1 | 2 | 3 | 4;
+  targetVersionIds: string[] | null;
 }
 
 interface LegacyRecoveryManifest {
@@ -109,8 +119,14 @@ export function createArtifactRecoveryService(
       versionId === null
         ? join(operationDir, 'artifacts', projectId)
         : join(operationDir, 'artifacts', projectId, versionId);
+    const targetVersionIds = resolveTargetVersionIds(
+      kind,
+      versionId,
+      evidence,
+      sourcePath
+    );
     let manifest: RecoveryManifest = {
-      version: 3,
+      version: 4,
       operation: 'delete',
       kind,
       target: { projectId, versionId },
@@ -122,6 +138,7 @@ export function createArtifactRecoveryService(
       // A valid pre-rename manifest makes even a crash between rename and the
       // identity update recoverable. Ambiguous cleanup never trusts null.
       artifactIdentity: null,
+      targetVersionIds,
       expectedVersionChecksums: sanitizeChecksums(evidence?.versionChecksums),
     };
 
@@ -257,7 +274,7 @@ export function recoverInterruptedArtifactOperations(
         try {
           const committedAt = new Date().toISOString();
           writeRecoveryManifest(storageDir, operationDir, {
-            ...toVersion3Manifest(manifest),
+            ...toCurrentManifest(manifest),
             committed: true,
             committedAt,
           });
@@ -354,6 +371,7 @@ function parseRecoveryManifest(
       stagedAt: legacy.stagedAt,
       committedAt: null,
       artifactIdentity: null,
+      targetVersionIds: null,
       expectedVersionChecksums: {},
     };
   } else if (isVersion2Manifest(value)) {
@@ -371,6 +389,7 @@ function parseRecoveryManifest(
       stagedAt: value.stagedAt,
       committedAt: value.committedAt,
       artifactIdentity: null,
+      targetVersionIds: null,
       expectedVersionChecksums: {},
     };
   } else if (isVersion3Manifest(value)) {
@@ -388,6 +407,25 @@ function parseRecoveryManifest(
       stagedAt: value.stagedAt,
       committedAt: value.committedAt,
       artifactIdentity: value.artifactIdentity,
+      targetVersionIds: null,
+      expectedVersionChecksums: value.expectedVersionChecksums,
+    };
+  } else if (isVersion4Manifest(value)) {
+    manifest = {
+      sourceVersion: 4,
+      operation: 'delete',
+      kind: value.kind,
+      target: {
+        projectId: value.target.projectId,
+        versionId: value.target.versionId,
+      },
+      originalPath: value.originalPath,
+      recoveryPath: value.recoveryPath,
+      committed: value.committed,
+      stagedAt: value.stagedAt,
+      committedAt: value.committedAt,
+      artifactIdentity: value.artifactIdentity,
+      targetVersionIds: value.targetVersionIds,
       expectedVersionChecksums: value.expectedVersionChecksums,
     };
   } else {
@@ -444,12 +482,24 @@ function isVersion2Manifest(value: unknown): value is {
   );
 }
 
-function isVersion3Manifest(value: unknown): value is RecoveryManifest {
+function isVersion3Manifest(value: unknown): value is Version3RecoveryManifest {
   return (
     isCommonManifest(value) &&
     value.version === 3 &&
+    !('targetVersionIds' in value) &&
     (value.artifactIdentity === null ||
       isArtifactIdentity(value.artifactIdentity)) &&
+    isChecksumRecord(value.expectedVersionChecksums)
+  );
+}
+
+function isVersion4Manifest(value: unknown): value is RecoveryManifest {
+  return (
+    isCommonManifest(value) &&
+    value.version === 4 &&
+    (value.artifactIdentity === null ||
+      isArtifactIdentity(value.artifactIdentity)) &&
+    isTargetVersionIdSet(value.targetVersionIds) &&
     isChecksumRecord(value.expectedVersionChecksums)
   );
 }
@@ -515,6 +565,15 @@ function validateTarget(manifest: ParsedRecoveryManifest): void {
   ) {
     throw new Error('Recovery manifest target is invalid');
   }
+  if (
+    manifest.sourceVersion === 4 &&
+    (manifest.targetVersionIds === null ||
+      (manifest.kind === 'version' &&
+        (manifest.targetVersionIds.length !== 1 ||
+          manifest.targetVersionIds[0] !== versionId)))
+  ) {
+    throw new Error('Recovery manifest target version set is invalid');
+  }
 }
 
 function validateRelativePath(path: string): void {
@@ -553,6 +612,53 @@ function sanitizeChecksums(
       ([versionId, checksum]) =>
         isSafePathComponent(versionId) && isSha256(checksum)
     )
+  );
+}
+
+function resolveTargetVersionIds(
+  kind: RecoveryManifest['kind'],
+  versionId: string | null,
+  evidence: ArtifactRecoveryEvidence | undefined,
+  sourcePath: string
+): string[] {
+  const candidates =
+    evidence?.targetVersionIds ??
+    (kind === 'version'
+      ? versionId
+        ? [versionId]
+        : []
+      : readdirSync(sourcePath, { withFileTypes: true })
+          .filter((entry) => entry.isDirectory())
+          .map((entry) => entry.name));
+  const normalized = [...candidates].sort();
+  if (!isTargetVersionIdSet(normalized)) {
+    throw new Error('Recovery target version IDs are invalid');
+  }
+  if (
+    kind === 'version' &&
+    (versionId === null ||
+      normalized.length !== 1 ||
+      normalized[0] !== versionId)
+  ) {
+    throw new Error('Version recovery must identify exactly its target');
+  }
+  return normalized;
+}
+
+function isTargetVersionIdSet(value: unknown): value is string[] {
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (versionId): versionId is string =>
+        typeof versionId === 'string' && isSafePathComponent(versionId)
+    )
+  ) {
+    return false;
+  }
+  return value.every(
+    (versionId, index) =>
+      (index === 0 || value[index - 1] < versionId) &&
+      value.indexOf(versionId) === index
   );
 }
 
@@ -607,7 +713,9 @@ function canProveRestoredArtifact(
   manifest: ParsedRecoveryManifest,
   originalPath: string
 ): boolean {
-  if (manifest.sourceVersion !== 3) return false;
+  // Deployed v3 manifests did not record the complete target version set, so
+  // they remain recoverable only through the unambiguous recovery-object path.
+  if (manifest.sourceVersion !== 4) return false;
   if (Object.keys(manifest.expectedVersionChecksums).length > 0) {
     return checksumsMatch(manifest, originalPath);
   }
@@ -640,36 +748,40 @@ function checksumsMatch(
   originalPath: string
 ): boolean {
   const expected = manifest.expectedVersionChecksums;
+  const targetVersionIds = manifest.targetVersionIds;
+  if (!targetVersionIds) return false;
+  const checksumVersionIds = Object.keys(expected).sort();
+  if (!sameStrings(checksumVersionIds, targetVersionIds)) return false;
+
   if (manifest.kind === 'version') {
     const versionId = manifest.target.versionId;
-    const expectedVersions = Object.keys(expected);
     const expectedChecksum = versionId ? expected[versionId] : undefined;
     return (
-      expectedVersions.length === 1 &&
+      targetVersionIds.length === 1 &&
+      targetVersionIds[0] === versionId &&
       expectedChecksum !== undefined &&
       checksumDirectory(originalPath) === expectedChecksum
     );
   }
 
-  const expectedVersions = Object.keys(expected).sort();
-  if (expectedVersions.length === 0) return false;
+  if (targetVersionIds.length === 0) return false;
   const actualVersions = readdirSync(originalPath, {
     withFileTypes: true,
   })
     .filter((entry) => entry.isDirectory())
     .map((entry) => entry.name)
     .sort();
-  if (
-    actualVersions.length !== expectedVersions.length ||
-    actualVersions.some(
-      (versionId, index) => versionId !== expectedVersions[index]
-    )
-  ) {
-    return false;
-  }
-  return expectedVersions.every(
+  if (!sameStrings(actualVersions, targetVersionIds)) return false;
+  return targetVersionIds.every(
     (versionId) =>
       checksumDirectory(join(originalPath, versionId)) === expected[versionId]
+  );
+}
+
+function sameStrings(left: string[], right: string[]): boolean {
+  return (
+    left.length === right.length &&
+    left.every((value, index) => value === right[index])
   );
 }
 
@@ -720,11 +832,14 @@ function removeRecoveryOperation(
   rmSync(operationDir, { recursive: true, force: true });
 }
 
-function toVersion3Manifest(
-  manifest: ParsedRecoveryManifest
-): RecoveryManifest {
+function toCurrentManifest(manifest: ParsedRecoveryManifest): RecoveryManifest {
+  const inferredTargetVersionIds =
+    manifest.targetVersionIds ??
+    (manifest.target.versionId
+      ? [manifest.target.versionId]
+      : Object.keys(manifest.expectedVersionChecksums).sort());
   return {
-    version: 3,
+    version: 4,
     operation: manifest.operation,
     kind: manifest.kind,
     target: manifest.target,
@@ -734,6 +849,7 @@ function toVersion3Manifest(
     stagedAt: manifest.stagedAt,
     committedAt: manifest.committedAt,
     artifactIdentity: manifest.artifactIdentity,
+    targetVersionIds: inferredTargetVersionIds,
     expectedVersionChecksums: manifest.expectedVersionChecksums,
   };
 }

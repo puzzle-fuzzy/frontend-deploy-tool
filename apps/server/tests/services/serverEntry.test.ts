@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'bun:test';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { DeployKitRuntime } from '../../src/app';
 import type { ServerConfig } from '../../src/config';
 import { startDeployKitServer } from '../../src/serverEntry';
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
 const config: ServerConfig = {
   environment: 'test',
@@ -99,7 +103,7 @@ describe('startDeployKitServer', () => {
     ]);
   });
 
-  test('releases ownership when post-serve cleanup promises never settle', async () => {
+  test('retains ownership when post-serve cleanup promises never settle', async () => {
     const calls: string[] = [];
     const runtime = fakeRuntime(calls, {
       start() {
@@ -133,7 +137,84 @@ describe('startDeployKitServer', () => {
 
     expect(calls).toContain('force-stop');
     expect(calls).toContain('worker-stop');
-    expect(calls.at(-1)).toBe('release-ownership');
+    expect(calls).not.toContain('release-ownership');
+  });
+
+  test('retains a real ownership lock when startup cleanup times out', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-entry-lock-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    const runtimeConfig = { ...config, databaseFile, storageDir };
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    const calls: string[] = [];
+    const runtime = fakeRuntime(calls, {
+      start() {
+        throw new Error('worker start failed');
+      },
+      stop() {
+        return new Promise(() => {});
+      },
+    });
+    runtime.runtimeOwnership = ownership;
+
+    try {
+      await expect(
+        startDeployKitServer(runtimeConfig, runtime, {
+          serve: () => ({ stop: () => new Promise(() => {}) }),
+          installHandlers: () => () => {},
+          logger: () => {},
+          cleanupTimeoutMs: 1,
+          scheduleTimeout: (callback) => {
+            queueMicrotask(callback);
+            return 'timer';
+          },
+          cancelTimeout: () => {},
+        })
+      ).rejects.toThrow('worker start failed');
+
+      expect(ownershipError(databaseFile, storageDir)).toContain(
+        'RUNTIME_OWNERSHIP_HELD'
+      );
+    } finally {
+      ownership.release();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('retains a real ownership lock when startup cleanup rejects', async () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-entry-lock-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    const runtimeConfig = { ...config, databaseFile, storageDir };
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    const calls: string[] = [];
+    const runtime = fakeRuntime(calls, {
+      start() {
+        throw new Error('worker start failed');
+      },
+    });
+    runtime.runtimeOwnership = ownership;
+
+    try {
+      await expect(
+        startDeployKitServer(runtimeConfig, runtime, {
+          serve: () => ({
+            stop: async () => {
+              throw new Error('server stop failed');
+            },
+          }),
+          installHandlers: () => () => {},
+          logger: () => {},
+        })
+      ).rejects.toThrow('worker start failed');
+
+      expect(ownershipError(databaseFile, storageDir)).toContain(
+        'RUNTIME_OWNERSHIP_HELD'
+      );
+    } finally {
+      ownership.release();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('cleans every started resource when startup logging fails', async () => {
@@ -184,4 +265,14 @@ function fakeRuntime(
       release: () => calls.push('release-ownership'),
     },
   } as unknown as DeployKitRuntime;
+}
+
+function ownershipError(databaseFile: string, storageDir: string): string {
+  try {
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    ownership.release();
+    return '';
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
 }

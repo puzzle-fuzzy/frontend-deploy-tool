@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { join } from 'node:path';
-import { loadConfig } from '../../src/config';
+import { loadConfig, validateAppConfig } from '../../src/config';
 
 describe('loadConfig', () => {
   const appDir = join('workspace', 'apps', 'server');
@@ -97,6 +97,41 @@ describe('loadConfig', () => {
       artifactAuditLeaseMs: 90_000,
       artifactAuditMaxAttempts: 3,
     });
+  });
+
+  test('rejects a database path equal to or nested inside artifact storage', () => {
+    const storageDir = join(appDir, 'unsafe-storage');
+    const manualConfig = {
+      dataFile: join(appDir, 'data.json'),
+      storageDir,
+      publicDir: join(appDir, 'public'),
+      adminEmail: 'admin@test.local',
+      adminPassword: 'test-password',
+      secureCookies: false,
+      registrationEnabled: false,
+    };
+
+    expect(() =>
+      validateAppConfig({
+        ...manualConfig,
+        databaseFile: join(storageDir, 'deploykit.sqlite'),
+      })
+    ).toThrow('DATABASE_STORAGE_OVERLAP');
+    expect(() =>
+      validateAppConfig({
+        ...manualConfig,
+        databaseFile: storageDir,
+      })
+    ).toThrow('DATABASE_STORAGE_OVERLAP');
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: {
+          DATABASE_FILE: join(storageDir, 'deploykit.sqlite'),
+          STORAGE_DIR: storageDir,
+        },
+      })
+    ).toThrow('DATABASE_STORAGE_OVERLAP');
   });
 
   test('rejects an invalid PORT instead of silently using another port', () => {

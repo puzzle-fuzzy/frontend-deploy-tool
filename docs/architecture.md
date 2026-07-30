@@ -182,16 +182,19 @@ apps/server/
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
   启动不会再次覆盖关系数据。
 - 删除项目/版本先把产物在同卷原子移动到 `.recovery/trash/{operationId}`；
-  version 3 manifest 明确记录 delete 操作、project/version 目标、原路径、
-  recovery 路径、committed 状态、移动后目录的 dev/inode/birthtime/ctime
-  身份，以及删除前持久化的版本 checksum。元数据事务失败时恢复原路径，
-  成功时更新 manifest 并写 `COMMITTED` 标记，等待保留期 GC；version 1/2
-  manifest 仍可在无歧义时恢复。
+  version 4 manifest 明确记录 delete 操作、project/version 目标、完整目标
+  version ID 集合、原路径、recovery 路径、committed 状态、移动后目录的
+  dev/inode/birthtime/ctime 身份，以及删除前持久化的版本 checksum。元数据
+  事务失败时恢复原路径，成功时更新 manifest 并写 `COMMITTED` 标记，等待
+  保留期 GC；version 1/2/3 manifest 仍可在无歧义时恢复。
   `flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除
   `__MACOSX`。
 - 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
   checksum 校验后，通过 `rename` 原子移动到正式版本目录，再提交 SQLite 元数据。
-  元数据提交失败会删除正式目录。
+  `.staging`、本次 staging 和最终目录在创建、写入、解压、移动和清理前都会
+  重新经过同一 storage-root 相对路径守卫；不安全时返回不含真实路径的
+  `503 STORAGE_CONTROL_CONFLICT`。元数据提交失败会在路径仍安全时删除正式
+  目录，补偿清理失败不会覆盖原始上传/元数据错误。
 - `activeVersionId` 是唯一发布指针。发布、回滚与兼容 activate 请求必须携带
   调用方读取到的 `expectedActiveVersionId`；服务端在同一次元数据事务中校验，
   不一致返回 `409 RELEASE_CONFLICT`。切换前会验证版本生命周期、
@@ -204,16 +207,22 @@ apps/server/
   `<STORAGE_DIR>.runtime-lock.sqlite`。数据库或存储任一资源已被活跃进程持有，
   启动都会以 `RUNTIME_OWNERSHIP_HELD` fail closed；若第二把锁失败，第一把立即
   释放。锁的正确性只依赖打开的 SQLite 事务，连接关闭或进程死亡由内核释放；
-  sidecar 内的 PID/token 仅供诊断。该机制只承诺单机进程互斥，不是多主机
-  分布式锁；纯 `createApp/app.request` 测试不获取它。
+  sidecar 内的 PID/token 仅供诊断。规范化后数据库路径不得等于或位于 artifact
+  storage 内；已存在数据库若有多个 hard link，会在创建任何 sidecar 前以
+  `RUNTIME_DATABASE_HARDLINK_UNSAFE` 拒绝。正常 HTTP/worker drain 全部确认后
+  才显式释放 ownership；timeout、drain/force-stop 失败或未完成时保留到进程
+  退出。该机制只承诺单机进程互斥，不是多主机分布式锁；纯
+  `createApp/app.request` 测试不获取它。
 - 应用开始服务前先恢复未完成删除，再执行 GC 和 orphan 对账。元数据仍引用目标
   时把 recovery 产物恢复到原路径；元数据已删除目标时补齐 committed manifest
   与 `COMMITTED`。统一的 storage-root 相对路径守卫会检查 source、operation、
   `.staging`、`.recovery`、`trash`、`conflicts`、`orphans` 控制目录、
   artifacts 祖先、recovery 对象及其递归树；任一现有祖先或对象为 symlink 都
   fail closed，且不访问其外部目标。若原路径已存在而
-  recovery 已缺失，只在 version 3 的证据成立时清理 manifest：存在持久 checksum
-  时必须重新计算并全部匹配，只有完全没有 checksum 时才允许目录身份兜底。
+  recovery 已缺失，只在 version 4 的证据成立时清理 manifest：只要存在一个
+  有效持久 checksum，其 version ID 集合就必须与完整目标集合完全一致，并逐个
+  重新计算匹配，部分 checksum 不能退回目录身份；完全没有有效 checksum 时才
+  允许目录身份兜底。缺少完整目标集合的旧 version 3 歧义分支一律 fail closed。
   其他情况移动到 `.recovery/conflicts/` 并让 readiness 返回 503；本次启动存在
   任一恢复冲突时暂停 GC、orphan 隔离和元数据修复等全部破坏性对账。无冲突时
   才清理超过 staging 保留期的中断上传和旧 ZIP；
@@ -237,6 +246,8 @@ apps/server/
 
 恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
 ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
+数据库路径等于或位于 artifact storage 内时，backup/restore 都会在复制、
+移动或创建 rollback 路径前拒绝。
 备份会先复制到数据库和存储各自同卷的
 临时路径；验证通过后，当前数据库、WAL sidecar 与存储移动到
 `.deploykit-rollback/{operationId}`，再原子安装新状态。任一安装步骤失败都会

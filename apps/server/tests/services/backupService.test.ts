@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -276,6 +277,33 @@ describe('createBackupService', () => {
       } finally {
         ownership.release();
       }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses restore when the database is nested inside artifact storage', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      createBackupService(fixture).createBackup(backupDir);
+      const unsafeStorageDir = join(tempDir, 'unsafe-storage');
+      const unsafeDatabaseFile = join(unsafeStorageDir, 'deploykit.sqlite');
+      mkdirSync(unsafeStorageDir, { recursive: true });
+      copyFileSync(fixture.databaseFile, unsafeDatabaseFile);
+      const unsafeService = createBackupService({
+        databaseFile: unsafeDatabaseFile,
+        storageDir: unsafeStorageDir,
+      });
+
+      expect(() =>
+        unsafeService.restoreBackup(backupDir, { force: true })
+      ).toThrow('DATABASE_STORAGE_OVERLAP');
+      expect(existsSync(unsafeDatabaseFile)).toBe(true);
+      expect(existsSync(join(unsafeStorageDir, '.deploykit-rollback'))).toBe(
+        false
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -53,8 +53,12 @@ DEPLOY_BASE_URL=https://deploy.example.net
 `<STORAGE_DIR>.runtime-lock.sqlite` 两个 SQLite `BEGIN EXCLUSIVE` 事务锁。
 数据库或存储任一资源已有活跃 owner，第二个进程都会在对账和监听端口前以
 `RUNTIME_OWNERSHIP_HELD` 退出；若进程死亡，SQLite 连接关闭会由内核立即释放
-两把锁。sidecar 内的 PID/token 只是诊断数据，不参与正确性判断。这是本机
-进程锁，不支持多主机同时读写同一份 SQLite/本地存储。
+两把锁。数据库路径规范化后不得等于或位于 `STORAGE_DIR` 内；已存在数据库有
+多个 hard link 时，会在创建 sidecar 前以 `RUNTIME_DATABASE_HARDLINK_UNSAFE`
+退出。正常 HTTP/worker drain 全部确认后才显式 release；timeout、drain/
+force-stop 失败或未完成时保留 ownership 到进程退出。sidecar 内的 PID/token
+只是诊断数据，不参与正确性判断。这是本机进程锁，不支持多主机同时读写同一份
+SQLite/本地存储。
 
 ## 测试
 
@@ -89,6 +93,8 @@ bun run test          # Vitest + React Testing Library
    - **ZIP**：选择 `.zip`（服务端安全解压 + 扁平化）。
    - **文件夹**：选择构建产物目录（`webkitdirectory`，保留相对路径）。
    - 服务端先写入 `.voasx/storage/.staging/`，全部校验通过后再原子移动到正式版本目录。
+   - 创建、写入、解压、移动和清理前都会复查 storage control/staging/final
+     路径；不安全时返回不泄露实际路径的 `503 STORAGE_CONTROL_CONFLICT`。
    - 上传后保持预览态；必须显式发布后才成为正式版本。
 4. 预览（未配置双域的本地兼容模式）：
    - 正式版本：`http://localhost:4010/deploy/{slug}/`
@@ -100,9 +106,11 @@ bun run test          # Vitest + React Testing Library
 执行 GC/orphan 对账。元数据仍引用目标则恢复原路径，已不引用则补
 `COMMITTED`。恢复会从 storage root 开始统一拒绝 source 祖先以及
 `.staging`、`.recovery`、`trash`、`conflicts`、`orphans` 控制路径中的任何
-symlink，且不会访问外部目标。原路径已存在但 recovery 缺失时，version 3
-manifest 只要带持久化 checksum 就必须重新计算并全部匹配；仅在没有 checksum
-时才使用目录身份兜底。严格路径、身份或 checksum 校验失败会隔离到
+symlink，且不会访问外部目标。原路径已存在但 recovery 缺失时，只有 version 4
+manifest 可以证明歧义清理：只要有一个有效 checksum，checksum 的 version ID
+集合就必须与 manifest 的完整目标集合完全相等并逐个匹配；部分 checksum 不得
+使用目录身份兜底，只有零个有效 checksum 时才允许 identity 证明。旧 version 3
+歧义分支一律 fail closed。严格路径、身份或 checksum 校验失败会隔离到
 `.recovery/conflicts/`，此时 `/health/ready` 保持 `503`，必须先人工处理。
 存在恢复冲突的启动轮次会暂停全部破坏性对账：GC、orphan 隔离和元数据修复
 都不会执行。

@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { DEFAULT_STORAGE_QUOTA_LIMITS } from './domain/storageQuota';
+import { assertDatabaseOutsideStorage } from './utils/runtimeResourcePath';
 
 export type RuntimeEnvironment = 'development' | 'test' | 'production';
 
@@ -231,6 +232,9 @@ export function loadConfig({
  */
 export function validateAppConfig(config: AppConfig): void {
   const environment = config.environment ?? 'development';
+  if (config.databaseFile) {
+    assertDatabaseOutsideStorage(config.databaseFile, config.storageDir);
+  }
   if (config.managementBaseURL) {
     parseBaseURL('MANAGEMENT_BASE_URL', config.managementBaseURL);
   }

@@ -29,9 +29,10 @@ const config: AppConfig = {
   registrationEnabled: false,
 };
 
-createDeployKitRuntime(config);
+const runtime = createDeployKitRuntime(config);
 
 if (mode === 'hold') {
+  void runtime;
   if (!readyFile) throw new Error('READY_FILE is required in hold mode');
   writeFileSync(readyFile, 'ready', 'utf8');
   await new Promise(() => {});

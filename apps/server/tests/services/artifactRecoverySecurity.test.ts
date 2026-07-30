@@ -97,9 +97,10 @@ describe('artifact recovery manifest safety', () => {
       expect(
         JSON.parse(readFileSync(join(operationDir, 'manifest.json'), 'utf8'))
       ).toMatchObject({
-        version: 3,
+        version: 4,
         committed: true,
         committedAt: expect.any(String),
+        targetVersionIds: ['version-1'],
       });
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
@@ -349,6 +350,46 @@ describe('artifact recovery manifest safety', () => {
         )
       ).toEqual({ restored: 1, committed: 0, conflicts: 0 });
       expect(existsSync(lease.recoveryPath ?? '')).toBe(false);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed for ambiguous deployed v3 manifests without a target version set', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-recovery-v3-targets-')
+    );
+    const originalPath = join(storageDir, 'p1', 'version-1');
+    mkdirSync(originalPath, { recursive: true });
+    writeFileSync(join(originalPath, 'index.html'), 'same bytes');
+    const checksum = checksumDirectory(originalPath);
+    const lease = createArtifactRecoveryService(
+      storageDir
+    ).stageVersionDeletion('p1', 'version-1', {
+      versionChecksums: { 'version-1': checksum },
+    });
+    if (!lease.recoveryPath) throw new Error('Expected a staged operation');
+    const manifestPath = join(lease.recoveryPath, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      version: number;
+      recoveryPath: string;
+      targetVersionIds?: string[];
+    };
+    manifest.version = 3;
+    delete manifest.targetVersionIds;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    renameSync(join(storageDir, manifest.recoveryPath), originalPath);
+
+    try {
+      expect(
+        recoverInterruptedArtifactOperations(
+          repositoryWithReferencedVersion(checksum),
+          storageDir
+        )
+      ).toEqual({ restored: 0, committed: 0, conflicts: 1 });
+      expect(readFileSync(join(originalPath, 'index.html'), 'utf8')).toBe(
+        'same bytes'
+      );
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }
