@@ -28,6 +28,7 @@ interface ShutdownControllerOptions {
   server: DrainableServer;
   databaseFile?: string;
   timeoutMs: number;
+  drainBackground?: () => Promise<void>;
   logger?: RuntimeLogger;
   checkpoint?: (databaseFile: string) => void;
   exit?: (code: number) => void;
@@ -54,6 +55,7 @@ export function createShutdownController({
   server,
   databaseFile,
   timeoutMs,
+  drainBackground,
   logger = defaultRuntimeLogger,
   checkpoint = checkpointSqlite,
   exit = (code) => process.exit(code),
@@ -96,10 +98,15 @@ export function createShutdownController({
         timeoutMs
       );
     });
-    const drain = server.stop(false).then(
-      () => ({ kind: 'drained' }) as const,
-      (error: unknown) => ({ kind: 'failed', error }) as const
-    );
+    const drain = Promise.resolve()
+      .then(async () => {
+        await server.stop(false);
+        await drainBackground?.();
+      })
+      .then(
+        () => ({ kind: 'drained' }) as const,
+        (error: unknown) => ({ kind: 'failed', error }) as const
+      );
     const outcome = await Promise.race([drain, timeout]);
     cancelTimeout(timeoutHandle);
 

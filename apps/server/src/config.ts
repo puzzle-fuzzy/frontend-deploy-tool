@@ -50,6 +50,16 @@ export interface AppConfig {
   metricsToken?: string;
   /** Maximum time to drain in-flight requests before force-closing. */
   shutdownTimeoutMs?: number;
+  /** Run the durable artifact audit queue in this server process. */
+  artifactAuditWorkerEnabled?: boolean;
+  /** Delay between attempts to claim queued artifact audits. */
+  artifactAuditPollIntervalMs?: number;
+  /** Hard execution timeout for one isolated artifact audit subprocess. */
+  artifactAuditTimeoutMs?: number;
+  /** Durable claim lease; must remain longer than the subprocess timeout. */
+  artifactAuditLeaseMs?: number;
+  /** Maximum attempts before an artifact audit job becomes terminal. */
+  artifactAuditMaxAttempts?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -176,6 +186,35 @@ export function loadConfig({
       30_000,
       10 * 60 * 1000
     ),
+    artifactAuditWorkerEnabled: parseFlag(
+      'ARTIFACT_AUDIT_WORKER_ENABLED',
+      env.ARTIFACT_AUDIT_WORKER_ENABLED,
+      true
+    ),
+    artifactAuditPollIntervalMs: parsePositiveInteger(
+      'ARTIFACT_AUDIT_POLL_INTERVAL_MS',
+      env.ARTIFACT_AUDIT_POLL_INTERVAL_MS,
+      1_000,
+      10 * 60 * 1_000
+    ),
+    artifactAuditTimeoutMs: parsePositiveInteger(
+      'ARTIFACT_AUDIT_TIMEOUT_MS',
+      env.ARTIFACT_AUDIT_TIMEOUT_MS,
+      60_000,
+      10 * 60 * 1_000
+    ),
+    artifactAuditLeaseMs: parsePositiveInteger(
+      'ARTIFACT_AUDIT_LEASE_MS',
+      env.ARTIFACT_AUDIT_LEASE_MS,
+      90_000,
+      30 * 60 * 1_000
+    ),
+    artifactAuditMaxAttempts: parsePositiveInteger(
+      'ARTIFACT_AUDIT_MAX_ATTEMPTS',
+      env.ARTIFACT_AUDIT_MAX_ATTEMPTS,
+      3,
+      10
+    ),
   };
   validateAppConfig(config);
   return config;
@@ -192,6 +231,13 @@ export function validateAppConfig(config: AppConfig): void {
   }
   if (config.deployBaseURL) {
     parseBaseURL('DEPLOY_BASE_URL', config.deployBaseURL);
+  }
+  const artifactAuditTimeoutMs = config.artifactAuditTimeoutMs ?? 60_000;
+  const artifactAuditLeaseMs = config.artifactAuditLeaseMs ?? 90_000;
+  if (artifactAuditLeaseMs <= artifactAuditTimeoutMs) {
+    throw new Error(
+      'ARTIFACT_AUDIT_LEASE_MS must be greater than ARTIFACT_AUDIT_TIMEOUT_MS'
+    );
   }
   if (environment !== 'production') return;
 

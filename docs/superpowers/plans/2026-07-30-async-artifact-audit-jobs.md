@@ -337,13 +337,13 @@ interface DeployKitRuntime {
 }
 ```
 
-- [ ] **Step 1: Write worker and lifecycle tests**
+- [x] **Step 1: Write worker and lifecycle tests**
 
 Cover one-at-a-time execution, periodic heartbeat, retry/final failure,
 cancellation abort, no new claim after stop, startup expired-lease sweep, and
 shutdown waiting for `worker.stop()` before checkpoint.
 
-- [ ] **Step 2: Add strict worker configuration**
+- [x] **Step 2: Add strict worker configuration**
 
 Parse:
 
@@ -357,25 +357,25 @@ ARTIFACT_AUDIT_MAX_ATTEMPTS=3
 
 Reject a lease not greater than the execution timeout and cap attempts at 10.
 
-- [ ] **Step 3: Implement scheduler**
+- [x] **Step 3: Implement scheduler**
 
 Use one active `AbortController`, an unref'd poll timer, and an injected
 executor. `runOnce()` claims atomically, renews the lease while executing, then
 completes or fails through the queue service. `stop()` clears the timer, stops
 claiming, and aborts/awaits the active execution.
 
-- [ ] **Step 4: Split app composition from runtime startup**
+- [x] **Step 4: Split app composition from runtime startup**
 
 Keep `createApp(config)` returning an unstarted Hono app for tests. Add
 `createDeployKitRuntime(config)` that returns the same app plus its scheduler.
 Only `index.ts` starts the worker.
 
-- [ ] **Step 5: Extend graceful shutdown**
+- [x] **Step 5: Extend graceful shutdown**
 
 Include `artifactAuditWorker.stop()` in the bounded drain sequence after HTTP
 acceptance stops and before SQLite checkpoint.
 
-- [ ] **Step 6: Run worker, config, and runtime tests**
+- [x] **Step 6: Run worker, config, and runtime tests**
 
 Expected: all focused tests pass.
 

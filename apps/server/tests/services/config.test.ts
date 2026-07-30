@@ -39,6 +39,11 @@ describe('loadConfig', () => {
       metricsEnabled: true,
       metricsToken: undefined,
       shutdownTimeoutMs: 30_000,
+      artifactAuditWorkerEnabled: true,
+      artifactAuditPollIntervalMs: 1_000,
+      artifactAuditTimeoutMs: 60_000,
+      artifactAuditLeaseMs: 90_000,
+      artifactAuditMaxAttempts: 3,
     });
   });
 
@@ -86,6 +91,11 @@ describe('loadConfig', () => {
       metricsEnabled: true,
       metricsToken: undefined,
       shutdownTimeoutMs: 30_000,
+      artifactAuditWorkerEnabled: true,
+      artifactAuditPollIntervalMs: 1_000,
+      artifactAuditTimeoutMs: 60_000,
+      artifactAuditLeaseMs: 90_000,
+      artifactAuditMaxAttempts: 3,
     });
   });
 
@@ -198,6 +208,20 @@ describe('loadConfig', () => {
     expect(() =>
       loadConfig({ appDir, env: { SHUTDOWN_TIMEOUT_MS: '600001' } })
     ).toThrow('Invalid SHUTDOWN_TIMEOUT_MS');
+    expect(() =>
+      loadConfig({ appDir, env: { ARTIFACT_AUDIT_MAX_ATTEMPTS: '11' } })
+    ).toThrow('Invalid ARTIFACT_AUDIT_MAX_ATTEMPTS');
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: {
+          ARTIFACT_AUDIT_TIMEOUT_MS: '60000',
+          ARTIFACT_AUDIT_LEASE_MS: '60000',
+        },
+      })
+    ).toThrow(
+      'ARTIFACT_AUDIT_LEASE_MS must be greater than ARTIFACT_AUDIT_TIMEOUT_MS'
+    );
   });
 
   test('uses explicit upload resource budgets', () => {
@@ -217,6 +241,11 @@ describe('loadConfig', () => {
         STAGING_RETENTION_HOURS: '12',
         RECOVERY_RETENTION_HOURS: '72',
         SHUTDOWN_TIMEOUT_MS: '45000',
+        ARTIFACT_AUDIT_WORKER_ENABLED: 'false',
+        ARTIFACT_AUDIT_POLL_INTERVAL_MS: '2500',
+        ARTIFACT_AUDIT_TIMEOUT_MS: '70000',
+        ARTIFACT_AUDIT_LEASE_MS: '100000',
+        ARTIFACT_AUDIT_MAX_ATTEMPTS: '5',
       },
     });
 
@@ -233,6 +262,11 @@ describe('loadConfig', () => {
     expect(config.stagingRetentionHours).toBe(12);
     expect(config.recoveryRetentionHours).toBe(72);
     expect(config.shutdownTimeoutMs).toBe(45_000);
+    expect(config.artifactAuditWorkerEnabled).toBe(false);
+    expect(config.artifactAuditPollIntervalMs).toBe(2_500);
+    expect(config.artifactAuditTimeoutMs).toBe(70_000);
+    expect(config.artifactAuditLeaseMs).toBe(100_000);
+    expect(config.artifactAuditMaxAttempts).toBe(5);
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {

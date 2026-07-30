@@ -27,7 +27,16 @@ import {
 } from './repositories/sessionRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
+import {
+  type ArtifactAuditExecutor,
+  createSubprocessArtifactAuditExecutor,
+} from './services/artifactAuditExecutor';
+import { createArtifactAuditJobService } from './services/artifactAuditJobService';
 import { createArtifactAuditService } from './services/artifactAuditService';
+import {
+  type ArtifactAuditWorker,
+  createArtifactAuditWorker,
+} from './services/artifactAuditWorker';
 import { createArtifactRecoveryService } from './services/artifactRecovery';
 import type { AppEnv } from './services/contracts';
 import {
@@ -43,6 +52,12 @@ import { createVersionService } from './services/versionService';
 export interface CreateAppOptions {
   logger?: StructuredLogger;
   metrics?: MetricsRegistry;
+  artifactAuditExecutor?: ArtifactAuditExecutor;
+}
+
+export interface DeployKitRuntime {
+  app: ReturnType<typeof createApp>;
+  artifactAuditWorker: ArtifactAuditWorker;
 }
 
 /**
@@ -54,6 +69,29 @@ export interface CreateAppOptions {
  * from `Bun.serve` so tests can exercise `createApp()` without opening a port.
  */
 export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
+  return composeApp(config, options).app;
+}
+
+export function createDeployKitRuntime(
+  config: AppConfig,
+  options: CreateAppOptions = {}
+): DeployKitRuntime {
+  const composition = composeApp(config, options);
+  const artifactAuditWorker = createArtifactAuditWorker({
+    jobService: composition.artifactAuditJobService,
+    executor:
+      options.artifactAuditExecutor ??
+      createSubprocessArtifactAuditExecutor({
+        timeoutMs: config.artifactAuditTimeoutMs ?? 60_000,
+      }),
+    workerId: `audit-${process.pid}-${randomBytes(6).toString('hex')}`,
+    pollIntervalMs: config.artifactAuditPollIntervalMs ?? 1_000,
+    leaseMs: config.artifactAuditLeaseMs ?? 90_000,
+  });
+  return { app: composition.app, artifactAuditWorker };
+}
+
+function composeApp(config: AppConfig, options: CreateAppOptions) {
   validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
 
@@ -104,6 +142,13 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
     config.storageDir,
     {
       recordOutcome: (status) => metrics.recordArtifactAudit(status),
+    }
+  );
+  const artifactAuditJobService = createArtifactAuditJobService(
+    repo,
+    config.storageDir,
+    {
+      maxAttempts: config.artifactAuditMaxAttempts ?? 3,
     }
   );
   const userService = createUserService(repo);
@@ -181,7 +226,7 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
     uploadRouteLimits,
   });
 
-  return new Hono<AppEnv>()
+  const app = new Hono<AppEnv>()
     .use('*', requestId())
     .use(
       '*',
@@ -275,6 +320,7 @@ export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
       }
       return c.notFound();
     });
+  return { app, artifactAuditJobService };
 }
 
 function hasValidBearerToken(

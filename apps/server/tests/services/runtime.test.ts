@@ -23,6 +23,9 @@ describe('shutdown runtime', () => {
       },
       databaseFile: '/tmp/deploykit.sqlite',
       timeoutMs: 1000,
+      drainBackground: async () => {
+        calls.push('worker-stop');
+      },
       logger: () => {},
       checkpoint: (path) => calls.push(`checkpoint:${path}`),
       exit: (code) => exits.push(code),
@@ -33,7 +36,11 @@ describe('shutdown runtime', () => {
       controller.shutdown('SIGINT'),
     ]);
 
-    expect(calls).toEqual(['drain', 'checkpoint:/tmp/deploykit.sqlite']);
+    expect(calls).toEqual([
+      'drain',
+      'worker-stop',
+      'checkpoint:/tmp/deploykit.sqlite',
+    ]);
     expect(exits).toEqual([0]);
     expect(controller.isShuttingDown()).toBe(true);
   });
@@ -88,6 +95,29 @@ describe('shutdown runtime', () => {
 
     await controller.shutdown('SIGINT');
     expect(calls).toEqual(['drain', 'force-stop']);
+    expect(exits).toEqual([1]);
+  });
+
+  test('force-closes and exits non-zero when background draining fails', async () => {
+    const calls: string[] = [];
+    const exits: number[] = [];
+    const controller = createShutdownController({
+      server: {
+        stop: async (force) => {
+          calls.push(force ? 'force-stop' : 'drain');
+        },
+      },
+      drainBackground: async () => {
+        calls.push('worker-stop');
+        throw new Error('worker drain failed');
+      },
+      timeoutMs: 1000,
+      logger: () => {},
+      exit: (code) => exits.push(code),
+    });
+
+    await controller.shutdown('SIGTERM');
+    expect(calls).toEqual(['drain', 'worker-stop', 'force-stop']);
     expect(exits).toEqual([1]);
   });
 
