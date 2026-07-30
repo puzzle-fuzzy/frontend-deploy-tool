@@ -514,11 +514,18 @@ Delivery evidence recorded on 2026-07-30:
   success after restart, zero queued/running jobs, and no project/version/job ID
   in labels.
 
-- [ ] **Step 5: Push and verify remote gates**
+- [x] **Step 5: Push and verify remote gates**
 
 Push `main`, then require both latest-sha GitHub CI and CodeQL to conclude
 success. If either fails, inspect logs, fix, re-run local verification, and push
 the corrective commit.
+
+Implementation/delivery SHA `09e3e4f8f4ef81ffcae7a62366e3e8776bb73391`
+was pushed directly to `main`. GitHub
+[CI run 30529027216](https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30529027216)
+and
+[CodeQL run 30529027278](https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30529027278)
+both concluded `success` for that exact SHA.
 
 ## Acceptance Criteria
 
