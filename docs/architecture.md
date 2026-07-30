@@ -9,7 +9,8 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 ```
                  ┌─────────────────────────── apps/server (Bun + Hono) ───────────────────────────┐
-  管理源 ───────► │  /api/*      → routes/{projects,versions,artifactAudits,history} → services    │
+  管理源 ───────► │  /api/*      → session routes/{projects,versions,apiTokens,...} → services     │
+                 │  /api/ci/*   → API Token middleware → ciVersions → versionService               │
                  │  /*          → 管理面板（apps/server/public，由打包脚本同步自 apps/web/dist）    │
   部署源 ───────► │  /deploy/*   → routes/deploy → deployResolver + artifactService                 │
                  │                                                                             │
@@ -39,13 +40,13 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 |----|------|----------|
 | `config.ts` | 环境变量解析与生产启动门禁（secret/password/双域/数值严格校验） | `config.ts` |
 | `errors.ts` | 服务端 `ApiError`；稳定错误码定义在 `@deploykit/shared/errors.ts` | `errors.ts` |
-| `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
+| `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型）、`apiToken.ts`（自动化凭据记录） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
-| `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` / CI upload commit 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`apiTokenRepository.ts`（SQLite/内存 Token 与安全事件）、`jsonProjectRepository.ts`（仅隔离测试）；旧 `data.json` 由 SQLite 初始化器导入 |
+| `services/` | 用例 | `projectService`、`apiTokenService`（项目 Token 生命周期与鉴权）、`versionService`（交互式/CI 上传、发布、回滚、删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `workers/` | 隔离进程入口 | `artifactAuditProcess.ts` 只接受一份严格 JSON 输入并输出一份经过 schema 校验的结果；不承载 HTTP、会话或数据库连接 |
-| `routes/` | HTTP 适配 | `projects` / `versions` / `artifactAudits` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
-| `app.ts` | 组合根 | `createApp(config)` 返回不争用所有权的测试应用；`createDeployKitRuntime(config)` 先获取运行时所有权，再组合相同 Hono app 与 durable audit Worker |
+| `routes/` | HTTP 适配 | session 管理面的 `projects` / `versions` / `apiTokens` / `artifactAudits` / `history`，经 `middleware/apiToken.ts` 鉴权的独立 `ciVersions`，以及依赖 artifactService 的 `deploy` |
+| `app.ts` | 组合根 | `createApp(config)` 返回不争用所有权的测试应用；先挂载 `/api/ci/*` 的 Token 路由与终止 404，再挂载 session 管理 API；`createDeployKitRuntime(config)` 先获取运行时所有权，再组合相同 Hono app 与 durable audit Worker |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
 | `index.ts` / `runtime.ts` | 运行入口 | `Bun.serve` + Worker 启动；SIGTERM/SIGINT 同时停止 HTTP 接收和任务领取，等待 drain 后 SQLite checkpoint |
 
@@ -69,10 +70,19 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 邮箱唯一性、成员角色、发布状态和历史事件基于同一个最新快照提交；回调抛错时
 整个变更回滚。文件解压等耗时 I/O 位于事务外，最终元数据提交失败时清理新产物。
 
+CI 上传使用更窄的 `commitVersionUpload` 原子边界。SQLite 在同一个
+`BEGIN IMMEDIATE` 中清理过期记录、重新读取 Token 的项目/撤销/过期/scope
+状态、判定 `(projectId, tokenId, idempotencyKey)` 的重放或冲突，并提交
+version、history 和幂等记录。因此“请求鉴权后 Token 被撤销”与并发重试都不能
+越过提交点。JSON adapter 只用于隔离测试，幂等状态仅在单进程内存中维护，也
+不提供这组跨进程原子保证；旧 `data.json` 的迁移由 SQLite 初始化器完成。真实
+runtime 要求 `databaseFile` 并使用 SQLite，不能把 JSON adapter 当成生产存储。
+
 ### 上传资源与路径安全
 
-- 请求：Hono `bodyLimit` 在 `formData()` 前限制完整 multipart 大小；上传 gate
-  分别限制全局、用户和项目并发数。
+- 请求：交互式和 CI 路由复用同一套 Hono `bodyLimit` 与上传 gate，在
+  `formData()` 前限制完整 multipart 大小，并分别限制全局、调用主体和项目
+  并发数。
 - ZIP：`fflate.Unzip` 从临时 ZIP 分块读取，不再把压缩包和所有解压结果同时
   放入内存；在条目发现时检查数量、路径长度、声明解压体积和压缩比，在每个
   输出块检查实际累计体积。
@@ -117,6 +127,21 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 - 登出会先撤销当前 session；用户可列出自己的设备、撤销指定设备或全部登出，
   不能读取或撤销他人的 session。
 
+### Session 与 CI 自动化身份隔离
+
+- 普通 `/api/*` 管理路由加载 browser/desktop session；项目 Token 的创建、
+  列出、轮换、撤销和安全事件读取也属于管理面，只允许项目 owner 或全局 admin。
+- `/api/ci/projects/:id/versions` 在 session app 之前挂载，只接受 canonical
+  project API Token bearer；Cookie、browser/desktop session bearer 都不能
+  认证该路由。`/api/ci` 和未注册的 `/api/ci/*` 在进入 session app 前终止为
+  404，避免路由前缀落回普通管理认证。
+- 项目 API Token 也不能访问项目、发布、回滚等 session 管理路由。v1 唯一
+  scope 是 `preview:upload`，且始终绑定一个项目；不存在 staging 或 production
+  publish scope。
+- 完整 Token 只在创建/轮换响应返回一次并设置 `Cache-Control: no-store`；
+  SQLite 只保存带版本的摘要与 prefix。列表、事件、日志、指标和错误不得包含
+  明文。泄漏时由 owner/admin 立即零重叠轮换或撤销，再替换 CI secret。
+
 ### 授权边界
 
 `domain/authorization.ts` 是全局角色与项目角色组合规则的唯一真源：
@@ -131,7 +156,19 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 ## API 契约
 
-请求/响应类型由路由处理器的 `c.json(...)` 与 `hono/validator` 推导；前端经 `hono/client` 自动获得类型，无需手写。完整端点表见根 [README](../README.md#api-接口)。错误统一为 `{ "error": { "code": ErrorCode, "message": string } }`。上传端点使用 `multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。
+session 管理面的请求/响应类型由 `ApiApp` 路由处理器的 `c.json(...)` 与
+`hono/validator` 推导，前端经 `hono/client` 自动获得类型。CI router 在组合根
+独立挂载，不属于浏览器 `ApiApp` 类型。完整端点表见根
+[README](../README.md#api-接口)。错误统一为
+`{ "error": { "code": ErrorCode, "message": string } }`。上传端点使用
+`multipart/form-data`（`file` 或 `folderFiles[]` + `versionDesc`）。
+
+项目 owner/全局 admin 通过 session 管理
+`GET/POST /api/projects/:id/api-tokens`、
+`POST /api/projects/:id/api-tokens/:tokenId/rotate`、
+`DELETE /api/projects/:id/api-tokens/:tokenId` 和
+`GET /api/projects/:id/api-tokens/security-events`。创建/轮换响应才包含一次性
+`plaintextToken`；list、revoke 和 security-events 只返回脱敏元数据。
 
 历史接口返回 `{ items, nextCursor }`。`nextCursor` 是只包含历史事件 ID
 的版本化 Base64URL 不透明令牌；下一页从该事件之后继续，因此列表头部新增事件
@@ -153,11 +190,25 @@ Worker 完成时在一个元数据事务内提交报告、历史和任务终态�
 换策略或 checksum 变化都会拒绝迟到结果。报告绑定 checksum、引擎版本和预算；
 静态检查不执行 JavaScript、不访问网络，且根 HTML 解析上限为 2MB。
 
+CI 上传契约是
+`POST /api/ci/projects/:id/versions`，multipart 字段与交互式上传相同，并额外
+要求 `Authorization: Bearer <project token>` 和 `Idempotency-Key`。幂等键只
+接受 1–128 个 `[A-Za-z0-9._~:-]` 字符；记录保留 24 小时。相同
+Token/project/key 且规范化描述与产物 checksum/sourceType/size/fileCount 摘要
+一致时返回原版本（首次 `201`，重放 `200`）；摘要不同返回
+`409 IDEMPOTENCY_CONFLICT`。CI 仍走共享的解压、路径、入口、checksum、quota
+和 concurrency 管线，只创建 preview 且不改变 `activeVersionId`。生产发布必须
+由 session 用户在管理路由提交 `expectedActiveVersionId`，继续执行 CAS 和
+blocking audit gate；当前没有 staging 环境或自动生产发布。成功 body 只有
+`{ version: { id, name }, replayed }`；固定预览地址由
+`DEPLOY_BASE_URL + /deploy/{slug}/{version.id}/` 构造，不存在 `previewUrl`
+响应字段。
+
 ## 存储布局
 
 ```
 apps/server/
-├── deploykit.sqlite                       # 关系型元数据、发布台账、审计与会话
+├── deploykit.sqlite                       # 元数据、发布/审计、会话、API Token 与 CI 幂等
 ├── deploykit.sqlite.runtime-lock.sqlite   # SQLite 数据库资源的内核事务锁 sidecar
 ├── data.json                              # 旧版本数据，仅在 SQLite 为空时导入一次
 ├── public/                                # 管理面板（打包脚本同步自 apps/web/dist）
@@ -175,15 +226,17 @@ apps/server/
 ```
 
 - `deploykit.sqlite`：启用外键、WAL、`synchronous=NORMAL` 与
-  `busy_timeout`。用户、项目、成员、版本、发布、审计任务/报告和会话使用独立关系表；
+  `busy_timeout`。用户、项目、成员、版本、发布、审计任务/报告、会话、项目
+  API Token、安全事件和 CI 幂等记录使用独立关系表；
   聚合写用例通过同步 `mutate` + `IMMEDIATE` 事务执行行级 upsert/delete，防止
   并发覆盖。审计事件只追加不截断，游标先解析到数据库自增序列，再按可见项目
   直接查询；发布、回滚与兼容 activate 会在同一事务写入独立 `releases` 台账。
   `artifact_audit_jobs` 由独立仓库按行维护 enqueue、领取/租约恢复、心跳、
   完成、失败/重试、取消、分页、健康状态与批量清理；空轮询不重写聚合数据。
-  schema v5 在 v4 基础上增加活动任务部分唯一索引，以及领取、分页、过期租约和
-  终态保留索引；升级前创建 `.pre-relational-v5.bak`，重复活动任务会使迁移
-  fail closed。文档 schema v7 升级到 v8 同样保留备份。
+  relational schema v5 增加活动任务部分唯一索引，以及领取、分页、过期租约和
+  终态保留索引；v6 增加项目 API Token、安全事件与 CI 幂等记录。每次关系型
+  schema 升级前创建对应 `.pre-relational-v{n}.bak`，重复活动任务等不一致会使
+  迁移 fail closed。文档 schema v7 升级到 v8 同样保留备份。
 - 旧 `deploykit_state` 单行数据库会先通过 `VACUUM INTO` 创建
   `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
@@ -266,8 +319,9 @@ apps/server/
 
 `bun run ops -- backup` 使用 `VACUUM INTO` 生成一致 SQLite 快照，复制完整
 存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、元数据计数和
-产物计数。`verify` 在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、
-版本入口和 checksum。
+产物计数。schema v6 清单强制记录 Token、安全事件和 CI 幂等记录三项计数；
+v5 备份仍可验证和恢复，并在恢复后的真实 runtime 启动时迁移到 v6。`verify`
+在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、版本入口和 checksum。
 
 恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
 ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
@@ -323,6 +377,9 @@ Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryE
 
 > 注：`project.activeVersionId` 是线上版本唯一真源；`version.status` 用于展示、
 > 筛选与发布语义同步，不应重新引入 `version.active`。
+>
+> 项目 API Token、安全事件和 CI 幂等记录是 relational schema v6 的专用表，
+> 不进入 legacy `Data` aggregate，也不会由 JSON test adapter 提供生产持久性。
 
 ## 运行模式与探针
 

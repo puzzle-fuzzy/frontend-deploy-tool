@@ -9,20 +9,28 @@
 > **Reference docs**
 > - `docs/enterprise-frontend-deploy-goals.md` — product goals & acceptance criteria
 > - `docs/enterprise-frontend-deploy-plan.md` — phased plan (Phase 1-4)
-> - `docs/superpowers/specs/2026-07-01-version-audit-design.md` — designed, not yet built
+> - `docs/superpowers/specs/2026-07-01-version-audit-design.md` — original audit design; durable queue and release gates are shipped
 
 ## Completed baseline (foundation already shipped)
 
 - Bun workspace (`apps/server`, `apps/web`, `packages/shared`) with Catalogs, Biome, CI.
 - Layered backend: routes → services → domain → repositories; `createApp()` split from `Bun.serve`.
-- Typed API via `hono/client`; shared zod schemas as the single source of truth; contract tests.
+- Typed session management API via `hono/client`; the dedicated CI router has
+  its own explicit contract and isolation tests.
 - Project CRUD + settings; version upload (zip/folder) with flatten, size/fileCount/sourceType metadata.
-- Active-version pointer model (`activeVersionId`); deleting the active version promotes a replacement.
+- Active-version pointer model (`activeVersionId`); deleting the active version leaves the project unpublished and never promotes a replacement.
 - Deploy serving: `/deploy/{slug}/` (active) + `/deploy/{slug}/{versionId}/` (preview); SPA fallback.
 - Cache policy matching the enterprise spec (HTML `no-cache`; hashed assets `public, max-age=31536000, immutable`).
 - Safe-path utilities, upload limits (zip/extracted/count/path-length), security headers on the management UI.
 - Schema versioning + idempotent migration + backup-on-load.
 - i18n (zh/en), theme toggle, React 19 + shadcn/ui panel with loading/empty/error/uploading states.
+- Project owner/admin API Token lifecycle (create/list/rotate/revoke/security events);
+  plaintext is returned only by create/rotate and v1 scope is only
+  `preview:upload`.
+- Dedicated `POST /api/ci/projects/:id/versions` route with session/token
+  isolation, 24-hour SQLite idempotency, shared upload limits, and preview-only
+  semantics. Production still requires a user session and explicit
+  compare-and-set publish.
 
 ---
 
@@ -76,26 +84,41 @@ Enterprise docs §6.2–6.5, §7.3, §7.5, §7.10.
 - [x] Add per-project audit-log filtering.
   - Today only global `/api/history` exists. Add `GET /api/projects/:id/history` (or a `?projectId=` filter) for the project-detail "日志" tab.
 - [x] Add confirmation dialogs for publish & rollback.
-  - Delete already confirms ([VersionList.tsx:137](apps/web/src/features/versions/VersionList.tsx#L137)); publish (activate) is one-click today. Enterprise docs require 二次确认 for both publish and rollback.
+  - Delete, publish and rollback share the
+    [ConfirmDialog flow](packages/client/src/features/versions/VersionList.tsx#L140).
 
 ## P3 — Ops & deployment packaging
 
-Enterprise docs §10, plan "运维". Currently absent from the repo entirely.
+Enterprise docs §10, plan "运维". Native backup/recovery is shipped; container
+and reverse-proxy packaging remains.
 
 - [ ] Multi-stage `Dockerfile` for the Bun app (build web → package into `apps/server/public` → run a single server image).
-- [ ] `docker-compose.yml` with volumes for `data.json` and the `.voasx/storage` tree; surface upload limits (`MAX_ZIP_SIZE`, `MAX_EXTRACTED_SIZE`, `MAX_FILE_COUNT`) as compose env.
+- [ ] `docker-compose.yml` with persistent volumes for `deploykit.sqlite*` and
+  `.voasx/storage`; surface upload limits as compose env.
 - [ ] Nginx reverse-proxy reference config: immutable caching for hashed assets, `no-cache` for `index.html`, large `client_max_body_size` for uploads, SPA-fallback passthrough.
-- [ ] Backup/restore procedure for `data.json` + storage (scheduled snapshot/rsync; document restore).
+- [x] SQLite + storage backup/verify/restore commands and recovery procedure.
 
-## P4 — Version Audit (designed, ready to implement)
+## P4 — Version Audit (durable foundation shipped; UI/rule depth next)
 
 Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs/superpowers/plans/2026-07-01-version-audit.md`.
 
-- [ ] Phase 1: static artifact audit (metadata / SEO / links / images / social / assets / deploy checks); `POST /api/projects/:id/versions/:versionId/audit`; Audit tab beside the Versions list.
-  - Shared contract in `packages/shared`; `cheerio` for parsing; ephemeral reports (no schema change).
-- [ ] Phase 2: rendered DOM audit (Playwright).
-- [ ] Phase 3: persisted audit reports + history.
-- [ ] Phase 4: release gates (block activation on errors; manual override recorded as a history event).
+- [x] Static artifact audit for HTML metadata/SEO/social metadata, file
+  inventory, entry/checksum structure, and total/file-count/largest-file
+  budgets.
+- [x] SQLite-backed artifact audit queue with deduplication, leases, retries,
+  cancellation, process isolation and restart recovery.
+- [x] Persist current reports and long-term history; bind freshness to artifact
+  checksum, engine version and policy snapshot.
+- [x] Advisory/blocking release policy and publish/rollback gates.
+- [ ] Add the management-panel Audit view for queue state, polling,
+  cancellation, findings and policy explanation.
+- [ ] Deepen SEO and bundle-size detection on the **existing artifact audit
+  queue**: validate internal-link targets and actual image files, add
+  JS/CSS/font-specific budgets, and version new rules without rebuilding the
+  already shipped total/file-count/largest-file checks. Do not build a second
+  queue.
+- [ ] Consider rendered-DOM auditing only after the static queue UI and rule
+  contracts are complete; it must remain isolated and separately budgeted.
 
 ---
 
@@ -104,9 +127,11 @@ Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs
 - [ ] Deployment environments: add Staging alongside Production (each points at a version). §7.2, plan Phase 2.
 - [ ] Member management & finer roles (`owner / admin / developer / tester / viewer`). Plan Phase 2 (needs P1).
 - [ ] Version retention policy: keep last N / younger than N days; never auto-delete production history; manual version lock. Plan Phase 4.
-- [ ] Observability: structured logs, request IDs, basic metrics. §Enterprise "Observability".
+- [x] Observability: structured logs, request IDs, protected low-cardinality metrics and graceful shutdown. §Enterprise "Observability".
 - [ ] Deployment adapters: abstract artifact storage behind an interface, then add S3 / OSS / MinIO. (The metadata repo is already behind `ProjectRepository`; artifact I/O in `artifactService` is not.)
-- [ ] API token + CI upload + CLI + Webhook + Git info on versions. Plan Phase 3.
+- [x] Project API Token + idempotent CI Preview upload. Plan Phase 3.
+- [ ] CLI wrapper, Webhook and Git info on versions. These must not add
+  staging/production Token scopes or automatic production publishing.
 - [ ] Custom domains, access control (password / IP allowlist), release notifications. Plan Phase 4.
 
 ## Non-goals (YAGNI — deliberately not doing)

@@ -86,8 +86,8 @@ SQLite/本地存储。
 bun run test          # 根目录（或 cd apps/server && bun test）
 ```
 
-- `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史游标端点、安全头、健康探针、请求编号与上传失败清理。
-- `tests/services/` — 领域/服务/工具单元测试：slug、历史游标、版本不变量、`safePath`、JSON/SQLite 原子 mutation 与回滚、`deployResolver`、`artifactService`、存储启动对账与配置门禁。
+- `tests/api/` — `hono/testing` 契约测试：覆盖项目/设置/版本/部署/历史游标、Token 生命周期、session/CI 凭据隔离、CI 幂等重放/冲突、上传限制、安全头、健康探针、请求编号与失败清理。
+- `tests/services/` — 领域/服务/工具单元测试：slug、历史游标、版本不变量、`safePath`、SQLite 原子 mutation/CI commit、仅供测试的 JSON adapter、Token 撤销/轮换、`deployResolver`、`artifactService`、存储启动对账与配置门禁。
 
 应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口，也不会
 获取 runtime ownership。需要验证真实启动互斥/恢复时使用
@@ -142,7 +142,160 @@ restore 仍需获取同一 runtime ownership；后端正在运行时必须先优
 rollback operation 可能包含完整数据库、产物与 live storage 内的备份副本；
 将其视为敏感数据，限制服务账号目录权限，并在验证恢复后由运维按保留策略清理。
 
-## CI 证据
+## CI 预览上传
+
+### 创建和保管项目 Token
+
+项目 API Token 通过 session 管理 API 创建，只允许项目 owner 或全局 admin：
+
+```text
+POST   /api/projects/:id/api-tokens
+GET    /api/projects/:id/api-tokens
+POST   /api/projects/:id/api-tokens/:tokenId/rotate
+DELETE /api/projects/:id/api-tokens/:tokenId
+GET    /api/projects/:id/api-tokens/security-events
+```
+
+创建体为 `{ "name": "GitHub Actions", "expiresAt": "..." }`；`expiresAt`
+可省略。轮换体可传 `expiresAt` 与 `overlapSeconds`，其中重叠期范围为
+0–86400 秒，设为 `0` 会立即撤销旧 Token。创建和轮换响应中的
+`plaintextToken` 只出现一次，后续 list/security-events 不会返回明文或摘要。
+收到响应后应立即写入 CI secret；如果明文遗失，重新轮换，不要把它写入
+`.env`、shell 脚本、Issue、构建产物或仓库。
+
+疑似泄漏时：
+
+1. 使用 `overlapSeconds: 0` 轮换或立即撤销旧 Token；
+2. 把新 Token 写入受控 CI secret，并重新执行受影响流水线；
+3. 检查流水线日志、Issue、构建产物和 Git 历史，清理副本并查看
+   `security-events`；
+4. 不要在排障消息中粘贴泄漏值。
+
+### 本地 curl
+
+以下 Bash 命令从终端无回显读取 Token，因此凭据字面量不会进入 shell history
+或仓库。ZIP 根目录必须包含 `index.html`。生产环境的
+`DEPLOYKIT_MANAGEMENT_URL` 应指向 `MANAGEMENT_BASE_URL`，而不是
+`DEPLOY_BASE_URL`：
+
+```bash
+read -rsp 'DeployKit API token: ' DEPLOYKIT_API_TOKEN
+printf '\n'
+export DEPLOYKIT_API_TOKEN
+export DEPLOYKIT_MANAGEMENT_URL='http://localhost:4010'
+export DEPLOYKIT_DEPLOY_BASE_URL='http://localhost:4010'
+export DEPLOYKIT_PROJECT_ID='replace-with-project-id'
+export DEPLOYKIT_PROJECT_SLUG='replace-with-project-slug'
+export DEPLOYKIT_ARTIFACT_ZIP='./dist.zip'
+export DEPLOYKIT_IDEMPOTENCY_KEY='local-preview-001'
+
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer ${DEPLOYKIT_API_TOKEN}" \
+  -H "Idempotency-Key: ${DEPLOYKIT_IDEMPOTENCY_KEY}" \
+  -F "file=@${DEPLOYKIT_ARTIFACT_ZIP};type=application/zip" \
+  -F 'versionDesc=local CI preview' \
+  "${DEPLOYKIT_MANAGEMENT_URL}/api/ci/projects/${DEPLOYKIT_PROJECT_ID}/versions"
+
+unset DEPLOYKIT_API_TOKEN
+```
+
+`Idempotency-Key` 只允许 1–128 个 `[A-Za-z0-9._~:-]` 字符。服务端将同一
+Token/project/key 的记录保留 24 小时；相同描述和产物摘要的重试返回同一个
+版本，内容或描述不同则返回 `409 IDEMPOTENCY_CONFLICT`。同一次流水线的网络
+重试必须复用原键，不能每次 curl 都生成新时间戳。首次成功响应为
+`201 { version, replayed: false }`；重放为
+`200 { version, replayed: true }` 并带 `Idempotency-Replayed: true`。
+响应没有 `previewUrl` 字段；用已知的项目 slug 和返回的 `version.id` 按
+`${DEPLOYKIT_DEPLOY_BASE_URL}/deploy/{projectSlug}/{version.id}/` 构造固定预览
+地址。生产中的 `DEPLOYKIT_DEPLOY_BASE_URL` 应取服务端 `DEPLOY_BASE_URL`，
+不能使用只提供管理 API 的 `MANAGEMENT_BASE_URL`。
+
+### GitHub Actions
+
+在仓库或 environment settings 中创建 `DEPLOYKIT_API_TOKEN` secret；URL 和
+项目 ID 可使用非敏感的 Actions variables。不要把 Token 字面量写入 workflow，
+也不要启用会回显展开命令的 `set -x`：
+
+```yaml
+name: DeployKit preview
+
+on:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOYKIT_API_TOKEN: ${{ secrets.DEPLOYKIT_API_TOKEN }}
+      DEPLOYKIT_MANAGEMENT_URL: ${{ vars.DEPLOYKIT_MANAGEMENT_URL }}
+      DEPLOYKIT_DEPLOY_BASE_URL: ${{ vars.DEPLOYKIT_DEPLOY_BASE_URL }}
+      DEPLOYKIT_PROJECT_ID: ${{ vars.DEPLOYKIT_PROJECT_ID }}
+      DEPLOYKIT_IDEMPOTENCY_KEY: github-${{ github.run_id }}-${{ github.job }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bun run build
+      - run: (cd dist && zip -qr ../deploykit-artifact.zip .)
+      - name: Upload preview
+        run: |
+          curl --fail-with-body --silent --show-error \
+            -H "Authorization: Bearer ${DEPLOYKIT_API_TOKEN}" \
+            -H "Idempotency-Key: ${DEPLOYKIT_IDEMPOTENCY_KEY}" \
+            -F "file=@deploykit-artifact.zip;type=application/zip" \
+            -F "versionDesc=${GITHUB_SHA}" \
+            "${DEPLOYKIT_MANAGEMENT_URL}/api/ci/projects/${DEPLOYKIT_PROJECT_ID}/versions"
+```
+
+GitHub 官方建议通过 `secrets` context 把 Actions secret 注入环境，并避免在命令行
+中直接传递秘密值；对包含 secret 使用方式的 workflow 变更进行审查。参见
+[GitHub Actions secrets reference](https://docs.github.com/en/actions/reference/security/secrets)
+和
+[Using secrets in GitHub Actions](https://docs.github.com/en/actions/how-tos/write-workflows/choose-what-workflows-do/use-secrets?tool=webui)。
+
+### GitLab CI
+
+在 GitLab 项目的 **Settings → CI/CD → Variables** 中创建
+`DEPLOYKIT_API_TOKEN`，启用 **Masked and hidden**；如果只有受保护分支/标签能
+上传预览，再启用 **Protected**。不要在 `.gitlab-ci.yml` 的 `variables` 中写
+Token：
+
+```yaml
+deploykit-preview:
+  image: oven/bun:1
+  stage: deploy
+  script:
+    - bun install --frozen-lockfile
+    - bun run build
+    - apt-get update && apt-get install -y zip curl
+    - (cd dist && zip -qr ../deploykit-artifact.zip .)
+    - export DEPLOYKIT_IDEMPOTENCY_KEY="gitlab-${CI_PIPELINE_ID}-${CI_JOB_NAME_SLUG}"
+    - >
+      curl --fail-with-body --silent --show-error
+      -H "Authorization: Bearer ${DEPLOYKIT_API_TOKEN}"
+      -H "Idempotency-Key: ${DEPLOYKIT_IDEMPOTENCY_KEY}"
+      -F "file=@deploykit-artifact.zip;type=application/zip"
+      -F "versionDesc=${CI_COMMIT_SHA}"
+      "${DEPLOYKIT_MANAGEMENT_URL}/api/ci/projects/${DEPLOYKIT_PROJECT_ID}/versions"
+```
+
+`DEPLOYKIT_MANAGEMENT_URL`、`DEPLOYKIT_DEPLOY_BASE_URL` 和
+`DEPLOYKIT_PROJECT_ID` 可同样通过 GitLab CI/CD variables 配置。GitLab 提醒
+恶意流水线脚本仍可泄漏变量，因此合并前必须审查 `.gitlab-ci.yml` 变更；详见
+[GitLab CI/CD variables](https://docs.gitlab.com/ci/variables/)。
+
+CI 与交互式上传共享 multipart body limit、ZIP/路径/入口校验、存储 quota 和
+全局/调用主体/项目 concurrency gate。CI 路由只创建 preview，不改变线上
+`activeVersionId`；v1 Token scope 只有 `preview:upload`。项目当前没有 staging
+环境，Token 也不能自动发布生产。生产发布必须由登录用户在管理 API 提交
+`expectedActiveVersionId`，继续执行 compare-and-set 与 blocking audit gate。
+
+## 仓库 CI 质量证据
 
 GitHub Actions 与本地共用 `bun run verify`。每次执行会保留 14 天：
 

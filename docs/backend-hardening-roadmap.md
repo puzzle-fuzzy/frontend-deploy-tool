@@ -174,26 +174,55 @@ dependency audit 为 0。真实 production 双域进程完成 blocking 审计、
 
 ### 阶段 6：项目 API Token 与 CI 上传
 
-状态：仅完成边界设计，尚未实现。必须保持阶段 1—5 的浏览器信任、显式发布、
-审计门禁、幂等写入和可恢复存储不变量后再进入开发。
+状态：已于 2026-07-31 完成首版。项目 owner/全局 admin 可管理最小权限
+Token，CI 可通过独立路由幂等上传 preview；浏览器/桌面 session、显式生产
+发布、审计门禁和可恢复存储边界保持不变。
 
-- Token 只在创建或轮换时返回一次明文；数据库只保存带版本的密码学哈希、
-  不可逆 token ID/prefix、项目、权限、过期时间、创建者、最后使用时间和撤销时间。
-- 每个 Token 必须绑定单一项目，并使用显式
-  `preview:upload`、`staging:publish`、`production:publish` 等 scope；默认最小权限，
-  不能把项目成员角色隐式扩成自动化权限。
-- 支持过期、轮换、即时撤销和重叠期；日志、错误、指标和审计事件不得记录明文
-  Token。令牌创建、轮换、撤销、鉴权失败和越权请求进入安全审计事件。
-- CI 上传必须携带幂等键；同一项目、Token、幂等键和请求摘要重复提交返回原结果，
-  摘要不同则冲突，避免重试产生多个版本或重复发布。
-- CI 上传先生成 preview，不能等同于 production 发布；后续 staging/production
-  操作继续使用 release compare-and-set，并遵守项目 blocking 审计策略。
-- 不复用七天有效的浏览器/桌面 session，也不把现有 bearer session 当作 CI
-  凭据。API Token 使用独立认证中间件、撤销缓存边界和速率/容量预算。
+- 管理 API 支持创建、列出、轮换、撤销项目 Token 及查看安全事件。Token 只在
+  创建或轮换时通过 `Cache-Control: no-store` 响应返回一次明文；SQLite 只保存
+  带版本摘要、prefix、项目、scope、过期/撤销/轮换和使用元数据。
+- 支持默认 90 天、最长 365 天有效期，轮换允许 0–86400 秒重叠；创建、轮换、
+  撤销和限频的鉴权失败进入脱敏安全事件。泄漏响应是立即零重叠轮换或撤销、
+  替换 CI secret 并检查日志/产物/仓库副本。
+- 每个 Token 只绑定一个项目。v1 scope 只有 `preview:upload`；没有
+  `staging:publish` 或 `production:publish`，也不会把项目成员角色隐式扩成
+  自动化权限。
+- `POST /api/ci/projects/:id/versions` 使用独立 API Token 中间件；browser Cookie
+  和 browser/desktop session bearer 不能认证 CI，项目 Token 也不能进入普通
+  管理路由，未注册的 `/api/ci/*` 在 session app 前终止为 404。
+- CI 上传要求 1–128 个 `[A-Za-z0-9._~:-]` 幂等键。记录保留 24 小时；相同
+  Token/project/key 与相同规范化描述、checksum/sourceType/size/fileCount 摘要
+  返回原版本，不同摘要返回 `409 IDEMPOTENCY_CONFLICT`。
+- SQLite 在同一 `BEGIN IMMEDIATE` 中重新校验 Token 状态、判定幂等结果，并
+  提交 version/history/idempotency record。JSON adapter 仅供隔离测试及其
+  fixtures，不具备生产所需的持久、跨进程原子保证；旧 `data.json` 由 SQLite
+  初始化器负责导入，真实 runtime 强制使用 SQLite。
+- CI 与交互上传共享 body、危险路径、ZIP 解压比、文件数、体积、存储 quota
+  和全局/调用主体/项目 concurrency gate。结果始终为 preview，不改变
+  `activeVersionId`。
+- 当前没有 staging 环境或 Token 自动生产发布。生产仍由已登录用户在管理路由
+  显式提交 `expectedActiveVersionId`，执行 release compare-and-set、完整性
+  检查和 blocking audit gate。
 
-进入实现前的暂停点：先确定 token hash/lookup 方案、scope 矩阵、幂等记录
-保留期、CI 上传元数据契约和泄漏响应流程；任一项不能在 SQLite 事务中保持
-项目隔离与幂等性时，停止实现并重新设计。
+完成门槛：生命周期、路由隔离、即时撤销/并发轮换、幂等重放/冲突/过期、
+SQLite 原子提交和共享上传限制均有 API/服务测试；Biome、类型检查与聚焦测试
+通过。
+
+### 阶段 7：产物审计体验与规则深化
+
+状态：下一阶段。阶段 5 已经交付可恢复的 SQLite artifact audit queue、租约、
+重试、取消、静态扫描和发布门禁；后续 SEO/体积检测必须直接扩展这条队列与
+报告契约，不再创建第二套任务系统，也不耦合 CI 上传和生产发布。
+
+- 在管理面板展示现有 audit job 的排队/运行/终态、可解释检查项、策略快照、
+  重试和取消入口。
+- 在现有静态引擎上深化 SEO 规则与体积检测，包括 HTML 元数据完整性、内部链接
+  与图片问题、JS/CSS/字体和单文件/总体积预算；继续禁止执行上传 JavaScript
+  或访问外网。
+- 为规则版本、结果兼容和旧报告过期建立明确契约，复用 checksum、engine version
+  和 policy snapshot 去重。
+- 保持 `advisory` 默认；只有 owner 显式启用 `blocking` 才阻止用户发布。检测
+  失败不得删除 preview，也不得触发自动生产发布。
 
 ## 动态调整规则
 

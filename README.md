@@ -9,7 +9,8 @@
    |                                      |
    |── 管理面板 (/) ────────────────────>|── 托管 React SPA (apps/server/public/)
    |                                      |
-   |── API (/api/*) ─────────────────────>|── SQLite 元数据 / 审计任务队列
+   |── 管理 API (/api/*) ────────────────>|── SQLite 元数据 / 审计任务队列
+   |── CI 上传 (/api/ci/*) ──────────────>|── 项目 API Token + 幂等提交
    |                                      |── .voasx/storage/ 文件操作
    |                                      |── 隔离的审计子进程（单任务 Worker）
    |                                      |
@@ -26,6 +27,7 @@
 
 - **项目管理** — 创建/删除项目，每个项目有独立 slug 用于访问
 - **版本管理** — 支持 ZIP 上传或文件夹拖拽，自动记录版本历史
+- **CI 预览上传** — 项目级可撤销 API Token、24 小时幂等重放与独立自动化路由
 - **一键部署** — 激活版本后立即可访问，支持正式/预览版本
 - **SPA 支持** — 支持 Hash/Path 两种路由模式，Path 模式自动 fallback 到 index.html
 - **操作历史** — 关系型追加记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载
@@ -87,14 +89,14 @@ deploykit/
 │   │   ├── src/
 │   │   │   ├── index.ts           # 运行入口（Bun.serve）
 │   │   │   ├── app.ts             # Hono 应用组装（createApp）
-│   │   │   ├── api.ts             # /api 路由的 typed 导出（供前端 hono/client）
+│   │   │   ├── api.ts             # session 管理 API 的 typed 导出（供前端 hono/client）
 │   │   │   ├── config.ts          # 环境与路径配置
 │   │   │   ├── errors.ts          # ApiError
-│   │   │   ├── domain/            # 纯领域规则（project/version/history）
-│   │   │   ├── repositories/      # 持久化接口 + SQLite / 旧 JSON 实现
-│   │   │   ├── services/          # 用例（project/version/artifact/deploy）
+│   │   │   ├── domain/            # 纯领域规则（project/version/token/history）
+│   │   │   ├── repositories/      # SQLite 持久化 + 仅测试 JSON adapter
+│   │   │   ├── services/          # 用例（project/token/version/artifact/deploy）
 │   │   │   ├── workers/           # 受限协议的产物审计子进程入口
-│   │   │   ├── routes/            # HTTP 路由（projects/versions/history/deploy）
+│   │   │   ├── routes/            # 管理、CI 上传、审计与 deploy 路由
 │   │   │   └── utils/             # id、mime、safePath
 │   │   ├── tests/                 # API 契约测试 + 服务/领域单元测试
 │   │   ├── deploykit.sqlite       # SQLite 元数据（gitignore）
@@ -118,7 +120,7 @@ deploykit/
 - Hono + Bun
 - 内嵌 SQLite（WAL）元数据 + 文件系统产物存储
 - 旧 `data.json` 在数据库为空时安全导入一次，并保留迁移备份
-- 类型化路由导出（`ApiApp`）驱动前端 `hono/client`
+- session 管理路由的类型化导出（`ApiApp`）驱动前端 `hono/client`
 
 **前端** ([apps/web](apps/web))
 - React 19 + React Compiler
@@ -176,14 +178,16 @@ deploykit/
 
 ## API 接口
 
-所有接口前缀为 `/api`。除登录、注册、登出和桌面授权码交换外，API 需要
-持久化 session；浏览器使用 HttpOnly Cookie，桌面使用 bearer token。令牌中的
-`jti` 必须对应 SQLite 中未过期、未撤销的会话，
-浏览器不会把 bearer token 写入 localStorage。权限分为
-`admin` / `developer` / `viewer`。错误响应格式：
+所有接口前缀为 `/api`。管理接口除登录、注册、登出和桌面授权码交换外需要
+持久化 session；浏览器使用 HttpOnly Cookie，桌面使用 session bearer token。
+专用的 `/api/ci/*` 路由只接受项目 API Token，不接受浏览器 Cookie 或桌面
+session bearer；项目 API Token 也不能访问普通管理接口。session 令牌中的
+`jti` 必须对应 SQLite 中未过期、未撤销的会话，浏览器不会把 bearer token
+写入 localStorage。权限分为 `admin` / `developer` / `viewer`。错误响应格式：
 `{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码见
-`apps/server/src/errors.ts`）。请求/响应类型由后端路由推导，前端经
-`hono/client` 自动获得类型。
+`apps/server/src/errors.ts`）。session 管理 API 的请求/响应类型由后端
+`ApiApp` 推导，前端经 `hono/client` 自动获得类型；独立挂载的 CI 路由不属于
+该浏览器客户端合同。
 
 `admin` 可读取和管理全部项目；`developer` 可创建项目，但只能读取自己
 所属的项目，并按项目内 `owner/member` 角色写入；`viewer` 只能读取自己
@@ -217,6 +221,84 @@ deploykit/
 | DELETE | `/api/projects/:id` | 删除项目；产物先进入可恢复区（项目 owner/admin） | — |
 | GET | `/api/projects/:id/versions` | 获取项目（项目成员/admin） | — |
 | GET | `/api/projects/:id/users/search` | 搜索成员候选人（项目 owner/admin） | `?q=email` |
+
+### 项目 API Token
+
+Token 生命周期属于管理面，只允许项目 `owner` 或全局 `admin` 通过现有
+session 操作：
+
+| 方法 | 路径 | 说明 | 请求体 |
+|------|------|------|--------|
+| GET | `/api/projects/:id/api-tokens` | 列出脱敏 Token 元数据 | — |
+| POST | `/api/projects/:id/api-tokens` | 创建 Token | `{ name, expiresAt? }` |
+| POST | `/api/projects/:id/api-tokens/:tokenId/rotate` | 轮换 Token；旧 Token 可短暂重叠 | `{ expiresAt?, overlapSeconds? }` |
+| DELETE | `/api/projects/:id/api-tokens/:tokenId` | 立即撤销 Token | — |
+| GET | `/api/projects/:id/api-tokens/security-events` | 查看创建、轮换、撤销和鉴权失败事件 | — |
+
+首版 scope 固定为最小权限 `preview:upload`。默认有效期为 90 天，最长 365 天；
+轮换默认保留旧 Token 15 分钟，`overlapSeconds` 可设为 `0` 至 `86400`。创建和
+轮换响应会设置 `Cache-Control: no-store`，完整凭据只在响应的
+`plaintextToken` 字段出现一次；列表和安全事件只返回 prefix 等脱敏元数据，
+服务端持久化的也是不可逆摘要，之后无法找回明文。
+
+如果明文丢失，不要尝试恢复，直接轮换。如果 Token 疑似泄漏，应立即使用
+`overlapSeconds: 0` 轮换或撤销旧 Token，更新 CI secret，并检查流水线日志、
+Issue、构建产物和仓库历史中是否存在副本；不要把 Token 粘贴到日志或工单中。
+
+### CI 预览上传
+
+`POST /api/ci/projects/:id/versions` 接受 ZIP 的 `file` 或文件夹形式的
+`folderFiles[]`，并要求：
+
+- `Authorization: Bearer <项目 API Token>`，且 Token 绑定目标项目并具有
+  `preview:upload`；
+- `Idempotency-Key` 为 1–128 个 `[A-Za-z0-9._~:-]` 字符；
+- 与交互式上传相同的 multipart 大小、危险路径、ZIP 解压比、文件数、体积、
+  存储配额及全局/项目/调用主体并发限制。
+
+同一 Token、项目和幂等键的记录保留 24 小时。规范化描述与产物
+checksum/sourceType/size/fileCount 的摘要相同，则重试返回原版本：
+首次为 `201`、`replayed: false`，重放为 `200`、`replayed: true` 并带
+`Idempotency-Replayed: true`；摘要不同返回 `409 IDEMPOTENCY_CONFLICT`。
+不同 Token 或项目可独立使用相同键。
+
+成功响应只返回 `{ version: { id, name }, replayed }`，没有虚构的
+`previewUrl` 字段。调用方可用项目 slug 和返回的 `version.id` 构造固定预览
+地址：`${DEPLOY_BASE_URL}/deploy/{slug}/{version.id}/`。
+
+下面的 Bash 示例从终端无回显读取 Token，命令文本和仓库中都不出现明文。
+ZIP 根目录必须包含 `index.html`；重试同一次上传时复用同一个幂等键。生产环境
+的 `DEPLOYKIT_MANAGEMENT_URL` 应指向 `MANAGEMENT_BASE_URL`，不能指向只托管
+产物的 `DEPLOY_BASE_URL`：
+
+```bash
+read -rsp 'DeployKit API token: ' DEPLOYKIT_API_TOKEN
+printf '\n'
+export DEPLOYKIT_API_TOKEN
+export DEPLOYKIT_MANAGEMENT_URL='http://localhost:4010'
+export DEPLOYKIT_PROJECT_ID='replace-with-project-id'
+export DEPLOYKIT_ARTIFACT_ZIP='./dist.zip'
+export DEPLOYKIT_IDEMPOTENCY_KEY='local-preview-001'
+
+curl --fail-with-body --silent --show-error \
+  -H "Authorization: Bearer ${DEPLOYKIT_API_TOKEN}" \
+  -H "Idempotency-Key: ${DEPLOYKIT_IDEMPOTENCY_KEY}" \
+  -F "file=@${DEPLOYKIT_ARTIFACT_ZIP};type=application/zip" \
+  -F 'versionDesc=CI preview upload' \
+  "${DEPLOYKIT_MANAGEMENT_URL}/api/ci/projects/${DEPLOYKIT_PROJECT_ID}/versions"
+
+unset DEPLOYKIT_API_TOKEN
+```
+
+CI Token 应保存为 GitHub Actions repository/environment secret，或 GitLab UI
+中的 masked、hidden 且按需 protected 的 CI/CD variable，再映射为进程环境变量；
+不要把凭据字面量写入 workflow、`.env`、curl 命令或仓库。完整示例见
+[开发指南](docs/development.md#ci-预览上传)。
+
+CI 路由只创建 `preview` 版本，绝不改变 `activeVersionId`。当前不支持 staging
+环境或由 Token 自动发布生产；正式发布仍要求已登录用户在管理 API 调用
+`POST /api/projects/:id/versions/:vid/publish`，并提交
+`expectedActiveVersionId` 完成 compare-and-set 与产物审计门禁。
 
 ### 版本
 
@@ -344,7 +426,7 @@ bun run security      # secret scan + 高危/严重依赖漏洞审计（需要 n
 ```
 
 - 后端：`bun test`（[apps/server/tests](apps/server/tests)）— API 契约 + 服务/领域单元测试
-- 前端：Vitest + React Testing Library（[apps/web/tests/unit](apps/web/tests/unit)）
+- 前端：Vitest + React Testing Library（[packages/client/tests/unit](packages/client/tests/unit)）
 
 本地与 CI 共享同一个质量入口：`bun run verify`。
 CI 额外保留 14 天的验证日志 `deploykit-verify-{commit}`，并在成功时保留
