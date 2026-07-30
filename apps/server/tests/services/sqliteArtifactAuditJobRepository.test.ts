@@ -42,6 +42,9 @@ describe('SQLite artifact audit queue', () => {
     configureSqlite(database);
     createRelationalSchema(database);
     database.exec(`
+      DROP TABLE ci_idempotency_records;
+      DROP TABLE api_token_security_events;
+      DROP TABLE project_api_tokens;
       DROP INDEX artifact_audit_jobs_active_version_unique_idx;
       DROP INDEX artifact_audit_jobs_claim_idx;
       DROP INDEX artifact_audit_jobs_version_created_idx;
@@ -107,6 +110,9 @@ describe('SQLite artifact audit queue', () => {
     createRelationalSchema(database);
     seedProject(database);
     database.exec(`
+      DROP TABLE ci_idempotency_records;
+      DROP TABLE api_token_security_events;
+      DROP TABLE project_api_tokens;
       DROP INDEX artifact_audit_jobs_active_version_unique_idx;
       DELETE FROM schema_migrations;
       INSERT INTO schema_migrations (version, applied_at)
