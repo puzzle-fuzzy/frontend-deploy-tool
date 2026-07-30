@@ -23,6 +23,10 @@ import {
 import { createTrustBoundary } from './middleware/trustBoundary';
 import { createUploadGate } from './middleware/uploadLimits';
 import { createAggregateArtifactAuditJobRepository } from './repositories/aggregateArtifactAuditJobRepository';
+import {
+  createMemoryApiTokenRepository,
+  createSqliteApiTokenRepository,
+} from './repositories/apiTokenRepository';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import {
   createMemorySessionRepository,
@@ -31,6 +35,7 @@ import {
 import { createSqliteArtifactAuditJobRepository } from './repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
+import { createApiTokenService } from './services/apiTokenService';
 import {
   type ArtifactAuditExecutor,
   createSubprocessArtifactAuditExecutor,
@@ -220,6 +225,13 @@ function composeApp(
     metrics.recordArtifactAuditAdmissionRejection(scope);
   const artifactRecovery = createArtifactRecoveryService(config.storageDir);
   const projectService = createProjectService(repo, { artifactRecovery });
+  const apiTokenRepository = config.databaseFile
+    ? createSqliteApiTokenRepository(config.databaseFile)
+    : createMemoryApiTokenRepository();
+  const apiTokenService = createApiTokenService({
+    repository: apiTokenRepository,
+    projectService,
+  });
   const versionService = createVersionService(repo, config, {
     artifactRecovery,
   });
@@ -280,6 +292,7 @@ function composeApp(
   };
   const apiApp = createApiApp({
     projectService,
+    apiTokenService,
     versionService,
     artifactAuditService,
     artifactAuditJobService,

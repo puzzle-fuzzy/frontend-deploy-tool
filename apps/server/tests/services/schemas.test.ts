@@ -1,9 +1,11 @@
 import { describe, expect, test } from 'bun:test';
 import {
   createProjectSchema,
+  parseCreateApiToken,
   parseCreateProject,
   parseIdParam,
   parseReleaseCommand,
+  parseRotateApiToken,
 } from '../../src/domain/schemas';
 import { ApiError, ErrorCode } from '../../src/errors';
 
@@ -106,6 +108,57 @@ describe('parseIdParam', () => {
     expect(() => parseIdParam('has space')).toThrow(ApiError);
     expect(() => parseIdParam('../escape')).toThrow(ApiError);
     expect(() => parseIdParam(`${'a'.repeat(65)}`)).toThrow(ApiError);
+  });
+});
+
+describe('API token request schemas', () => {
+  test('normalizes create input and accepts bounded rotation input', () => {
+    expect(
+      parseCreateApiToken({
+        name: '  GitHub Actions  ',
+        expiresAt: '2026-08-01T08:00:00+08:00',
+      })
+    ).toEqual({
+      name: 'GitHub Actions',
+      expiresAt: '2026-08-01T08:00:00+08:00',
+    });
+    expect(
+      parseRotateApiToken({
+        overlapSeconds: 86_400,
+        expiresAt: '2026-08-01T00:00:00.000Z',
+      })
+    ).toEqual({
+      overlapSeconds: 86_400,
+      expiresAt: '2026-08-01T00:00:00.000Z',
+    });
+  });
+
+  test('rejects malformed, unbounded, and expanded token requests', () => {
+    for (const input of [
+      {},
+      { name: '' },
+      { name: 'CI', expiresAt: 'tomorrow' },
+      { name: 'CI', extra: true },
+    ]) {
+      expectApiError(
+        () => parseCreateApiToken(input),
+        ErrorCode.INVALID_REQUEST,
+        'Invalid API token details'
+      );
+    }
+    for (const input of [
+      { overlapSeconds: -1 },
+      { overlapSeconds: 86_401 },
+      { overlapSeconds: 1.5 },
+      { expiresAt: 'tomorrow' },
+      { force: true },
+    ]) {
+      expectApiError(
+        () => parseRotateApiToken(input),
+        ErrorCode.INVALID_REQUEST,
+        'Invalid API token rotation details'
+      );
+    }
   });
 });
 

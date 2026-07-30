@@ -5,6 +5,7 @@ import { parseIdParam } from './domain/schemas';
 import { ApiError, ErrorCode } from './errors';
 import { requireAuthExceptPublic } from './middleware/auth';
 import type { UploadRouteLimits } from './middleware/uploadLimits';
+import { createApiTokenRoutes } from './routes/apiTokens';
 import { createArtifactAuditRoutes } from './routes/artifactAudits';
 import { createHistoryRoutes } from './routes/history';
 import { createMemberRoutes } from './routes/members';
@@ -12,6 +13,7 @@ import { createProjectRoutes } from './routes/projects';
 import { createUserSearchRoutes } from './routes/userSearch';
 import { createVersionRoutes } from './routes/versions';
 import type {
+  ApiTokenService,
   AppEnv,
   ArtifactAuditJobApiService,
   ArtifactAuditService,
@@ -60,6 +62,7 @@ function isLoopbackRedirectUri(uri: string): boolean {
 
 export interface ApiDeps {
   projectService: ProjectService;
+  apiTokenService: ApiTokenService;
   versionService: VersionService;
   artifactAuditService: ArtifactAuditService;
   artifactAuditJobService: ArtifactAuditJobApiService;
@@ -321,6 +324,13 @@ export function createApiApp(deps: ApiDeps) {
       '/',
       createUserSearchRoutes({
         userService: deps.userService,
+        projectService: deps.projectService,
+      })
+    )
+    .route(
+      '/',
+      createApiTokenRoutes({
+        apiTokenService: deps.apiTokenService,
         projectService: deps.projectService,
       })
     )

@@ -1,4 +1,7 @@
 import type {
+  ApiTokenMetadata,
+  ApiTokenScope,
+  ApiTokenSecurityEvent,
   ArtifactAuditJob,
   ArtifactAuditJobPage,
   ArtifactAuditPolicy,
@@ -46,6 +49,55 @@ export interface SessionService {
   revoke(sessionId: string, userId: string): boolean;
   revokeAll(userId: string): number;
   cleanupExpired(): number;
+}
+
+export interface CreateApiTokenInput {
+  name: string;
+  expiresAt?: string;
+}
+
+export interface RotateApiTokenInput {
+  expiresAt?: string;
+  overlapSeconds?: number;
+}
+
+export interface IssuedApiToken {
+  token: ApiTokenMetadata;
+  /** Complete credential, returned only by create/rotate. */
+  plaintextToken: string;
+}
+
+export interface ApiTokenPrincipal {
+  tokenId: string;
+  projectId: string;
+  prefix: string;
+  scopes: ApiTokenScope[];
+  actorId: string;
+}
+
+export interface ApiTokenService {
+  list(projectId: string): ApiTokenMetadata[];
+  create(
+    projectId: string,
+    input: CreateApiTokenInput,
+    actorId: string
+  ): IssuedApiToken;
+  rotate(
+    projectId: string,
+    tokenId: string,
+    input: RotateApiTokenInput,
+    actorId: string
+  ): IssuedApiToken;
+  revoke(projectId: string, tokenId: string, actorId: string): ApiTokenMetadata;
+  listSecurityEvents(
+    projectId: string,
+    limit?: number
+  ): ApiTokenSecurityEvent[];
+  authenticate(
+    plaintextToken: string,
+    projectId: string,
+    requiredScope: ApiTokenScope
+  ): ApiTokenPrincipal;
 }
 
 export interface ProjectService {

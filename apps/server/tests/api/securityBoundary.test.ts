@@ -154,6 +154,42 @@ test('rejects deploy-origin writes made with a real browser session cookie', asy
   expect(created.status).toBe(201);
   const project = (await created.json()) as { id: string };
 
+  const rejectedTokenCreate = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/api-tokens`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: DEPLOY_ORIGIN,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Cross-origin token' }),
+    }
+  );
+  expect(rejectedTokenCreate.status).toBe(403);
+  expect((await rejectedTokenCreate.json()).error.code).toBe(
+    'CSRF_VALIDATION_FAILED'
+  );
+  const tokenListAfterRejection = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/api-tokens`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  expect(tokenListAfterRejection.status).toBe(200);
+  expect((await tokenListAfterRejection.json()).tokens).toEqual([]);
+
+  const legitimateTokenCreate = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/projects/${project.id}/api-tokens`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name: 'Legitimate token' }),
+    }
+  );
+  expect(legitimateTokenCreate.status).toBe(201);
+
   const previewForm = new FormData();
   previewForm.append(
     'folderFiles',

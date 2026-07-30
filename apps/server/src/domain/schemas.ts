@@ -151,6 +151,44 @@ export function parseUpdateProject(value: unknown): {
   return result.data;
 }
 
+export const createApiTokenSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100),
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+  })
+  .strict();
+
+export function parseCreateApiToken(value: unknown) {
+  const result = createApiTokenSchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiError(
+      ErrorCode.INVALID_REQUEST,
+      'Invalid API token details',
+      400
+    );
+  }
+  return result.data;
+}
+
+export const rotateApiTokenSchema = z
+  .object({
+    expiresAt: z.string().datetime({ offset: true }).optional(),
+    overlapSeconds: z.number().int().min(0).max(86_400).optional(),
+  })
+  .strict();
+
+export function parseRotateApiToken(value: unknown) {
+  const result = rotateApiTokenSchema.safeParse(value);
+  if (!result.success) {
+    throw new ApiError(
+      ErrorCode.INVALID_REQUEST,
+      'Invalid API token rotation details',
+      400
+    );
+  }
+  return result.data;
+}
+
 export const releaseCommandSchema = z
   .object({
     expectedActiveVersionId: idParamSchema.nullable(),
