@@ -57,7 +57,17 @@ export function reconcileStorage(
     repo,
     storageDir
   );
-  const garbageCollection = collectStorageGarbage(storageDir, options);
+  // Any unresolved recovery conflict freezes destructive GC for this pass.
+  // This also guarantees a symlinked recovery control root is never traversed
+  // by the garbage collector after recovery has failed closed.
+  const garbageCollection =
+    interruptedRecovery.conflicts === 0
+      ? collectStorageGarbage(storageDir, options)
+      : {
+          removedStagingEntries: 0,
+          removedCommittedTrashEntries: 0,
+          removedOrphanEntries: 0,
+        };
   const report: StorageReconciliationReport = {
     ...EMPTY_REPORT,
     restoredInterruptedOperations: interruptedRecovery.restored,

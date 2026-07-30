@@ -98,11 +98,13 @@ bun run test          # Vitest + React Testing Library
 
 服务启动时会先恢复 `.recovery/trash/` 中断删除，再以 SQLite 元数据为真源
 执行 GC/orphan 对账。元数据仍引用目标则恢复原路径，已不引用则补
-`COMMITTED`。恢复会拒绝 operation/artifacts/recovery 树中的任何 symlink；
-原路径已存在但 recovery 缺失时，仅凭 version 3 manifest 的目录身份或持久化
-checksum 证明恢复完成，否则不会清理旧 manifest。严格路径、身份或 checksum
-校验失败会隔离到
+`COMMITTED`。恢复会从 storage root 开始拒绝 source 祖先、
+`.recovery/trash/conflicts` 控制路径、operation/artifacts/recovery 树中的任何
+symlink，且不会访问外部目标。原路径已存在但 recovery 缺失时，version 3
+manifest 只要带持久化 checksum 就必须重新计算并全部匹配；仅在没有 checksum
+时才使用目录身份兜底。严格路径、身份或 checksum 校验失败会隔离到
 `.recovery/conflicts/`，此时 `/health/ready` 保持 `503`，必须先人工处理。
+存在恢复冲突的启动轮次会暂停 staging/trash/orphan 的破坏性 GC。
 随后才清理过期 staging，将孤儿正式产物移动到 `.recovery/orphans/`；缺少入口
 文件的已记录版本会进入 `failed`，缺失的线上版本安全下线且不自动选择替代版本。
 

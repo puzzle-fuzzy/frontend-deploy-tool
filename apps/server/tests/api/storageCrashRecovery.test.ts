@@ -3,7 +3,10 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
+  renameSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -14,6 +17,7 @@ import type { AppConfig } from '../../src/config';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { createArtifactRecoveryService } from '../../src/services/artifactRecovery';
+import { checksumDirectory } from '../../src/services/artifactService';
 import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
 const workerPath = join(
@@ -151,6 +155,38 @@ describe('storage crash recovery', () => {
       conflicts: 1,
     });
     expect((await app.request('/deploy/demo/')).status).toBe(200);
+  });
+
+  test('readiness fails when same-identity restored bytes violate the durable checksum', async () => {
+    const fixture = createFixture();
+    const artifactDir = join(fixture.storageDir, 'project-1', 'version-1');
+    const checksum = checksumDirectory(artifactDir);
+    const originalInode = statSync(artifactDir).ino;
+    const lease = createArtifactRecoveryService(
+      fixture.storageDir
+    ).stageVersionDeletion('project-1', 'version-1', {
+      versionChecksums: { 'version-1': checksum },
+    });
+    if (!lease.recoveryPath) throw new Error('Expected a staged operation');
+    const manifest = JSON.parse(
+      readFileSync(join(lease.recoveryPath, 'manifest.json'), 'utf8')
+    ) as { recoveryPath: string };
+    renameSync(join(fixture.storageDir, manifest.recoveryPath), artifactDir);
+    expect(statSync(artifactDir).ino).toBe(originalInode);
+    writeFileSync(join(artifactDir, 'index.html'), 'modified in place', 'utf8');
+
+    const app = createApp(fixture.config);
+    const readiness = await app.request('/health/ready');
+
+    expect(readiness.status).toBe(503);
+    expect(await readiness.json()).toEqual({
+      status: 'error',
+      reason: 'artifact_recovery_conflicts',
+      conflicts: 1,
+    });
+    expect(existsSync(join(fixture.storageDir, '.recovery', 'conflicts'))).toBe(
+      true
+    );
   });
 
   test('runtime ownership is released when application composition fails', () => {

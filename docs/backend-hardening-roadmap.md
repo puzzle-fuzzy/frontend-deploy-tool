@@ -66,8 +66,9 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 - 真实 runtime 分别对规范化 SQLite 与存储路径持有 SQLite sidecar 内核事务锁；
   任一资源共享都会 fail closed，进程死亡自动释放。启动恢复先于 GC/orphan
   对账，引用仍在则恢复、引用已删则完成提交。
-- 非法 manifest、symlink、无法以目录身份/checksum 证明的歧义恢复或原路径冲突
-  进入持久隔离并让 readiness 返回非 200；
+- 非法 manifest、storage-root 下任一祖先 symlink、无法以 checksum 优先且
+  identity 仅无 checksum 时兜底证明的歧义恢复，或原路径冲突，都会进入持久
+  隔离并让 readiness 返回非 200；冲突轮次暂停破坏性 GC；
   运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。

@@ -18,6 +18,27 @@ const config: ServerConfig = {
 };
 
 describe('startDeployKitServer', () => {
+  test('releases ownership when serve throws synchronously', async () => {
+    const calls: string[] = [];
+    const runtime = fakeRuntime(calls);
+
+    await expect(
+      startDeployKitServer(config, runtime, {
+        serve: () => {
+          calls.push('serve');
+          throw new Error('serve failed');
+        },
+        installHandlers: () => {
+          calls.push('install-handlers');
+          return () => calls.push('dispose-handlers');
+        },
+        logger: () => {},
+      })
+    ).rejects.toThrow('serve failed');
+
+    expect(calls).toEqual(['serve', 'worker-stop', 'release-ownership']);
+  });
+
   test('starts serve, handlers, worker and startup logging in one boundary', async () => {
     const calls: string[] = [];
     const runtime = fakeRuntime(calls);

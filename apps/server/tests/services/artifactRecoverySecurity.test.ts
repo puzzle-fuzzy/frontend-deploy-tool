@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -50,6 +51,56 @@ describe('artifact recovery manifest safety', () => {
       expect(
         readFileSync(join(storageDir, 'p1', 'version-1', 'index.html'), 'utf8')
       ).toBe('legacy');
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores an unambiguous version 2 recovery tree', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-recovery-v2-'));
+    const operationId = 'version-2-restore';
+    const operationDir = join(storageDir, '.recovery', 'trash', operationId);
+    const recoveryPath = join(operationDir, 'artifacts', 'p1', 'version-1');
+    mkdirSync(recoveryPath, { recursive: true });
+    writeFileSync(join(recoveryPath, 'index.html'), 'version 2');
+    writeVersion2Manifest(operationDir, operationId);
+
+    try {
+      expect(
+        recoverInterruptedArtifactOperations(
+          repositoryWithReferencedVersion(),
+          storageDir
+        )
+      ).toEqual({ restored: 1, committed: 0, conflicts: 0 });
+      expect(
+        readFileSync(join(storageDir, 'p1', 'version-1', 'index.html'), 'utf8')
+      ).toBe('version 2');
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('completes an unambiguous version 2 deletion when metadata is gone', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-recovery-v2-'));
+    const operationId = 'version-2-commit';
+    const operationDir = join(storageDir, '.recovery', 'trash', operationId);
+    const recoveryPath = join(operationDir, 'artifacts', 'p1', 'version-1');
+    mkdirSync(recoveryPath, { recursive: true });
+    writeFileSync(join(recoveryPath, 'index.html'), 'deleted');
+    writeVersion2Manifest(operationDir, operationId);
+
+    try {
+      expect(
+        recoverInterruptedArtifactOperations(emptyRepository(), storageDir)
+      ).toEqual({ restored: 0, committed: 1, conflicts: 0 });
+      expect(existsSync(join(operationDir, 'COMMITTED'))).toBe(true);
+      expect(
+        JSON.parse(readFileSync(join(operationDir, 'manifest.json'), 'utf8'))
+      ).toMatchObject({
+        version: 3,
+        committed: true,
+        committedAt: expect.any(String),
+      });
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }
@@ -147,6 +198,81 @@ describe('artifact recovery manifest safety', () => {
           )
         ).toMatchObject({ restored: 0, conflicts: 1 });
         expect(readFileSync(join(externalDir, 'index.html'), 'utf8')).toBe(
+          'outside'
+        );
+      } finally {
+        rmSync(storageDir, { recursive: true, force: true });
+        rmSync(externalDir, { recursive: true, force: true });
+      }
+    }
+  });
+
+  test('rejects a symlinked source ancestor before staging', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-recovery-source-link-')
+    );
+    const externalDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-recovery-source-external-')
+    );
+    mkdirSync(join(externalDir, 'version-1'), { recursive: true });
+    writeFileSync(join(externalDir, 'version-1', 'index.html'), 'outside');
+    symlinkSync(externalDir, join(storageDir, 'p1'), 'dir');
+
+    try {
+      expect(() =>
+        createArtifactRecoveryService(storageDir).stageVersionDeletion(
+          'p1',
+          'version-1'
+        )
+      ).toThrow();
+      expect(
+        readFileSync(join(externalDir, 'version-1', 'index.html'), 'utf8')
+      ).toBe('outside');
+      expect(existsSync(join(storageDir, '.recovery'))).toBe(false);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+      rmSync(externalDir, { recursive: true, force: true });
+    }
+  });
+
+  test('fails closed without traversing symlinked recovery control roots', () => {
+    for (const variant of [
+      'recovery-root',
+      'trash-root',
+      'conflicts-root',
+    ] as const) {
+      const storageDir = mkdtempSync(
+        join(tmpdir(), `deploykit-recovery-${variant}-`)
+      );
+      const externalDir = mkdtempSync(
+        join(tmpdir(), `deploykit-recovery-external-${variant}-`)
+      );
+      writeFileSync(join(externalDir, 'marker'), 'outside');
+
+      if (variant === 'recovery-root') {
+        symlinkSync(externalDir, join(storageDir, '.recovery'), 'dir');
+      } else {
+        mkdirSync(join(storageDir, '.recovery'), { recursive: true });
+        symlinkSync(
+          externalDir,
+          join(
+            storageDir,
+            '.recovery',
+            variant === 'trash-root' ? 'trash' : 'conflicts'
+          ),
+          'dir'
+        );
+      }
+
+      try {
+        expect(
+          recoverInterruptedArtifactOperations(
+            repositoryWithReferencedVersion(),
+            storageDir
+          )
+        ).toEqual({ restored: 0, committed: 0, conflicts: 1 });
+        expect(readdirSync(externalDir)).toEqual(['marker']);
+        expect(readFileSync(join(externalDir, 'marker'), 'utf8')).toBe(
           'outside'
         );
       } finally {
@@ -335,6 +461,22 @@ function repositoryWithReferencedVersion(
         ],
       },
     ],
+    users: [],
+    history: [],
+    artifactAudits: [],
+    artifactAuditJobs: [],
+  };
+  return {
+    load: () => data,
+    save: () => {},
+    mutate: (operation) => operation(data),
+  };
+}
+
+function emptyRepository(): ServerProjectRepository {
+  const data: Data = {
+    schemaVersion: 5,
+    projects: [],
     users: [],
     history: [],
     artifactAudits: [],

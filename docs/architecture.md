@@ -208,11 +208,13 @@ apps/server/
   分布式锁；纯 `createApp/app.request` 测试不获取它。
 - 应用开始服务前先恢复未完成删除，再执行 GC 和 orphan 对账。元数据仍引用目标
   时把 recovery 产物恢复到原路径；元数据已删除目标时补齐 committed manifest
-  与 `COMMITTED`。operation、artifacts 祖先、recovery 对象及其递归树中出现
-  symlink 一律隔离；若原路径已存在而 recovery 已缺失，只在 version 3 的目录
-  身份或持久 checksum 能证明它就是已恢复产物时清理 manifest，否则移动到
-  `.recovery/conflicts/` 并让 readiness 返回 503。之后只清理超过 staging
-  保留期的中断上传和旧 ZIP；
+  与 `COMMITTED`。统一的 storage-root 相对路径守卫会检查 source、operation、
+  trash/conflicts 控制目录、artifacts 祖先、recovery 对象及其递归树；任一现有
+  祖先或对象为 symlink 都 fail closed，且不访问其外部目标。若原路径已存在而
+  recovery 已缺失，只在 version 3 的证据成立时清理 manifest：存在持久 checksum
+  时必须重新计算并全部匹配，只有完全没有 checksum 时才允许目录身份兜底。
+  其他情况移动到 `.recovery/conflicts/` 并让 readiness 返回 503；本次启动存在
+  任一恢复冲突时暂停破坏性 GC。无冲突时才清理超过 staging 保留期的中断上传和旧 ZIP；
   没有元数据引用的正式产物移动到 `.recovery/orphans/`，并从隔离时刻重新计算
   恢复保留期。只有过期且带 `COMMITTED` 的 trash 会自动删除，未提交 trash
   永久留给人工检查。元数据存在但

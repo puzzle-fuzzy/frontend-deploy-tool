@@ -189,7 +189,11 @@ recoverInterruptedArtifactOperations(
 - At startup, metadata still referencing an interrupted target restores it;
   metadata no longer referencing it finalizes the committed marker; conflicting
   paths, symlinks, malformed commit state and unproven ambiguous cleanup are
-  quarantined and make readiness fail.
+  quarantined and make readiness fail. Every durable checksum must be
+  recomputed before identity is considered; identity is only a fallback when
+  no checksum exists. A single storage-root-relative ancestor guard protects
+  source, operation, trash and conflict paths, and conflicts freeze destructive
+  GC for that startup pass.
 
 - [x] **Step 1: Add failing process-death and double-start tests**
 
