@@ -13,7 +13,8 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
                  │  /*          → 管理面板（apps/server/public，由打包脚本同步自 apps/web/dist）    │
   部署源 ───────► │  /deploy/*   → routes/deploy → deployResolver + artifactService                 │
                  │                                                                             │
-                 │  deploykit.sqlite（WAL）          .voasx/storage/{projectId}/{versionId}/（产物） │
+                 │  deploykit.sqlite（WAL + durable audit queue）                                  │
+                 │  .voasx/storage/{projectId}/{versionId}/（产物） → 受限审计子进程                 │
                  └─────────────────────────────────────────────────────────────────────────────┘
                                         ▲ 类型 (ApiApp, Project, Version, ...)
                                         │
@@ -25,7 +26,8 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
                  └────────────────────────────────────────────────────────┘
 ```
 
-三个职责仍共用一个进程、一个端口。开发环境未配置双域时保留同源兼容模式；
+管理 API、管理面板和静态托管仍共用一个主进程、一个端口；审计扫描只在任务
+执行期间创建无状态受限子进程。开发环境未配置双域时保留同源兼容模式；
 生产环境必须由反向代理将两个域名转发到该端口并保留原始 `Host`。双域是安全
 边界而不是服务拆分，因此不会增加数据库或应用进程数量。
 
@@ -40,11 +42,12 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与当前报告）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `workers/` | 隔离进程入口 | `artifactAuditProcess.ts` 只接受一份严格 JSON 输入并输出一份经过 schema 校验的结果；不承载 HTTP、会话或数据库连接 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `artifactAudits` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
-| `app.ts` | 组合根 | `createApp(config)`：配置校验、request ID、可观测中间件、信任域路由、服务装配、`/health/*`、受保护的 `/metrics`、部署路由、错误边界、安全头、静态托管与 SPA fallback |
+| `app.ts` | 组合根 | `createApp(config)` 返回未启动的测试应用；`createDeployKitRuntime(config)` 组合相同 Hono app 与 durable audit Worker |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
-| `index.ts` / `runtime.ts` | 运行入口 | `Bun.serve({ fetch: createApp(config).fetch })`；SIGTERM/SIGINT drain、超时强制关闭与 SQLite checkpoint |
+| `index.ts` / `runtime.ts` | 运行入口 | `Bun.serve` + Worker 启动；SIGTERM/SIGINT 同时停止 HTTP 接收和任务领取，等待 drain 后 SQLite checkpoint |
 
 ### 错误传递
 
@@ -125,12 +128,16 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 不会导致重复或跳项。SQLite 历史不截断，单页最多返回 200 条；不存在、格式
 错误或不属于当前可见项目的游标返回 `INVALID_HISTORY_CURSOR`。
 
-产物审计 API 为
-`POST/GET /api/projects/:id/versions/:versionId/audit`，项目 owner 通过
+产物审计保留同步兼容接口
+`POST/GET /api/projects/:id/versions/:versionId/audit`，并增加
+`POST/GET/DELETE .../audit-jobs[/jobId]`。异步 POST 返回 `202 { job, reused }`，
+GET 轮询持久化状态，DELETE 先持久化取消再中止本机子进程。活动任务按 checksum、
+引擎版本与策略快照去重；执行采用租约/心跳，崩溃或过期后有限重试。项目 owner 通过
 `PATCH /api/projects/:id/audit-policy` 在 `advisory` 与 `blocking` 间切换并
 配置体积预算。详细报告每个版本保留一份，运行历史写入追加式 `audit_events`。
-报告绑定 checksum、引擎版本和预算；静态检查不执行 JavaScript、不访问网络，
-且根 HTML 解析上限为 2MB。
+Worker 完成时在一个元数据事务内提交报告、历史和任务终态；过期租约、取消、
+换策略或 checksum 变化都会拒绝迟到结果。报告绑定 checksum、引擎版本和预算；
+静态检查不执行 JavaScript、不访问网络，且根 HTML 解析上限为 2MB。
 
 ## 存储布局
 
@@ -150,10 +157,12 @@ apps/server/
 ```
 
 - `deploykit.sqlite`：启用外键、WAL、`synchronous=NORMAL` 与
-  `busy_timeout`。用户、项目、成员、版本、发布、审计和会话使用独立关系表；
+  `busy_timeout`。用户、项目、成员、版本、发布、审计任务/报告和会话使用独立关系表；
   聚合写用例通过同步 `mutate` + `IMMEDIATE` 事务执行行级 upsert/delete，防止
   并发覆盖。审计事件只追加不截断，游标先解析到数据库自增序列，再按可见项目
   直接查询；发布、回滚与兼容 activate 会在同一事务写入独立 `releases` 台账。
+  `artifact_audit_jobs` 使用状态/领取顺序与租约索引；关系型 schema v3 升级到
+  v4 前创建 `.pre-relational-v4.bak`，文档 schema v7 升级到 v8 同样保留备份。
 - 旧 `deploykit_state` 单行数据库会先通过 `VACUUM INTO` 创建
   `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
@@ -210,9 +219,10 @@ ArtifactAuditPolicy { enforcement: 'advisory' | 'blocking'; maxTotalBytes; maxFi
 Version   { id; name; description; createdAt; size; fileCount; sourceType; status; publishedAt; publishedBy; checksum; integrityStatus; integrityCheckedAt }
 Project   { id; name; slug; description; createdAt; updatedAt; versions: Version[]; activeVersionId: string | null; settings: Settings; auditPolicy: ArtifactAuditPolicy }
 ArtifactAuditReport { id; projectId; versionId; artifactChecksum; status; score; createdAt; createdBy; engineVersion; policy; summary; checks }
+ArtifactAuditJob { id; projectId; versionId; requestedBy; status; priority; attempts; maxAttempts; nextRunAt; lockedBy; lockedUntil; artifactChecksum; engineVersion; policy; reportId; errorCode; errorMessage; timestamps }
 HistoryEvent { id; action; projectId; projectName; versionId; versionName; timestamp; actorId; metadata? }
 User      { id; name; email; passwordHash; role; createdAt; updatedAt }
-Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryEvent[]; artifactAudits: ArtifactAuditReport[] }
+Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryEvent[]; artifactAudits: ArtifactAuditReport[]; artifactAuditJobs: ArtifactAuditJob[] }
 ```
 
 > 注：`project.activeVersionId` 是线上版本唯一真源；`version.status` 用于展示、
@@ -236,11 +246,14 @@ Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryE
 作为 label。
 
 `/metrics` 使用 Prometheus text exposition，提供 HTTP histogram/counter、
-失败、上传、发布、产物审计状态及存储 gauge。指标进程内累计，重启后清零；
-持久化审计历史仍以 SQLite 为准。生产默认不开放 metrics，显式开放时 token
-通过常量时间比较。
+失败、上传、发布、产物审计报告状态、任务 outcome、`queued/running` gauge
+及存储 gauge。指标进程内累计，重启后清零；持久化任务/报告/历史仍以 SQLite
+为准。任务指标只使用固定枚举标签，不允许项目、版本、用户、路径或错误文本。
+生产默认不开放 metrics，显式开放时 token 通过常量时间比较。
 
-SIGTERM/SIGINT 首次到达后，`runtime.ts` 调用 `server.stop(false)` 停止接收并
-等待在途连接，完成后对 SQLite 执行 `wal_checkpoint(TRUNCATE)`。若 drain
-失败或超过配置时限，则调用 `server.stop(true)`，仍尝试 checkpoint，并以
-非零状态退出；重复信号复用同一个关机 Promise。
+SIGTERM/SIGINT 首次到达后，`runtime.ts` 先调用 `server.stop(false)` 停止接收，
+同时让 Worker 停止领取、取消并等待本机活动子进程；二者都完成后才对 SQLite
+执行 `wal_checkpoint(TRUNCATE)`。被中止的拥有租约任务经统一失败路径重新
+排队，取消或丢失租约的迟到完成会被拒绝。若 drain 失败或超过配置时限，则
+调用 `server.stop(true)`，仍尝试 checkpoint，并以非零状态退出；重复信号
+复用同一个关机 Promise。

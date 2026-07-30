@@ -379,7 +379,7 @@ acceptance stops and before SQLite checkpoint.
 
 Expected: all focused tests pass.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/server/src/config.ts apps/server/src/app.ts \
@@ -456,14 +456,14 @@ git commit -m "feat: expose asynchronous artifact audit jobs"
 - Modify: `docs/backend-hardening-roadmap.md`
 - Modify: `docs/superpowers/plans/2026-07-30-async-artifact-audit-jobs.md`
 
-- [ ] **Step 1: Document lifecycle and recovery semantics**
+- [x] **Step 1: Document lifecycle and recovery semantics**
 
 Document configuration, job states, API polling, cancellation behavior,
 subprocess isolation, retry/backoff, lease recovery, metrics, synchronous
 compatibility, and the rule that release gating only trusts a completed current
 report.
 
-- [ ] **Step 2: Run formatting and full verification**
+- [x] **Step 2: Run formatting and full verification**
 
 Run:
 
@@ -474,7 +474,7 @@ bun run verify
 Expected: Biome, secret scan, typecheck, every server/client/desktop test,
 production build, and packaged web assets pass.
 
-- [ ] **Step 3: Run an isolated production smoke**
+- [x] **Step 3: Run an isolated production smoke**
 
 Start a real production server with separate management/deploy origins and a
 temporary SQLite/storage root. Exercise:
@@ -489,10 +489,30 @@ Verify the deploy origin serves only the chosen version, management deploy
 access remains 404, metrics contain bounded job series, and job/report/release
 state survives restart.
 
-- [ ] **Step 4: Complete plan evidence and commit docs**
+- [x] **Step 4: Complete plan evidence and commit docs**
 
 Mark this plan completed only after recording exact test counts, smoke evidence,
 and migration backup evidence.
+
+Delivery evidence recorded on 2026-07-30:
+
+- `bun run verify` passed: Biome checked 256 files; secret scanner passed 2
+  tests and found no known credential patterns; all five workspaces passed
+  typecheck; server passed 292 tests / 967 expectations, client passed 40 tests,
+  desktop passed 23 tests; Vite transformed 2252 modules and the packaged Web
+  assets were copied into `apps/server/public`.
+- Focused migration verification passed 24 tests / 92 expectations. The exact
+  deployed relational v3 -> v4 path asserts
+  `deploykit.sqlite.pre-relational-v4.bak`; the exact document v7 -> v8 path
+  asserts the original `data.json.bak` before `artifactAuditJobs` is added.
+- A real production process with distinct management/deploy origins completed
+  registration, project creation, v1 upload/audit, blocking publish, v2 upload,
+  SIGTERM, same-SQLite restart/recovery, v2 publish, and manual v1 rollback.
+  Both cross-origin trust violations returned 404. Final SQLite evidence was
+  schema v4, `integrity_check=ok`, zero foreign-key violations, two succeeded
+  jobs, two reports, and three release-ledger rows. Metrics showed one recovered
+  success after restart, zero queued/running jobs, and no project/version/job ID
+  in labels.
 
 - [ ] **Step 5: Push and verify remote gates**
 

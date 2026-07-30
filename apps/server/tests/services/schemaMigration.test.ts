@@ -145,3 +145,22 @@ test('repository backs up and persists a migrated v0 file on first load', () => 
   // A second load no longer treats it as a migration (no extra writes needed).
   expect(repo.load()).toEqual(loaded);
 });
+
+test('repository backs up a deployed v7 document before adding audit jobs', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const current = migrate(v0Payload).data;
+  const { artifactAuditJobs: _artifactAuditJobs, ...withoutJobs } = current;
+  const v7Payload = { ...withoutJobs, schemaVersion: 7 };
+  const original = JSON.stringify(v7Payload);
+  writeFileSync(dataFile, original);
+
+  const repo = createJsonProjectRepository(dataFile);
+  const loaded = repo.load();
+
+  expect(loaded.schemaVersion).toBe(8);
+  expect(loaded.artifactAuditJobs).toEqual([]);
+  expect(readFileSync(`${dataFile}.bak`, 'utf-8')).toBe(original);
+  const persisted = JSON.parse(readFileSync(dataFile, 'utf-8'));
+  expect(persisted.schemaVersion).toBe(8);
+  expect(persisted.artifactAuditJobs).toEqual([]);
+});

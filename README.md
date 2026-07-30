@@ -9,8 +9,9 @@
    |                                      |
    |── 管理面板 (/) ────────────────────>|── 托管 React SPA (apps/server/public/)
    |                                      |
-   |── API (/api/*) ─────────────────────>|── SQLite 元数据
+   |── API (/api/*) ─────────────────────>|── SQLite 元数据 / 审计任务队列
    |                                      |── .voasx/storage/ 文件操作
+   |                                      |── 隔离的审计子进程（单任务 Worker）
    |                                      |
    |── 部署访问 (/deploy/:slug/) ───────>|── 从 .voasx/storage/ 提供静态文件
                                           |── SPA fallback (可选)
@@ -29,6 +30,7 @@
 - **SPA 支持** — 支持 Hash/Path 两种路由模式，Path 模式自动 fallback 到 index.html
 - **操作历史** — 关系型追加记录所有创建、删除、发布和恢复操作，使用稳定游标增量加载
 - **产物完整性** — 显式检查入口文件和目录校验和，持久化检查状态；损坏的线上版本会下线但不会自动换版
+- **可恢复产物审计** — SQLite 持久化任务、租约续期、指数退避和进程隔离；重启后可继续领取，用户可轮询或取消
 - **失败恢复** — 上传 staging、同盘原子切换与启动对账；孤儿产物进入可恢复隔离区
 - **可观测运行** — 全链路 request ID、结构化 JSON 访问日志、受保护的 Prometheus 指标和优雅停机
 - **回退友好缓存** — 当前版本 URL 强制重新验证；只有固定版本 URL 使用长期 immutable 缓存
@@ -91,6 +93,7 @@ deploykit/
 │   │   │   ├── domain/            # 纯领域规则（project/version/history）
 │   │   │   ├── repositories/      # 持久化接口 + SQLite / 旧 JSON 实现
 │   │   │   ├── services/          # 用例（project/version/artifact/deploy）
+│   │   │   ├── workers/           # 受限协议的产物审计子进程入口
 │   │   │   ├── routes/            # HTTP 路由（projects/versions/history/deploy）
 │   │   │   └── utils/             # id、mime、safePath
 │   │   ├── tests/                 # API 契约测试 + 服务/领域单元测试
@@ -154,6 +157,11 @@ deploykit/
 | `METRICS_ENABLED` | 开发 `true`、生产 `false` | 是否在管理源开放 Prometheus `/metrics` |
 | `METRICS_TOKEN` | 无 | `/metrics` bearer token；生产开启指标时必填且至少 32 字符 |
 | `SHUTDOWN_TIMEOUT_MS` | `30000` | SIGTERM/SIGINT 等待在途请求完成的上限（最大 10 分钟） |
+| `ARTIFACT_AUDIT_WORKER_ENABLED` | `true` | 是否在当前服务进程运行持久化审计 Worker |
+| `ARTIFACT_AUDIT_POLL_INTERVAL_MS` | `1000` | Worker 领取排队任务的间隔 |
+| `ARTIFACT_AUDIT_TIMEOUT_MS` | `60000` | 单个隔离审计子进程的硬超时 |
+| `ARTIFACT_AUDIT_LEASE_MS` | `90000` | 任务租约；必须大于审计超时 |
+| `ARTIFACT_AUDIT_MAX_ATTEMPTS` | `3` | 可重试失败的最大执行次数（上限 10） |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 
@@ -217,6 +225,9 @@ deploykit/
 | DELETE | `/api/projects/:id/versions/:vid` | 删除版本；产物先进入可恢复区，删除线上版本会下线项目，不自动选择替代版本 | — |
 | POST | `/api/projects/:id/versions/:vid/audit` | 运行静态产物审计（developer 项目成员/admin） | — |
 | GET | `/api/projects/:id/versions/:vid/audit` | 获取该版本当前审计报告（可读取该项目的用户/admin） | — |
+| POST | `/api/projects/:id/versions/:vid/audit-jobs` | 创建或复用活动审计任务，返回 `202`（developer 项目成员/admin） | — |
+| GET | `/api/projects/:id/versions/:vid/audit-jobs/:jobId` | 轮询持久化任务状态（可读取该项目的用户/admin） | — |
+| DELETE | `/api/projects/:id/versions/:vid/audit-jobs/:jobId` | 取消排队/运行中的任务（developer 项目成员/admin） | — |
 
 发布与回滚采用乐观并发控制：服务端只在
 `expectedActiveVersionId` 与当前线上版本一致时执行；否则返回
@@ -231,6 +242,15 @@ description、canonical、robots、viewport、语言、H1、Open Graph、JSON-LD
 `robots.txt` 和 `sitemap.xml` 检查。单个 `index.html` 最多解析 2MB，避免成员
 通过异常页面占用过多解析资源；这是一份静态检查报告，不等同于 Lighthouse、
 真实爬虫或运行时渲染结果。
+
+新客户端应使用 `audit-jobs` 异步接口：`POST` 返回
+`{ job, reused }`，其中活动中的相同产物 checksum、引擎版本和策略会复用同一
+任务；随后轮询 `GET`，直到 `succeeded`、`failed` 或 `canceled`。任务状态和
+策略快照存储在 SQLite，`running` 任务使用有期限租约和心跳；进程崩溃或租约
+过期后会按指数退避重新排队，达到最大次数后才终止。实际扫描在独立 Bun
+子进程中运行，父进程限制执行时间和输出大小。`DELETE` 先持久化取消状态，再
+中止本机子进程，因此迟到结果不能覆盖已取消或已换策略的任务。原
+`POST /audit` 同步接口继续兼容现有客户端。
 
 每个版本只保留当前详细报告，每次运行仍会追加 `version.audit` 历史摘要。报告
 同时绑定产物 checksum、审计引擎版本和当次体积预算；任一条件变化都会使旧报告
@@ -329,9 +349,10 @@ curl -H "Authorization: Bearer $METRICS_TOKEN" \
   "$MANAGEMENT_BASE_URL/metrics"
 ```
 
-主要指标包括请求量与延迟、4xx/5xx 失败、上传、发布与产物审计结果、元数据
-记录的产物字节数以及 SQLite/WAL 文件字节数。审计指标只使用有限的报告状态
-label，不包含项目、版本或文件名。建议至少配置以下告警：
+主要指标包括请求量与延迟、4xx/5xx 失败、上传、发布、产物审计报告结果、
+审计任务 outcome/活动状态、元数据记录的产物字节数以及 SQLite/WAL 文件
+字节数。审计指标只使用有限的 `status` / `outcome` label，不包含项目、版本、
+用户、路径或错误消息。建议至少配置以下告警：
 
 - `/health/ready` 连续失败，或 5xx 在 5 分钟窗口持续出现；
 - 上传/发布 `failure` 比例升高；
@@ -339,9 +360,10 @@ label，不包含项目、版本或文件名。建议至少配置以下告警：
 - `deploykit_artifact_storage_bytes` 接近 `MAX_STORAGE_SIZE` 的 80%；
 - SQLite/WAL 体积异常持续增长。
 
-收到 SIGTERM/SIGINT 后，服务停止接收新连接，等待在途请求完成，再执行 SQLite
-WAL checkpoint。超过 `SHUTDOWN_TIMEOUT_MS` 会强制关闭并以非零状态退出，便于
-编排器标记本次终止异常。
+收到 SIGTERM/SIGINT 后，服务停止接收新连接并同时停止 Worker 继续领取任务，
+等待在途请求和活动审计子进程完成/中止，再执行 SQLite WAL checkpoint；未完成
+任务会保留为可重试状态。超过 `SHUTDOWN_TIMEOUT_MS` 会强制关闭并以非零状态
+退出，便于编排器标记本次终止异常。
 
 ## 文档
 

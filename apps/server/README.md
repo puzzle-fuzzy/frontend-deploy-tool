@@ -12,6 +12,7 @@ HTTP 请求
    |                         |-- services/ 用例
    |                         |-- repositories/ SQLite 持久化（WAL + 原子 mutate）
    |                         |-- .voasx/storage/ 文件操作
+   |                         `-- durable audit queue -> 隔离 Bun 子进程
    |
    +-- /deploy/:slug/* ─> 部署路由（deployResolver + artifactService）
    |                         |-- 解析 slug → 项目 → 版本
@@ -33,7 +34,7 @@ HTTP 请求
 - **操作历史** — SQLite 追加记录创建、更新、上传、发布、回滚、删除等操作，使用稳定游标分页
 - **可恢复删除** — 项目/版本产物先原子移动到 `.recovery/trash/`；元数据失败自动还原，成功后由保留策略延迟清理
 - **完整性检查** — 显式校验 `index.html` 与产物树校验和，持久化结果；缺失/损坏的线上版本只下线、不自动替换
-- **产物审计** — 持久化文件体积/数量/扩展名与静态 SEO 报告；项目可选择仅提示或发布阻断
+- **产物审计** — 持久化任务/报告、租约恢复、有限重试和隔离执行；项目可选择仅提示或发布阻断
 - **认证与角色** — 可撤销的浏览器 session / 桌面 bearer 认证；`admin` 全局管理，
   `developer` 结合项目 `owner/member` 授权，`viewer` 仅可读取所属项目
 - **运行检查** — `/health/live`（进程存活）与 `/health/ready`（SQLite/仓库可读）
@@ -60,7 +61,11 @@ src/
 │   ├── artifactService.ts    # 解压/扁平化/大小/服务文件
 │   ├── artifactAuditEngine.ts # 本地文件清单与静态 HTML/SEO 检查
 │   ├── artifactAuditService.ts # 报告持久化与版本审计用例
+│   ├── artifactAuditJobService.ts # durable queue、租约、重试和原子完成
+│   ├── artifactAuditExecutor.ts # 超时/输出受限的 Bun 子进程适配器
+│   ├── artifactAuditWorker.ts # 单任务调度、心跳、取消与 drain
 │   └── deployResolver.ts     # /deploy/* 路径解析（纯函数）
+├── workers/                  # 子进程协议入口（不承载 HTTP）
 ├── routes/                   # HTTP 路由（chained Hono sub-apps）
 │   ├── projects.ts versions.ts artifactAudits.ts history.ts # /api（Bun 无关）
 │   └── deploy.ts                                       # /deploy
@@ -103,6 +108,11 @@ bun run dev:server          # 仅后端
 | `STAGING_RETENTION_HOURS` / `RECOVERY_RETENTION_HOURS` | 24 / 168 | 上传暂存、已提交删除与孤儿隔离的最短保留小时数 |
 | `METRICS_ENABLED` / `METRICS_TOKEN` | 开发 `true`、生产 `false` / 空 | 管理源指标开关与 bearer token；生产开启时 token 至少 32 字符 |
 | `SHUTDOWN_TIMEOUT_MS` | `30000` | 停止接收请求后等待在途连接的毫秒数，最大 10 分钟 |
+| `ARTIFACT_AUDIT_WORKER_ENABLED` | `true` | 是否在当前实例运行审计 Worker |
+| `ARTIFACT_AUDIT_POLL_INTERVAL_MS` | `1000` | durable queue 领取间隔 |
+| `ARTIFACT_AUDIT_TIMEOUT_MS` | `60000` | 单个隔离审计进程硬超时 |
+| `ARTIFACT_AUDIT_LEASE_MS` | `90000` | 运行租约，必须大于执行超时 |
+| `ARTIFACT_AUDIT_MAX_ATTEMPTS` | `3` | 可重试失败的最大次数，范围 1–10 |
 
 所有显式配置值都会严格校验。拼写错误（例如无效布尔值）、非法 URL 或越界数字不会被静默替换成默认值。
 当前阶段用户容量明确归属到 `project.createdBy`；协作者上传不会被重复计算。未来若支持计费/归属转移，将提供显式迁移操作，而不会随成员变化静默转移。
@@ -143,6 +153,19 @@ bun run dev:server          # 仅后端
 
 见根 [README](../../README.md#api-接口)。错误格式：`{ "error": { "code": "ERROR_CODE", "message": "..." } }`（错误码定义在 [src/errors.ts](src/errors.ts) 的 `ErrorCode`）。
 
+异步审计使用三条 additive 路由：
+
+- `POST /api/projects/:id/versions/:versionId/audit-jobs` — `202 { job, reused }`
+- `GET /api/projects/:id/versions/:versionId/audit-jobs/:jobId` — 轮询持久化状态
+- `DELETE /api/projects/:id/versions/:versionId/audit-jobs/:jobId` — 持久化取消并中止本机执行
+
+读取要求项目可见；创建/取消同时要求全局 `developer/admin` 和项目
+`owner/member`。队列只对 checksum、引擎版本和策略完全一致的活动任务去重。
+状态为 `queued → running → succeeded|failed|canceled`；可重试错误按指数退避
+回到 `queued`。租约过期由启动 sweep 重新排队，达到最大尝试次数后终止。完成
+时会在同一个 SQLite `mutate` 中写当前报告、历史摘要和任务终态。原同步
+`POST/GET .../audit` 保持兼容。
+
 公开运行端点：
 
 - `GET /health/live` — 返回 `204`，只表示进程可处理 HTTP。
@@ -155,13 +178,16 @@ JSON；`route` 是 Hono 路由模板，不包含用户、项目、slug 或文件
 
 `GET /metrics` 只在管理源提供。开发默认开启且可无 token；生产默认关闭，
 若开启则 `METRICS_TOKEN` 必须至少 32 字符，并要求 bearer 认证。指标覆盖
-HTTP 数量/延迟/失败、上传结果、发布操作结果、产物审计状态、产物字节数和
-SQLite/WAL 字节数。
+HTTP 数量/延迟/失败、上传结果、发布操作结果、产物审计状态、审计任务
+outcome/活动状态、产物字节数和 SQLite/WAL 字节数。任务指标只允许固定的
+`succeeded|failed|canceled|retried` 与 `queued|running` 标签。
 部署源访问 `/metrics` 始终得到 404。
 
-收到 SIGTERM/SIGINT 时，运行时只执行一次关机流程：先 drain Bun server，
-再 `PRAGMA wal_checkpoint(TRUNCATE)`。超过 `SHUTDOWN_TIMEOUT_MS` 会强制断开、
-尝试 checkpoint 并以状态 1 退出。
+收到 SIGTERM/SIGINT 时，运行时只执行一次关机流程：先停止 HTTP 接收，并发
+停止 Worker 领取、取消并等待本机活动子进程，再
+`PRAGMA wal_checkpoint(TRUNCATE)`。中止的任务经持久化失败路径重试，迟到结果
+因租约/状态校验不能提交。超过 `SHUTDOWN_TIMEOUT_MS` 会强制断开、尝试
+checkpoint 并以状态 1 退出。
 
 ## 运维命令
 
