@@ -140,48 +140,52 @@ function createFixture(tempDir: string) {
   return { databaseFile, storageDir, repository };
 }
 
+function seedAutomationMetadata(databaseFile: string): void {
+  createSqliteApiTokenRepository(databaseFile).create({
+    token: {
+      id: 'token-1',
+      projectId: 'p1',
+      name: 'CI',
+      hashVersion: 1,
+      secretDigest: 'a'.repeat(64),
+      prefix: 'dpk_v1.token-1.alpha',
+      scopes: ['preview:upload'],
+      createdAt: '2026-07-30T00:00:00.000Z',
+      createdBy: 'user-1',
+      expiresAt: '2026-10-30T00:00:00.000Z',
+      lastUsedAt: null,
+      revokedAt: null,
+      replacedByTokenId: null,
+    },
+    projectName: 'Original',
+  });
+  const database = new Database(databaseFile);
+  database
+    .query(
+      `INSERT INTO ci_idempotency_records (
+         project_id, token_id, idempotency_key, request_digest, version_id,
+         version_name, created_at, expires_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'p1',
+      'token-1',
+      'ci-run-1',
+      'b'.repeat(64),
+      'v1',
+      'v1',
+      '2026-07-30T00:00:00.000Z',
+      '2026-07-31T00:00:00.000Z'
+    );
+  database.close();
+}
+
 describe('createBackupService', () => {
   test('creates a self-describing backup and verifies database and artifacts', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
     try {
       const fixture = createFixture(tempDir);
-      createSqliteApiTokenRepository(fixture.databaseFile).create({
-        token: {
-          id: 'token-1',
-          projectId: 'p1',
-          name: 'CI',
-          hashVersion: 1,
-          secretDigest: 'a'.repeat(64),
-          prefix: 'dpk_v1.token-1.alpha',
-          scopes: ['preview:upload'],
-          createdAt: '2026-07-30T00:00:00.000Z',
-          createdBy: 'user-1',
-          expiresAt: '2026-10-30T00:00:00.000Z',
-          lastUsedAt: null,
-          revokedAt: null,
-          replacedByTokenId: null,
-        },
-        projectName: 'Original',
-      });
-      const metadata = new Database(fixture.databaseFile);
-      metadata
-        .query(
-          `INSERT INTO ci_idempotency_records (
-             project_id, token_id, idempotency_key, request_digest, version_id,
-             version_name, created_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-        )
-        .run(
-          'p1',
-          'token-1',
-          'ci-run-1',
-          'b'.repeat(64),
-          'v1',
-          'v1',
-          '2026-07-30T00:00:00.000Z',
-          '2026-07-31T00:00:00.000Z'
-        );
-      metadata.close();
+      seedAutomationMetadata(fixture.databaseFile);
       const backupDir = join(tempDir, 'backups', 'backup-1');
       const service = createBackupService(fixture);
 
@@ -211,6 +215,61 @@ describe('createBackupService', () => {
       expect(
         existsSync(join(backupDir, 'storage', 'p1', 'v1', 'index.html'))
       ).toBe(true);
+
+      const manifestPath = join(backupDir, 'manifest.json');
+      const drifted = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        metadataCounts: { apiTokens: number };
+      };
+      drifted.metadataCounts.apiTokens += 1;
+      writeFileSync(manifestPath, JSON.stringify(drifted, null, 2));
+      expect(service.verifyBackup(backupDir)).toMatchObject({
+        valid: false,
+        errors: ['metadata count apiTokens mismatch: expected 2, received 1'],
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores token, security-event, and idempotency rows from schema v6', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-v6-'));
+    try {
+      const fixture = createFixture(tempDir);
+      seedAutomationMetadata(fixture.databaseFile);
+      const backupDir = join(tempDir, 'backups', 'backup-v6');
+      const service = createBackupService(fixture);
+      service.createBackup(backupDir);
+
+      const database = new Database(fixture.databaseFile);
+      database.exec(`
+        DELETE FROM ci_idempotency_records;
+        DELETE FROM project_api_tokens;
+        DELETE FROM api_token_security_events;
+      `);
+      database.close();
+
+      service.restoreBackup(backupDir, { force: true });
+
+      const tokenRepository = createSqliteApiTokenRepository(
+        fixture.databaseFile
+      );
+      expect(tokenRepository.list('p1')).toEqual([
+        expect.objectContaining({ id: 'token-1', projectId: 'p1' }),
+      ]);
+      expect(tokenRepository.listSecurityEvents('p1')).toEqual([
+        expect.objectContaining({
+          tokenId: 'token-1',
+          action: 'api_token.create',
+        }),
+      ]);
+      const restored = new Database(fixture.databaseFile);
+      const idempotencyCount = restored
+        .query<{ count: number }, []>(
+          'SELECT COUNT(*) AS count FROM ci_idempotency_records'
+        )
+        .get()?.count;
+      restored.close();
+      expect(idempotencyCount).toBe(1);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

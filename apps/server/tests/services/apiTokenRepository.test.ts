@@ -155,6 +155,25 @@ describe('API token repositories', () => {
       token: createToken('token-1', 'a'.repeat(64)),
       projectName: 'Signal Desk',
     });
+    const database = new Database(databaseFile);
+    database
+      .query(
+        `INSERT INTO ci_idempotency_records (
+           project_id, token_id, idempotency_key, request_digest, version_id,
+           version_name, created_at, expires_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      )
+      .run(
+        'project-1',
+        'token-1',
+        'ci-run-1',
+        'b'.repeat(64),
+        'version-1',
+        'version-1',
+        '2026-07-31T00:00:00.000Z',
+        '2026-08-01T00:00:00.000Z'
+      );
+    database.close();
 
     projectRepository.mutate((data) => {
       data.projects = [];
@@ -162,6 +181,14 @@ describe('API token repositories', () => {
 
     expect(repository.findById('token-1')).toBeNull();
     expect(repository.listSecurityEvents('project-1')).toHaveLength(1);
+    const verify = new Database(databaseFile);
+    const idempotencyCount = verify
+      .query<{ count: number }, []>(
+        'SELECT COUNT(*) AS count FROM ci_idempotency_records'
+      )
+      .get()?.count;
+    verify.close();
+    expect(idempotencyCount).toBe(0);
   });
 });
 
@@ -296,7 +323,23 @@ function createData(): Data {
         description: '',
         createdAt: '2026-07-31T00:00:00.000Z',
         updatedAt: '2026-07-31T00:00:00.000Z',
-        versions: [],
+        versions: [
+          {
+            id: 'version-1',
+            name: 'version-1',
+            description: '',
+            createdAt: '2026-07-31T00:00:00.000Z',
+            size: 1,
+            fileCount: 1,
+            sourceType: 'folder',
+            status: 'preview',
+            publishedAt: null,
+            publishedBy: null,
+            checksum: 'c'.repeat(64),
+            integrityStatus: 'verified',
+            integrityCheckedAt: '2026-07-31T00:00:00.000Z',
+          },
+        ],
         activeVersionId: null,
         settings: { spaMode: false, routingType: 'path' },
         auditPolicy: {
