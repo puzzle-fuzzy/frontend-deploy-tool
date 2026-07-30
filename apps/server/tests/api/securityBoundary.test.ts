@@ -4,6 +4,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApp } from '../../src/app';
 
+const MANAGEMENT_ORIGIN = 'http://console.example.test';
+const DEPLOY_ORIGIN = 'http://deploy.example.test';
+
 let tempDir: string;
 
 beforeEach(() => {
@@ -68,8 +71,8 @@ test('serves trusted routes and deployed artifacts on separate origins', async (
     dataFile: join(tempDir, 'data.json'),
     storageDir,
     publicDir: join(tempDir, 'public'),
-    managementBaseURL: 'http://console.example.test',
-    deployBaseURL: 'http://deploy.example.test',
+    managementBaseURL: MANAGEMENT_ORIGIN,
+    deployBaseURL: DEPLOY_ORIGIN,
     adminEmail: 'admin@test.local',
     adminPassword: 'test-password',
     sessionSecret: 'test-session-secret',
@@ -90,6 +93,58 @@ test('serves trusted routes and deployed artifacts on separate origins', async (
   const deployed = await app.request('http://deploy.example.test/deploy/demo/');
   expect(deployed.status).toBe(200);
   expect(await deployed.text()).toContain('deployed');
+});
+
+test('rejects deploy-origin writes made with a real browser session cookie', async () => {
+  const app = createApp({
+    environment: 'test',
+    dataFile: join(tempDir, 'data.json'),
+    storageDir: join(tempDir, 'storage'),
+    publicDir: join(tempDir, 'public'),
+    managementBaseURL: MANAGEMENT_ORIGIN,
+    deployBaseURL: DEPLOY_ORIGIN,
+    adminEmail: 'admin@test.local',
+    adminPassword: 'test-password',
+    sessionSecret: 'test-session-secret',
+    secureCookies: false,
+    registrationEnabled: false,
+  });
+  const login = await app.request(`${MANAGEMENT_ORIGIN}/api/auth/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      email: 'admin@test.local',
+      password: 'test-password',
+    }),
+  });
+  expect(login.status).toBe(200);
+  const cookie = login.headers.get('Set-Cookie')?.split(';', 1)[0];
+  if (!cookie) throw new Error('login did not set a session cookie');
+
+  for (const [path, body] of [
+    ['/api/auth/logout-all', undefined],
+    ['/api/projects/not-a-project/versions', new FormData()],
+    [
+      '/api/projects/not-a-project/versions/not-a-version/audit-jobs',
+      undefined,
+    ],
+  ] as const) {
+    const response = await app.request(`${MANAGEMENT_ORIGIN}${path}`, {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: DEPLOY_ORIGIN,
+      },
+      body,
+    });
+    expect(response.status).toBe(403);
+    expect((await response.json()).error.code).toBe('CSRF_VALIDATION_FAILED');
+  }
+
+  const sessionRemainsValid = await app.request(`${MANAGEMENT_ORIGIN}/api/me`, {
+    headers: { Cookie: cookie },
+  });
+  expect(sessionRemainsValid.status).toBe(200);
 });
 
 test('preserves same-origin development behavior when origins are unset', async () => {

@@ -13,6 +13,7 @@ import {
   defaultStructuredLogger,
   type StructuredLogger,
 } from './middleware/observability';
+import { createRequestOriginProtection } from './middleware/requestOrigin';
 import {
   clearSessionCookie,
   createSessionMiddleware,
@@ -252,6 +253,12 @@ function composeApp(
       })
     )
     .use('*', createTrustBoundary(config))
+    .use(
+      '/api/*',
+      createRequestOriginProtection({
+        managementBaseURL: config.managementBaseURL,
+      })
+    )
     .route('/', apiApp)
     .get('/health/live', (c) => c.body(null, 204))
     .get('/health/ready', (c) => {

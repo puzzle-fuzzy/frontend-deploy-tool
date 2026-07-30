@@ -100,6 +100,15 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 - `/metrics` 仅属于管理源；生产开启时还需要独立 bearer token。
 - 其他 Host、部署源上的 API、管理源上的产物路由都返回 404。
 - 浏览器 API 客户端只使用 HttpOnly session Cookie，不持久化 bearer token。
+- `MANAGEMENT_BASE_URL` 配置后，所有非 `GET`/`HEAD`/`OPTIONS` 的
+  `/api/*` 请求都会在读取请求体前验证发起方。只要携带 `Origin`，其值必须与
+  管理源的序列化 origin 完全一致；`null`、格式错误或其他源均返回
+  `403 CSRF_VALIDATION_FAILED`。携带 `deploykit_session` Cookie 且没有
+  bearer 凭据的写请求若缺少 `Origin` 同样拒绝。`Sec-Fetch-Site` 为
+  `same-site` 或 `cross-site` 时始终拒绝写请求，即使其他头部看似可信；没有
+  浏览器 origin/fetch 元数据的 bearer 客户端继续兼容。目标 Host 隔离和 CORS
+  都不能替代这层控制：同一站点的兄弟源可发送携带 SameSite Cookie 的请求，
+  而 CORS 仅阻止攻击者读取响应，不会阻止服务器发生状态变更。
 - 浏览器和 Electron 令牌都包含签名 `jti`，并且必须命中 SQLite 中未过期、
   未撤销的 `sessions` 行；角色始终从当前用户数据读取。登录/注册只创建一个
   browser session，响应 token 与 Cookie 相同。Electron 通过一次性授权码创建
