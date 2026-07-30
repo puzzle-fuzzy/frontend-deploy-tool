@@ -13,6 +13,7 @@ import { createUserSearchRoutes } from './routes/userSearch';
 import { createVersionRoutes } from './routes/versions';
 import type {
   AppEnv,
+  ArtifactAuditJobApiService,
   ArtifactAuditService,
   ProjectService,
   SessionService,
@@ -61,6 +62,7 @@ export interface ApiDeps {
   projectService: ProjectService;
   versionService: VersionService;
   artifactAuditService: ArtifactAuditService;
+  artifactAuditJobService: ArtifactAuditJobApiService;
   userService: UserService;
   /** Loads the session user into `c.var.user` (Node-backed; injected). */
   sessionMiddleware: MiddlewareHandler<AppEnv>;
@@ -82,6 +84,8 @@ export interface ApiDeps {
       redirectUri: string;
     } | null;
   };
+  /** Aborts the local subprocess after a durable job cancellation. */
+  cancelArtifactAuditJob?: (jobId: string) => void;
 }
 
 /**
@@ -303,8 +307,10 @@ export function createApiApp(deps: ApiDeps) {
     .route(
       '/',
       createArtifactAuditRoutes({
+        artifactAuditJobService: deps.artifactAuditJobService,
         artifactAuditService: deps.artifactAuditService,
         projectService: deps.projectService,
+        cancelArtifactAuditJob: deps.cancelArtifactAuditJob,
       })
     )
     .route('/', createMemberRoutes({ projectService: deps.projectService }))

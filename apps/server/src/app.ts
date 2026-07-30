@@ -76,8 +76,11 @@ export function createDeployKitRuntime(
   config: AppConfig,
   options: CreateAppOptions = {}
 ): DeployKitRuntime {
-  const composition = composeApp(config, options);
-  const artifactAuditWorker = createArtifactAuditWorker({
+  let artifactAuditWorker: ArtifactAuditWorker | null = null;
+  const composition = composeApp(config, options, (jobId) => {
+    artifactAuditWorker?.cancel(jobId);
+  });
+  artifactAuditWorker = createArtifactAuditWorker({
     jobService: composition.artifactAuditJobService,
     executor:
       options.artifactAuditExecutor ??
@@ -91,7 +94,11 @@ export function createDeployKitRuntime(
   return { app: composition.app, artifactAuditWorker };
 }
 
-function composeApp(config: AppConfig, options: CreateAppOptions) {
+function composeApp(
+  config: AppConfig,
+  options: CreateAppOptions,
+  cancelArtifactAuditJob?: (jobId: string) => void
+) {
   validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
 
@@ -111,6 +118,16 @@ function composeApp(config: AppConfig, options: CreateAppOptions) {
       `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`
     );
   }
+  let recordArtifactAuditJob: MetricsRegistry['recordArtifactAuditJob'] =
+    () => {};
+  const artifactAuditJobService = createArtifactAuditJobService(
+    repo,
+    config.storageDir,
+    {
+      maxAttempts: config.artifactAuditMaxAttempts ?? 3,
+      recordOutcome: (outcome) => recordArtifactAuditJob(outcome),
+    }
+  );
   const metrics =
     options.metrics ??
     createMetricsRegistry({
@@ -131,7 +148,9 @@ function composeApp(config: AppConfig, options: CreateAppOptions) {
               0
             )
           : 0,
+      artifactAuditJobsActive: () => artifactAuditJobService.countActive(),
     });
+  recordArtifactAuditJob = (outcome) => metrics.recordArtifactAuditJob(outcome);
   const artifactRecovery = createArtifactRecoveryService(config.storageDir);
   const projectService = createProjectService(repo, { artifactRecovery });
   const versionService = createVersionService(repo, config, {
@@ -142,13 +161,6 @@ function composeApp(config: AppConfig, options: CreateAppOptions) {
     config.storageDir,
     {
       recordOutcome: (status) => metrics.recordArtifactAudit(status),
-    }
-  );
-  const artifactAuditJobService = createArtifactAuditJobService(
-    repo,
-    config.storageDir,
-    {
-      maxAttempts: config.artifactAuditMaxAttempts ?? 3,
     }
   );
   const userService = createUserService(repo);
@@ -213,6 +225,7 @@ function composeApp(config: AppConfig, options: CreateAppOptions) {
     projectService,
     versionService,
     artifactAuditService,
+    artifactAuditJobService,
     userService,
     sessionMiddleware: createSessionMiddleware({
       sessionService,
@@ -224,6 +237,7 @@ function composeApp(config: AppConfig, options: CreateAppOptions) {
     desktopAuth,
     registrationEnabled: config.registrationEnabled,
     uploadRouteLimits,
+    cancelArtifactAuditJob,
   });
 
   const app = new Hono<AppEnv>()

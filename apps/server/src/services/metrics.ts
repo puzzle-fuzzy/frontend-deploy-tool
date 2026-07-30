@@ -1,3 +1,5 @@
+import type { ArtifactAuditStatus } from '@deploykit/shared';
+
 export interface RequestMetric {
   method: string;
   route: string;
@@ -8,7 +10,14 @@ export interface RequestMetric {
 export interface MetricsGaugeProviders {
   artifactStorageBytes: () => number;
   sqliteStorageBytes: () => number;
+  artifactAuditJobsActive?: () => { queued: number; running: number };
 }
+
+export type ArtifactAuditJobMetricOutcome =
+  | 'succeeded'
+  | 'failed'
+  | 'canceled'
+  | 'retried';
 
 const LATENCY_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 const VERSION_UPLOAD_ROUTE = /^\/api\/projects\/:[^/]+\/versions$/;
@@ -34,6 +43,10 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
   const uploadCounts = new Map<string, number>();
   const releaseCounts = new Map<string, number>();
   const artifactAuditCounts = new Map<ArtifactAuditStatus, number>();
+  const artifactAuditJobCounts = new Map<
+    ArtifactAuditJobMetricOutcome,
+    number
+  >();
   let failureCount = 0;
 
   return {
@@ -71,6 +84,10 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
 
     recordArtifactAudit(status: ArtifactAuditStatus): void {
       increment(artifactAuditCounts, status);
+    },
+
+    recordArtifactAuditJob(outcome: ArtifactAuditJobMetricOutcome): void {
+      increment(artifactAuditJobCounts, outcome);
     },
 
     render(): string {
@@ -159,6 +176,31 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
       }
 
       lines.push(
+        '# HELP deploykit_artifact_audit_jobs_total Durable artifact audit jobs by outcome.',
+        '# TYPE deploykit_artifact_audit_jobs_total counter'
+      );
+      for (const [outcome, count] of [
+        ...artifactAuditJobCounts.entries(),
+      ].sort()) {
+        lines.push(
+          `deploykit_artifact_audit_jobs_total${labels({ outcome })} ${count}`
+        );
+      }
+      const activeAuditJobs = readActiveAuditJobs(
+        providers.artifactAuditJobsActive
+      );
+      lines.push(
+        '# HELP deploykit_artifact_audit_jobs_active Active durable artifact audit jobs by status.',
+        '# TYPE deploykit_artifact_audit_jobs_active gauge',
+        `deploykit_artifact_audit_jobs_active${labels({
+          status: 'queued',
+        })} ${activeAuditJobs.queued}`,
+        `deploykit_artifact_audit_jobs_active${labels({
+          status: 'running',
+        })} ${activeAuditJobs.running}`
+      );
+
+      lines.push(
         '# HELP deploykit_artifact_storage_bytes Artifact bytes recorded in deployment metadata.',
         '# TYPE deploykit_artifact_storage_bytes gauge',
         `deploykit_artifact_storage_bytes ${readGauge(
@@ -226,4 +268,20 @@ function readGauge(provider: () => number): number {
   }
 }
 
-import type { ArtifactAuditStatus } from '@deploykit/shared';
+function readActiveAuditJobs(
+  provider: MetricsGaugeProviders['artifactAuditJobsActive']
+): { queued: number; running: number } {
+  try {
+    const value = provider?.();
+    return {
+      queued: normalizeCount(value?.queued),
+      running: normalizeCount(value?.running),
+    };
+  } catch {
+    return { queued: 0, running: 0 };
+  }
+}
+
+function normalizeCount(value: number | undefined): number {
+  return Number.isSafeInteger(value) && (value ?? -1) >= 0 ? (value ?? 0) : 0;
+}

@@ -411,18 +411,18 @@ The POST response is `202 { job, reused }`. GET returns current persisted state.
 DELETE returns the canceled state. Reads require project visibility; enqueue and
 cancel require developer/admin plus project membership.
 
-- [ ] **Step 1: Write API authorization and lifecycle tests**
+- [x] **Step 1: Write API authorization and lifecycle tests**
 
 Cover 202 enqueue, active deduplication, polling success, project scoping,
 member write access, viewer rejection, cancellation, malformed IDs, and the
 unchanged synchronous route.
 
-- [ ] **Step 2: Add chained routes and typed contracts**
+- [x] **Step 2: Add chained routes and typed contracts**
 
 Keep Hono route definitions chained. Parse every path ID with
 `parseIdParam`; never trust a job's project/version relation from request data.
 
-- [ ] **Step 3: Add bounded metrics**
+- [x] **Step 3: Add bounded metrics**
 
 Expose:
 
@@ -433,12 +433,12 @@ deploykit_artifact_audit_jobs_active{status="queued|running"}
 
 No project, version, job, user, path, or error string may become a label.
 
-- [ ] **Step 4: Run API and metrics tests**
+- [x] **Step 4: Run API and metrics tests**
 
 Expected: focused tests pass and existing synchronous API assertions remain
 unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/routes apps/server/src/api.ts \

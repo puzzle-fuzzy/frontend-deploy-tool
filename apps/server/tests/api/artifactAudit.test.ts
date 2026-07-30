@@ -3,28 +3,46 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+  ArtifactAuditJob,
   ArtifactAuditPolicy,
   ArtifactAuditReport,
   Project,
 } from '@deploykit/shared';
-import { adminToken, createAuthApp, loginAs, withBearer } from './helpers';
+import { createDeployKitRuntime } from '../../src/app';
+import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
+import {
+  ADMIN_EMAIL,
+  ADMIN_PASSWORD,
+  adminToken,
+  loginAs,
+  withBearer,
+} from './helpers';
 
 let tempDir: string;
-let app: ReturnType<typeof createAuthApp>;
+let runtime: ReturnType<typeof createDeployKitRuntime>;
+let app: ReturnType<typeof createDeployKitRuntime>['app'];
 let token: string;
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-audit-api-'));
-  app = createAuthApp({
+  runtime = createDeployKitRuntime({
     databaseFile: join(tempDir, 'deploykit.sqlite'),
     dataFile: join(tempDir, 'data.json'),
     storageDir: join(tempDir, 'storage'),
     publicDir: join(tempDir, 'public'),
+    environment: 'test',
+    adminEmail: ADMIN_EMAIL,
+    adminPassword: ADMIN_PASSWORD,
+    sessionSecret: 'test-session-secret',
+    secureCookies: false,
+    registrationEnabled: true,
   });
+  app = runtime.app;
   token = await adminToken(app);
 });
 
-afterEach(() => {
+afterEach(async () => {
+  await runtime.artifactAuditWorker.stop();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -77,6 +95,104 @@ describe('artifact audit API', () => {
         }),
       ])
     );
+  });
+
+  test('enqueues, deduplicates, polls, and completes a durable audit job', async () => {
+    const { project, versionId } = await createUploadedVersion('audit-job-api');
+    const endpoint = `/api/projects/${project.id}/versions/${versionId}/audit-jobs`;
+
+    const enqueued = await app.request(
+      endpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(enqueued.status).toBe(202);
+    const first = (await enqueued.json()) as {
+      job: ArtifactAuditJob;
+      reused: boolean;
+    };
+    expect(first).toMatchObject({
+      reused: false,
+      job: {
+        projectId: project.id,
+        versionId,
+        requestedBy: expect.any(String),
+        status: 'queued',
+      },
+    });
+
+    const duplicate = await app.request(
+      endpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(duplicate.status).toBe(202);
+    expect(await duplicate.json()).toMatchObject({
+      reused: true,
+      job: { id: first.job.id },
+    });
+
+    const queued = await app.request(
+      `${endpoint}/${first.job.id}`,
+      withBearer(undefined, token)
+    );
+    expect(queued.status).toBe(200);
+    expect((await queued.json()).status).toBe('queued');
+
+    expect(await runtime.artifactAuditWorker.runOnce()).toBe(true);
+    const completed = await app.request(
+      `${endpoint}/${first.job.id}`,
+      withBearer(undefined, token)
+    );
+    expect(completed.status).toBe(200);
+    const completedJob = (await completed.json()) as ArtifactAuditJob;
+    expect(completedJob).toMatchObject({
+      id: first.job.id,
+      status: 'succeeded',
+      reportId: expect.any(String),
+      errorCode: null,
+      errorMessage: null,
+    });
+
+    const report = await app.request(
+      `/api/projects/${project.id}/versions/${versionId}/audit`,
+      withBearer(undefined, token)
+    );
+    expect(report.status).toBe(200);
+    expect(await report.json()).toMatchObject({
+      id: completedJob.reportId,
+      projectId: project.id,
+      versionId,
+    });
+  });
+
+  test('cancels queued jobs and validates every job path identifier', async () => {
+    const { project, versionId } =
+      await createUploadedVersion('cancel-audit-job');
+    const endpoint = `/api/projects/${project.id}/versions/${versionId}/audit-jobs`;
+    const enqueued = await app.request(
+      endpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    const { job } = (await enqueued.json()) as { job: ArtifactAuditJob };
+
+    const canceled = await app.request(
+      `${endpoint}/${job.id}`,
+      withBearer({ method: 'DELETE' }, token)
+    );
+    expect(canceled.status).toBe(200);
+    expect(await canceled.json()).toMatchObject({
+      id: job.id,
+      status: 'canceled',
+      lockedBy: null,
+      lockedUntil: null,
+    });
+    expect(await runtime.artifactAuditWorker.runOnce()).toBe(false);
+
+    const malformed = await app.request(
+      `${endpoint}/bad!job`,
+      withBearer(undefined, token)
+    );
+    expect(malformed.status).toBe(400);
+    expect((await malformed.json()).error.code).toBe('INVALID_PARAMS');
   });
 
   test('validates owner policy updates and records the policy event', async () => {
@@ -235,6 +351,24 @@ describe('artifact audit API', () => {
       );
       expect(response.status).toBe(403);
     }
+    const queued = await app.request(
+      `/api/projects/${project.id}/versions/${versionId}/audit-jobs`,
+      withBearer({ method: 'POST' }, token)
+    );
+    const { job } = (await queued.json()) as { job: ArtifactAuditJob };
+    for (const [path, method] of [
+      [
+        `/api/projects/${project.id}/versions/${versionId}/audit-jobs/${job.id}`,
+        'GET',
+      ],
+      [`/api/projects/${project.id}/versions/${versionId}/audit-jobs`, 'POST'],
+    ] as const) {
+      const response = await app.request(
+        path,
+        withBearer({ method }, outsiderToken)
+      );
+      expect(response.status).toBe(403);
+    }
 
     const added = await app.request(
       `/api/projects/${project.id}/members`,
@@ -256,6 +390,43 @@ describe('artifact audit API', () => {
       withBearer({ method: 'POST' }, outsiderToken)
     );
     expect(audit.status).toBe(201);
+    const memberJob = await app.request(
+      `/api/projects/${project.id}/versions/${versionId}/audit-jobs`,
+      withBearer({ method: 'POST' }, outsiderToken)
+    );
+    expect(memberJob.status).toBe(202);
+    expect(await memberJob.json()).toMatchObject({
+      reused: true,
+      job: { id: job.id },
+    });
+
+    const repo = createSqliteProjectRepository({
+      databaseFile: join(tempDir, 'deploykit.sqlite'),
+      legacyDataFile: join(tempDir, 'data.json'),
+    });
+    repo.mutate((data) => {
+      const outsider = data.users.find(
+        (user) => user.email === 'outsider@example.com'
+      );
+      if (!outsider) throw new Error('outsider fixture missing');
+      outsider.role = 'viewer';
+    });
+    const viewerRead = await app.request(
+      `/api/projects/${project.id}/versions/${versionId}/audit-jobs/${job.id}`,
+      withBearer(undefined, outsiderToken)
+    );
+    expect(viewerRead.status).toBe(200);
+    for (const method of ['POST', 'DELETE']) {
+      const path =
+        method === 'POST'
+          ? `/api/projects/${project.id}/versions/${versionId}/audit-jobs`
+          : `/api/projects/${project.id}/versions/${versionId}/audit-jobs/${job.id}`;
+      const response = await app.request(
+        path,
+        withBearer({ method }, outsiderToken)
+      );
+      expect(response.status).toBe(403);
+    }
     const policy = await app.request(
       `/api/projects/${project.id}/audit-policy`,
       withBearer(

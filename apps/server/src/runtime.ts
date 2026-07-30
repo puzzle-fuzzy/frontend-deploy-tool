@@ -98,15 +98,13 @@ export function createShutdownController({
         timeoutMs
       );
     });
-    const drain = Promise.resolve()
-      .then(async () => {
-        await server.stop(false);
-        await drainBackground?.();
-      })
-      .then(
-        () => ({ kind: 'drained' }) as const,
-        (error: unknown) => ({ kind: 'failed', error }) as const
-      );
+    const drain = Promise.all([
+      Promise.resolve().then(() => server.stop(false)),
+      Promise.resolve().then(() => drainBackground?.()),
+    ]).then(
+      () => ({ kind: 'drained' }) as const,
+      (error: unknown) => ({ kind: 'failed', error }) as const
+    );
     const outcome = await Promise.race([drain, timeout]);
     cancelTimeout(timeoutHandle);
 

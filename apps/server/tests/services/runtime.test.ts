@@ -78,6 +78,36 @@ describe('shutdown runtime', () => {
     ]);
   });
 
+  test('stops background claims while active HTTP requests are still draining', async () => {
+    const calls: string[] = [];
+    let finishHttpDrain: (() => void) | undefined;
+    const controller = createShutdownController({
+      server: {
+        stop: (force) => {
+          calls.push(force ? 'force-stop' : 'drain');
+          return force
+            ? Promise.resolve()
+            : new Promise<void>((resolve) => {
+                finishHttpDrain = resolve;
+              });
+        },
+      },
+      drainBackground: async () => {
+        calls.push('worker-stop');
+      },
+      timeoutMs: 1000,
+      logger: () => {},
+      exit: () => {},
+    });
+
+    const shutdown = controller.shutdown('SIGTERM');
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(calls).toEqual(['drain', 'worker-stop']);
+    finishHttpDrain?.();
+    await shutdown;
+  });
+
   test('force-closes and exits non-zero when the drain fails', async () => {
     const calls: string[] = [];
     const exits: number[] = [];

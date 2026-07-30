@@ -6,6 +6,7 @@ describe('metrics registry', () => {
     const metrics = createMetricsRegistry({
       artifactStorageBytes: () => 4096,
       sqliteStorageBytes: () => 8192,
+      artifactAuditJobsActive: () => ({ queued: 2, running: 1 }),
     });
 
     metrics.observeRequest({
@@ -21,6 +22,14 @@ describe('metrics registry', () => {
       durationSeconds: 0.5,
     });
     metrics.recordArtifactAudit('warning');
+    for (const outcome of [
+      'succeeded',
+      'failed',
+      'canceled',
+      'retried',
+    ] as const) {
+      metrics.recordArtifactAuditJob(outcome);
+    }
 
     const output = metrics.render();
     expect(output).toContain(
@@ -35,6 +44,17 @@ describe('metrics registry', () => {
     expect(output).toContain('deploykit_http_failures_total 1');
     expect(output).toContain(
       'deploykit_artifact_audits_total{status="warning"} 1'
+    );
+    for (const outcome of ['succeeded', 'failed', 'canceled', 'retried']) {
+      expect(output).toContain(
+        `deploykit_artifact_audit_jobs_total{outcome="${outcome}"} 1`
+      );
+    }
+    expect(output).toContain(
+      'deploykit_artifact_audit_jobs_active{status="queued"} 2'
+    );
+    expect(output).toContain(
+      'deploykit_artifact_audit_jobs_active{status="running"} 1'
     );
     expect(output).toContain('deploykit_artifact_storage_bytes 4096');
     expect(output).toContain('deploykit_sqlite_storage_bytes 8192');
@@ -64,5 +84,11 @@ describe('metrics registry', () => {
     );
     expect(output).toContain('deploykit_artifact_storage_bytes 0');
     expect(output).toContain('deploykit_sqlite_storage_bytes 0');
+    expect(output).toContain(
+      'deploykit_artifact_audit_jobs_active{status="queued"} 0'
+    );
+    expect(output).toContain(
+      'deploykit_artifact_audit_jobs_active{status="running"} 0'
+    );
   });
 });
