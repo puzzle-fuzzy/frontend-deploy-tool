@@ -46,7 +46,12 @@ DEPLOY_BASE_URL=https://deploy.example.net
 生产环境需用反向代理把两个域名转发到同一个 Bun 端口并保留原始 `Host`。
 配置解析采用 fail-fast：无效端口、请求/解压/并发上传限制、布尔值或双域 URL
 会直接阻止启动，不会悄悄改用默认值。启动后可检查
-`/health/live`（进程）与 `/health/ready`（元数据仓库）。
+`/health/live`（进程）与 `/health/ready`（元数据仓库和恢复冲突）。
+
+后端真实运行入口把规范化的 `DATABASE_FILE + STORAGE_DIR` 视为一个本机所有权
+pair。相同 pair 的第二个活进程会在对账和监听端口前以
+`RUNTIME_OWNERSHIP_HELD` 退出；进程死亡留下的 PID 记录由同机重启接管。
+这是本机进程锁，不支持多主机同时读写同一份 SQLite/本地存储。
 
 ## 测试
 
@@ -59,7 +64,9 @@ bun run test          # 根目录（或 cd apps/server && bun test）
 - `tests/api/` — `hono/testing` 契约测试（`app.test.ts`、`contracts.test.ts`）：覆盖项目/设置/版本/部署/历史游标端点、安全头、健康探针、请求编号与上传失败清理。
 - `tests/services/` — 领域/服务/工具单元测试：slug、历史游标、版本不变量、`safePath`、JSON/SQLite 原子 mutation 与回滚、`deployResolver`、`artifactService`、存储启动对账与配置门禁。
 
-应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口。
+应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口，也不会
+获取 runtime ownership。需要验证真实启动互斥/恢复时使用
+`createDeployKitRuntime(config)` 或子进程入口。
 
 ### 前端（apps/web）
 
@@ -86,9 +93,16 @@ bun run test          # Vitest + React Testing Library
    配置双域时，把 `localhost:4010` 替换为 `DEPLOY_BASE_URL`。
 5. 路径路由应用请先在项目设置开启 SPA 模式，详见 [vite-deployment.md](vite-deployment.md)。
 
-服务启动时会以 SQLite 元数据为真源对账产物目录。中断 staging 会清理，孤儿
-正式产物会移动到 `.recovery/orphans/` 供人工恢复；缺少入口文件的已记录版本
-会进入 `failed`，缺失的线上版本会安全下线，不会自动选择其他版本。
+服务启动时会先恢复 `.recovery/trash/` 中断删除，再以 SQLite 元数据为真源
+执行 GC/orphan 对账。元数据仍引用目标则恢复原路径，已不引用则补
+`COMMITTED`；严格路径校验失败或原路径冲突会隔离到
+`.recovery/conflicts/`，此时 `/health/ready` 保持 `503`，必须先人工处理。
+随后才清理过期 staging，将孤儿正式产物移动到 `.recovery/orphans/`；缺少入口
+文件的已记录版本会进入 `failed`，缺失的线上版本安全下线且不自动选择替代版本。
+
+`bun run ops -- restore <backup> --force` 仅把 `--force` 当作破坏性操作确认。
+restore 仍需获取同一 runtime ownership；后端正在运行时必须先优雅停止，
+不能用 `--force` 绕过。
 
 ## CI 证据
 

@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   utimesSync,
   writeFileSync,
@@ -11,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data, Project, Version } from '@deploykit/shared';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
+import { createArtifactRecoveryService } from '../../src/services/artifactRecovery';
 import { collectStorageGarbage } from '../../src/services/storageGarbageCollector';
 import { reconcileStorage } from '../../src/services/storageReconciler';
 
@@ -118,6 +120,9 @@ describe('reconcileStorage', () => {
       const report = reconcileStorage(repository(data), storageDir);
 
       expect(report).toEqual({
+        restoredInterruptedOperations: 0,
+        committedInterruptedOperations: 0,
+        recoveryConflicts: 0,
         removedStagingEntries: 1,
         removedCommittedTrashEntries: 0,
         removedOrphanEntries: 0,
@@ -210,6 +215,9 @@ describe('reconcileStorage', () => {
       const historyLength = data.history.length;
 
       expect(reconcileStorage(repo, storageDir)).toEqual({
+        restoredInterruptedOperations: 0,
+        committedInterruptedOperations: 0,
+        recoveryConflicts: 0,
         removedStagingEntries: 0,
         removedCommittedTrashEntries: 0,
         removedOrphanEntries: 0,
@@ -242,6 +250,165 @@ describe('reconcileStorage', () => {
         removedStagingEntries: 0,
       });
       expect(existsSync(stagingDir)).toBe(true);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores an interrupted deletion before missing-artifact reconciliation', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const demoProject = project();
+    demoProject.versions = [version('healthy-preview')];
+    demoProject.activeVersionId = 'healthy-preview';
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const artifactDir = join(storageDir, 'p1', 'healthy-preview');
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'index.html'), 'healthy');
+    createArtifactRecoveryService(storageDir).stageVersionDeletion(
+      'p1',
+      'healthy-preview'
+    );
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        restoredInterruptedOperations: 1,
+        committedInterruptedOperations: 0,
+        recoveryConflicts: 0,
+        markedFailedVersions: 0,
+        deactivatedProjects: 0,
+      });
+      expect(existsSync(join(artifactDir, 'index.html'))).toBe(true);
+      expect(demoProject.activeVersionId).toBe('healthy-preview');
+      expect(data.history).toHaveLength(0);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('finalizes an interrupted deletion when metadata no longer references it', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const artifactDir = join(storageDir, 'deleted-project', 'deleted-version');
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'index.html'), 'deleted');
+    const lease = createArtifactRecoveryService(
+      storageDir
+    ).stageVersionDeletion('deleted-project', 'deleted-version');
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        restoredInterruptedOperations: 0,
+        committedInterruptedOperations: 1,
+        recoveryConflicts: 0,
+      });
+      expect(existsSync(join(lease.recoveryPath ?? '', 'COMMITTED'))).toBe(
+        true
+      );
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('quarantines conflicting sources and keeps the conflict unresolved', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const demoProject = project();
+    demoProject.versions = [version('healthy-preview')];
+    demoProject.activeVersionId = 'healthy-preview';
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const artifactDir = join(storageDir, 'p1', 'healthy-preview');
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'index.html'), 'original');
+    createArtifactRecoveryService(storageDir).stageVersionDeletion(
+      'p1',
+      'healthy-preview'
+    );
+    mkdirSync(artifactDir, { recursive: true });
+    writeFileSync(join(artifactDir, 'index.html'), 'replacement');
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        restoredInterruptedOperations: 0,
+        recoveryConflicts: 1,
+        markedFailedVersions: 0,
+      });
+      expect(existsSync(join(storageDir, '.recovery', 'conflicts'))).toBe(true);
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        recoveryConflicts: 1,
+      });
+      expect(readFileSync(join(artifactDir, 'index.html'), 'utf8')).toBe(
+        'replacement'
+      );
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('quarantines a manifest whose relative paths do not match its target', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const operationDir = join(
+      storageDir,
+      '.recovery',
+      'trash',
+      'malicious-operation'
+    );
+    mkdirSync(join(operationDir, 'artifacts', 'p1', 'healthy-preview'), {
+      recursive: true,
+    });
+    writeFileSync(
+      join(operationDir, 'manifest.json'),
+      JSON.stringify({
+        version: 2,
+        operation: 'delete',
+        kind: 'version',
+        target: { projectId: 'p1', versionId: 'healthy-preview' },
+        originalPath: '../outside',
+        recoveryPath:
+          '.recovery/trash/malicious-operation/artifacts/p1/healthy-preview',
+        committed: false,
+        stagedAt: '2026-07-30T00:00:00.000Z',
+        committedAt: null,
+      })
+    );
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toMatchObject({
+        recoveryConflicts: 1,
+      });
+      expect(existsSync(join(storageDir, '..', 'outside'))).toBe(false);
+      expect(
+        existsSync(
+          join(storageDir, '.recovery', 'conflicts', 'malicious-operation')
+        )
+      ).toBe(true);
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }

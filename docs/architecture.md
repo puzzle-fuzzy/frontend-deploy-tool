@@ -42,10 +42,10 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`jsonProjectRepository.ts`（旧数据导入与隔离测试）；两种实现均复用领域迁移器 |
-| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`versionService`（上传/发布/回滚/删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `workers/` | 隔离进程入口 | `artifactAuditProcess.ts` 只接受一份严格 JSON 输入并输出一份经过 schema 校验的结果；不承载 HTTP、会话或数据库连接 |
 | `routes/` | HTTP 适配 | `projects` / `versions` / `artifactAudits` / `history`（chained Hono sub-app，Bun 无关）、`deploy`（依赖 artifactService） |
-| `app.ts` | 组合根 | `createApp(config)` 返回未启动的测试应用；`createDeployKitRuntime(config)` 组合相同 Hono app 与 durable audit Worker |
+| `app.ts` | 组合根 | `createApp(config)` 返回不争用所有权的测试应用；`createDeployKitRuntime(config)` 先获取运行时所有权，再组合相同 Hono app 与 durable audit Worker |
 | `api.ts` | 类型化导出 | `createApiApp` + `export type ApiApp = ReturnType<typeof createApiApp>`（Bun/Node 无关，供前端） |
 | `index.ts` / `runtime.ts` | 运行入口 | `Bun.serve` + Worker 启动；SIGTERM/SIGINT 同时停止 HTTP 接收和任务领取，等待 drain 后 SQLite checkpoint |
 
@@ -154,12 +154,14 @@ Worker 完成时在一个元数据事务内提交报告、历史和任务终态�
 ```
 apps/server/
 ├── deploykit.sqlite                       # 关系型元数据、发布台账、审计与会话
+├── deploykit.sqlite.runtime-ownership     # 活跃运行时的规范化路径、PID 与随机 token
 ├── data.json                              # 旧版本数据，仅在 SQLite 为空时导入一次
 ├── public/                                # 管理面板（打包脚本同步自 apps/web/dist）
 └── .voasx/storage/
     ├── .staging/                          # 上传处理中间目录（默认保留 24h）
     ├── .recovery/
     │   ├── trash/{operationId}/           # 已删除但保留期内可恢复的产物
+    │   ├── conflicts/                     # 路径/清单冲突，人工处理前阻止 ready
     │   └── orphans/                       # 无元数据引用的隔离产物
     └── {projectId}/
         └── {versionId}/                   # 该版本的扁平化静态文件
@@ -178,7 +180,9 @@ apps/server/
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复
   启动不会再次覆盖关系数据。
 - 删除项目/版本先把产物在同卷原子移动到 `.recovery/trash/{operationId}`；
-  元数据事务失败时恢复原路径，成功时写 `COMMITTED` 标记并等待保留期 GC。
+  version 2 manifest 明确记录 delete 操作、project/version 目标、原路径、
+  recovery 路径和 committed 状态。元数据事务失败时恢复原路径，成功时更新
+  manifest 并写 `COMMITTED` 标记，等待保留期 GC。
   `flattenOutput` 会将单层嵌套（含 `index.html` 的子目录）上移并移除
   `__MACOSX`。
 - 上传先写入同一存储卷的 `.staging/{versionId}`，完成入口、大小、数量与
@@ -190,7 +194,15 @@ apps/server/
   `index.html` 和目录 checksum。`blocking` 项目还会在快照检查与同一元数据
   事务内重复校验当前审计报告；删除线上版本只会将项目下线，不会隐式发布
   另一个版本。
-- 应用开始服务前执行一次对账：只清理超过 staging 保留期的中断上传和旧 ZIP；
+- 真实运行入口会在任何存储对账或 HTTP serving 前，以规范化
+  `DATABASE_FILE + STORAGE_DIR` 原子创建本机 ownership 记录。第二个活 PID
+  对相同 pair 启动会以 `RUNTIME_OWNERSHIP_HELD` fail closed；死 PID 留下的记录
+  可由同机重启替换，release 只删除匹配随机 token 的记录。该机制只承诺单机
+  进程互斥，不是多主机分布式锁；纯 `createApp/app.request` 测试不获取它。
+- 应用开始服务前先恢复未完成删除，再执行 GC 和 orphan 对账。元数据仍引用目标
+  时把 recovery 产物恢复到原路径；元数据已删除目标时补齐 committed manifest
+  与 `COMMITTED`；严格路径校验失败或原路径已存在的冲突会移动到
+  `.recovery/conflicts/`。之后只清理超过 staging 保留期的中断上传和旧 ZIP；
   没有元数据引用的正式产物移动到 `.recovery/orphans/`，并从隔离时刻重新计算
   恢复保留期。只有过期且带 `COMMITTED` 的 trash 会自动删除，未提交 trash
   永久留给人工检查。元数据存在但
@@ -209,7 +221,9 @@ apps/server/
 产物计数。`verify` 在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、
 版本入口和 checksum。
 
-恢复必须在服务停止后使用 `--force`。备份会先复制到数据库和存储各自同卷的
+恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
+ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
+备份会先复制到数据库和存储各自同卷的
 临时路径；验证通过后，当前数据库、WAL sidecar 与存储移动到
 `.deploykit-rollback/{operationId}`，再原子安装新状态。任一安装步骤失败都会
 从 rollback 副本恢复运行路径，同时保留 rollback 内容供人工审计。
@@ -246,7 +260,8 @@ Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryE
   `MANAGEMENT_BASE_URL` 和 `DEPLOY_BASE_URL` 必填，两个 URL 必须不同源，
   注册默认关闭；任何非法端口、大小、数量、布尔或 URL 配置都会中止启动。
 - `GET /health/live`：`204`，仅表示 HTTP 进程存活。
-- `GET /health/ready`：实际读取元数据仓库，成功返回 `{ "status": "ok" }`。
+- `GET /health/ready`：实际读取元数据仓库；无未解决恢复冲突时返回
+  `{ "status": "ok" }`，`.recovery/conflicts/` 非空时返回 `503`。
 
 ## 可观测性与生命周期
 
@@ -266,4 +281,5 @@ SIGTERM/SIGINT 首次到达后，`runtime.ts` 先调用 `server.stop(false)` 停
 执行 `wal_checkpoint(TRUNCATE)`。被中止的拥有租约任务经统一失败路径重新
 排队，取消或丢失租约的迟到完成会被拒绝。若 drain 失败或超过配置时限，则
 调用 `server.stop(true)`，仍尝试 checkpoint，并以非零状态退出；重复信号
-复用同一个关机 Promise。
+复用同一个关机 Promise。正常、超时和 drain 失败的退出路径都会释放本进程
+ownership；app 组合或 `Bun.serve` 失败也在抛错前释放。

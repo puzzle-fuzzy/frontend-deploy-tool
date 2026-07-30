@@ -9,18 +9,26 @@ import {
 
 // Resolve paths relative to the package root (this file lives in `<root>/src/`).
 const config = loadConfig({ appDir: join(import.meta.dir, '..') });
-const { app, artifactAuditWorker } = createDeployKitRuntime(config);
+const { app, artifactAuditWorker, runtimeOwnership } =
+  createDeployKitRuntime(config);
 
-const server = Bun.serve({
-  port: config.port,
-  fetch: app.fetch,
-});
+let server: ReturnType<typeof Bun.serve>;
+try {
+  server = Bun.serve({
+    port: config.port,
+    fetch: app.fetch,
+  });
+} catch (error) {
+  runtimeOwnership.release();
+  throw error;
+}
 
 const shutdown = createShutdownController({
   server,
   databaseFile: config.databaseFile,
   timeoutMs: config.shutdownTimeoutMs ?? 30_000,
   drainBackground: () => artifactAuditWorker.stop(),
+  releaseOwnership: () => runtimeOwnership.release(),
 });
 installShutdownHandlers(shutdown);
 if (config.artifactAuditWorkerEnabled ?? true) {

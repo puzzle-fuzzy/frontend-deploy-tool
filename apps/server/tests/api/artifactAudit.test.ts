@@ -43,6 +43,7 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await runtime.artifactAuditWorker.stop();
+  runtime.runtimeOwnership.release();
   rmSync(tempDir, { recursive: true, force: true });
 });
 

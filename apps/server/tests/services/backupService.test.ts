@@ -14,6 +14,7 @@ import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { checksumDirectory } from '../../src/services/artifactService';
 import { createBackupService } from '../../src/services/backupService';
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
 function createFixture(tempDir: string) {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
@@ -250,6 +251,31 @@ describe('createBackupService', () => {
         'Backup verification failed'
       );
       expect(fixture.repository.load().projects[0].name).toBe('Original');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('refuses restore while a live runtime owns the database and storage pair', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      const service = createBackupService(fixture);
+      service.createBackup(backupDir);
+      const ownership = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+
+      try {
+        expect(() => service.restoreBackup(backupDir, { force: true })).toThrow(
+          'RUNTIME_OWNERSHIP_HELD'
+        );
+        expect(fixture.repository.load().projects[0].name).toBe('Original');
+      } finally {
+        ownership.release();
+      }
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

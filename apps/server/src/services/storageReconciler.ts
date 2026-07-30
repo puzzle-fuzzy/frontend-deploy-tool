@@ -8,12 +8,16 @@ import {
 import { dirname, join } from 'node:path';
 import { appendHistoryEvent } from '../domain/history';
 import type { ProjectRepository } from '../repositories/projectRepository';
+import { recoverInterruptedArtifactOperations } from './artifactRecovery';
 import {
   collectStorageGarbage,
   type StorageGarbageCollectionOptions,
 } from './storageGarbageCollector';
 
 export interface StorageReconciliationReport {
+  restoredInterruptedOperations: number;
+  committedInterruptedOperations: number;
+  recoveryConflicts: number;
   removedStagingEntries: number;
   removedCommittedTrashEntries: number;
   removedOrphanEntries: number;
@@ -23,6 +27,9 @@ export interface StorageReconciliationReport {
 }
 
 const EMPTY_REPORT: StorageReconciliationReport = {
+  restoredInterruptedOperations: 0,
+  committedInterruptedOperations: 0,
+  recoveryConflicts: 0,
   removedStagingEntries: 0,
   removedCommittedTrashEntries: 0,
   removedOrphanEntries: 0,
@@ -46,8 +53,18 @@ export function reconcileStorage(
   options: StorageGarbageCollectionOptions = {}
 ): StorageReconciliationReport {
   mkdirSync(storageDir, { recursive: true });
+  const interruptedRecovery = recoverInterruptedArtifactOperations(
+    repo,
+    storageDir
+  );
   const garbageCollection = collectStorageGarbage(storageDir, options);
-  const report = { ...EMPTY_REPORT, ...garbageCollection };
+  const report: StorageReconciliationReport = {
+    ...EMPTY_REPORT,
+    restoredInterruptedOperations: interruptedRecovery.restored,
+    committedInterruptedOperations: interruptedRecovery.committed,
+    recoveryConflicts: interruptedRecovery.conflicts,
+    ...garbageCollection,
+  };
   const orphanRecoveryRoot = join(storageDir, '.recovery', 'orphans');
 
   const snapshot = repo.load();

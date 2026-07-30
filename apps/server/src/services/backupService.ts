@@ -15,6 +15,7 @@ import { RELATIONAL_SCHEMA_VERSION } from '../repositories/sqliteSchema';
 import { createId } from '../utils/id';
 import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
+import { acquireRuntimeOwnership } from './runtimeOwnership';
 
 export interface BackupManifest {
   formatVersion: 1;
@@ -180,71 +181,87 @@ export function createBackupService(
         );
       }
 
-      const operationId = `${formatTimestamp(now())}-${createId()}`;
-      const rollbackPath = join(
-        dirname(config.databaseFile),
-        '.deploykit-rollback',
-        operationId
+      const runtimeOwnership = acquireRuntimeOwnership(
+        config.databaseFile,
+        config.storageDir
       );
-      const databaseStage = `${config.databaseFile}.restore-${operationId}`;
-      const storageStage = join(
-        dirname(config.storageDir),
-        `.${basename(config.storageDir)}.restore-${operationId}`
-      );
-      let rollbackStarted = false;
-
       try {
-        mkdirSync(dirname(databaseStage), { recursive: true });
-        cpSync(
-          join(backupPath, 'database', verification.manifest.databaseFile),
-          databaseStage,
-          { preserveTimestamps: true }
+        const operationId = `${formatTimestamp(now())}-${createId()}`;
+        const rollbackPath = join(
+          dirname(config.databaseFile),
+          '.deploykit-rollback',
+          operationId
         );
-        cpSync(join(backupPath, 'storage'), storageStage, {
-          recursive: true,
-          preserveTimestamps: true,
-        });
+        const databaseStage = `${config.databaseFile}.restore-${operationId}`;
+        const storageStage = join(
+          dirname(config.storageDir),
+          `.${basename(config.storageDir)}.restore-${operationId}`
+        );
+        let rollbackStarted = false;
 
-        mkdirSync(join(rollbackPath, 'database'), { recursive: true });
-        rollbackStarted = true;
-        moveIfPresent(
-          config.databaseFile,
-          join(rollbackPath, 'database', basename(config.databaseFile))
-        );
-        moveIfPresent(
-          `${config.databaseFile}-wal`,
-          join(rollbackPath, 'database', `${basename(config.databaseFile)}-wal`)
-        );
-        moveIfPresent(
-          `${config.databaseFile}-shm`,
-          join(rollbackPath, 'database', `${basename(config.databaseFile)}-shm`)
-        );
-        moveIfPresent(config.storageDir, join(rollbackPath, 'storage'));
-        ensureRollbackManifest(
-          rollbackPath,
-          basename(config.databaseFile),
-          now()
-        );
+        try {
+          mkdirSync(dirname(databaseStage), { recursive: true });
+          cpSync(
+            join(backupPath, 'database', verification.manifest.databaseFile),
+            databaseStage,
+            { preserveTimestamps: true }
+          );
+          cpSync(join(backupPath, 'storage'), storageStage, {
+            recursive: true,
+            preserveTimestamps: true,
+          });
 
-        dependencies.afterCurrentStateMoved?.(rollbackPath);
+          mkdirSync(join(rollbackPath, 'database'), { recursive: true });
+          rollbackStarted = true;
+          moveIfPresent(
+            config.databaseFile,
+            join(rollbackPath, 'database', basename(config.databaseFile))
+          );
+          moveIfPresent(
+            `${config.databaseFile}-wal`,
+            join(
+              rollbackPath,
+              'database',
+              `${basename(config.databaseFile)}-wal`
+            )
+          );
+          moveIfPresent(
+            `${config.databaseFile}-shm`,
+            join(
+              rollbackPath,
+              'database',
+              `${basename(config.databaseFile)}-shm`
+            )
+          );
+          moveIfPresent(config.storageDir, join(rollbackPath, 'storage'));
+          ensureRollbackManifest(
+            rollbackPath,
+            basename(config.databaseFile),
+            now()
+          );
 
-        renameSync(databaseStage, config.databaseFile);
-        mkdirSync(dirname(config.storageDir), { recursive: true });
-        renameSync(storageStage, config.storageDir);
-      } catch (error) {
-        if (rollbackStarted) {
-          recoverCurrentState(config, rollbackPath);
+          dependencies.afterCurrentStateMoved?.(rollbackPath);
+
+          renameSync(databaseStage, config.databaseFile);
+          mkdirSync(dirname(config.storageDir), { recursive: true });
+          renameSync(storageStage, config.storageDir);
+        } catch (error) {
+          if (rollbackStarted) {
+            recoverCurrentState(config, rollbackPath);
+          }
+          rmSync(databaseStage, { force: true });
+          rmSync(storageStage, { recursive: true, force: true });
+          throw error;
         }
-        rmSync(databaseStage, { force: true });
-        rmSync(storageStage, { recursive: true, force: true });
-        throw error;
-      }
 
-      return {
-        restoredFrom: backupPath,
-        rollbackPath,
-        verification,
-      };
+        return {
+          restoredFrom: backupPath,
+          rollbackPath,
+          verification,
+        };
+      } finally {
+        runtimeOwnership.release();
+      }
     },
   };
 }

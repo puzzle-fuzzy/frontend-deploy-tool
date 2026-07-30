@@ -3,6 +3,7 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -48,6 +49,18 @@ test('committed deletion remains recoverable with a committed marker', () => {
     expect(existsSync(source)).toBe(false);
     expect(lease.recoveryPath).toBeTruthy();
     expect(existsSync(join(lease.recoveryPath ?? '', 'COMMITTED'))).toBe(true);
+    expect(
+      JSON.parse(
+        readFileSync(join(lease.recoveryPath ?? '', 'manifest.json'), 'utf8')
+      )
+    ).toMatchObject({
+      version: 2,
+      operation: 'delete',
+      kind: 'project',
+      target: { projectId: 'project-1', versionId: null },
+      originalPath: 'project-1',
+      committed: true,
+    });
     expect(
       existsSync(
         join(lease.recoveryPath ?? '', 'artifacts', 'project-1', 'index.html')

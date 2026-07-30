@@ -45,6 +45,10 @@ import {
   type MetricsRegistry,
 } from './services/metrics';
 import { createProjectService } from './services/projectService';
+import {
+  acquireRuntimeOwnership,
+  type RuntimeOwnership,
+} from './services/runtimeOwnership';
 import { createSessionService } from './services/sessionService';
 import { reconcileStorage } from './services/storageReconciler';
 import { createUserService } from './services/userService';
@@ -59,6 +63,7 @@ export interface CreateAppOptions {
 export interface DeployKitRuntime {
   app: ReturnType<typeof createApp>;
   artifactAuditWorker: ArtifactAuditWorker;
+  runtimeOwnership: RuntimeOwnership;
 }
 
 /**
@@ -77,22 +82,36 @@ export function createDeployKitRuntime(
   config: AppConfig,
   options: CreateAppOptions = {}
 ): DeployKitRuntime {
-  let artifactAuditWorker: ArtifactAuditWorker | null = null;
-  const composition = composeApp(config, options, (jobId) => {
-    artifactAuditWorker?.cancel(jobId);
-  });
-  artifactAuditWorker = createArtifactAuditWorker({
-    jobService: composition.artifactAuditJobService,
-    executor:
-      options.artifactAuditExecutor ??
-      createSubprocessArtifactAuditExecutor({
-        timeoutMs: config.artifactAuditTimeoutMs ?? 60_000,
-      }),
-    workerId: `audit-${process.pid}-${randomBytes(6).toString('hex')}`,
-    pollIntervalMs: config.artifactAuditPollIntervalMs ?? 1_000,
-    leaseMs: config.artifactAuditLeaseMs ?? 90_000,
-  });
-  return { app: composition.app, artifactAuditWorker };
+  if (!config.databaseFile) {
+    throw new Error(
+      'createDeployKitRuntime requires databaseFile; JSON repositories are test-only'
+    );
+  }
+  const runtimeOwnership = acquireRuntimeOwnership(
+    config.databaseFile,
+    config.storageDir
+  );
+  try {
+    let artifactAuditWorker: ArtifactAuditWorker | null = null;
+    const composition = composeApp(config, options, (jobId) => {
+      artifactAuditWorker?.cancel(jobId);
+    });
+    artifactAuditWorker = createArtifactAuditWorker({
+      jobService: composition.artifactAuditJobService,
+      executor:
+        options.artifactAuditExecutor ??
+        createSubprocessArtifactAuditExecutor({
+          timeoutMs: config.artifactAuditTimeoutMs ?? 60_000,
+        }),
+      workerId: `audit-${process.pid}-${randomBytes(6).toString('hex')}`,
+      pollIntervalMs: config.artifactAuditPollIntervalMs ?? 1_000,
+      leaseMs: config.artifactAuditLeaseMs ?? 90_000,
+    });
+    return { app: composition.app, artifactAuditWorker, runtimeOwnership };
+  } catch (error) {
+    runtimeOwnership.release();
+    throw error;
+  }
 }
 
 function composeApp(
@@ -263,6 +282,16 @@ function composeApp(
     .get('/health/live', (c) => c.body(null, 204))
     .get('/health/ready', (c) => {
       repo.load();
+      if (reconciliation.recoveryConflicts > 0) {
+        return c.json(
+          {
+            status: 'error' as const,
+            reason: 'artifact_recovery_conflicts' as const,
+            conflicts: reconciliation.recoveryConflicts,
+          },
+          503
+        );
+      }
       return c.json({ status: 'ok' as const });
     })
     .get('/metrics', (c) => {

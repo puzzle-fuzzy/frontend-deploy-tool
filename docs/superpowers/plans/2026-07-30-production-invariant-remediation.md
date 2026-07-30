@@ -187,7 +187,7 @@ recoverInterruptedArtifactOperations(
   metadata no longer referencing it finalizes the committed marker; conflicting
   paths are quarantined and make readiness fail.
 
-- [ ] **Step 1: Add failing process-death and double-start tests**
+- [x] **Step 1: Add failing process-death and double-start tests**
 
   Spawn a real server fixture that exits immediately after the artifact rename
   for active-version and project deletion. Restart against the same SQLite and
@@ -195,7 +195,7 @@ recoverInterruptedArtifactOperations(
   active pointer is unchanged, and history is not duplicated. Start a second
   live process and assert it fails closed with a stable ownership diagnostic.
 
-- [ ] **Step 2: Run focused tests and capture the current half-commit**
+- [x] **Step 2: Run focused tests and capture the current half-commit**
 
   ```bash
   bun test apps/server/tests/services/artifactRecovery.test.ts \
@@ -206,20 +206,20 @@ recoverInterruptedArtifactOperations(
   Expected before implementation: restart marks the referenced version failed
   or quarantines its artifact instead of restoring the interrupted rename.
 
-- [ ] **Step 3: Implement ownership and manifest recovery**
+- [x] **Step 3: Implement ownership and manifest recovery**
 
   Acquire ownership before storage reconciliation. Make lock creation atomic,
   record and validate PID ownership, and release during graceful shutdown.
   Extend recovery manifests and run interrupted-operation recovery before
   orphan reconciliation or GC.
 
-- [ ] **Step 4: Harden readiness and restore operations**
+- [x] **Step 4: Harden readiness and restore operations**
 
   Readiness must fail when recovery reports unresolved conflicts. Operational
   restore must refuse to run while runtime ownership is active; keep `--force`
   as destructive-intent confirmation, not as a lock bypass.
 
-- [ ] **Step 5: Re-run service, black-box, backup and runtime tests**
+- [x] **Step 5: Re-run service, black-box, backup and runtime tests**
 
   ```bash
   bun test apps/server/tests/services/artifactRecovery.test.ts \
@@ -231,7 +231,7 @@ recoverInterruptedArtifactOperations(
 
   Expected: all pass, including real process termination and idempotent restart.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
   ```bash
   git add apps/server/src apps/server/tests apps/server/.env.example \

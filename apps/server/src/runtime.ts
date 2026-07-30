@@ -29,6 +29,7 @@ interface ShutdownControllerOptions {
   databaseFile?: string;
   timeoutMs: number;
   drainBackground?: () => Promise<void>;
+  releaseOwnership?: () => void;
   logger?: RuntimeLogger;
   checkpoint?: (databaseFile: string) => void;
   exit?: (code: number) => void;
@@ -56,6 +57,7 @@ export function createShutdownController({
   databaseFile,
   timeoutMs,
   drainBackground,
+  releaseOwnership,
   logger = defaultRuntimeLogger,
   checkpoint = checkpointSqlite,
   exit = (code) => process.exit(code),
@@ -79,6 +81,17 @@ export function createShutdownController({
           error: errorMessage(error),
         });
       } finally {
+        try {
+          releaseOwnership?.();
+        } catch (error) {
+          logger({
+            timestamp: new Date().toISOString(),
+            level: 'error',
+            event: 'shutdown_failed',
+            signal,
+            error: errorMessage(error),
+          });
+        }
         exit(1);
       }
     };
@@ -134,6 +147,7 @@ export function createShutdownController({
 
     try {
       checkpointIfConfigured(databaseFile, checkpoint);
+      releaseOwnership?.();
       logger({
         timestamp: new Date().toISOString(),
         level: 'info',
@@ -149,6 +163,17 @@ export function createShutdownController({
         signal,
         error: errorMessage(error),
       });
+      try {
+        releaseOwnership?.();
+      } catch (releaseError) {
+        logger({
+          timestamp: new Date().toISOString(),
+          level: 'error',
+          event: 'shutdown_failed',
+          signal,
+          error: errorMessage(releaseError),
+        });
+      }
       exit(1);
     }
   };

@@ -63,6 +63,10 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 状态和备份/验证/恢复命令均已通过全仓验证与真实命令行恢复演练。
 
 - 项目/版本删除先进入回收区，再提交元数据，失败可恢复。
+- 真实 runtime 对规范化 SQLite/存储 pair 执行本机单实例所有权；进程死亡后
+  启动恢复先于 GC/orphan 对账，引用仍在则恢复、引用已删则完成提交。
+- 非法 manifest 或原路径冲突进入持久隔离并让 readiness 返回非 200；
+  运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
 - 增加校验和巡检和明确的损坏状态。
@@ -74,7 +78,10 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 验证证据：`bun run verify` 通过（server 232、client 40、desktop 23）；
 隔离 SQLite/WAL 演练恢复后项目、版本、线上指针、审计和 session 均一致，
 `integrity_check=ok`、外键违规为 0；GC dry-run 不修改数据，真实 GC 仅移除
-过期 staging 和已提交 trash，保留未提交 trash。
+过期 staging 和已提交 trash，保留未提交 trash。2026-07-30 后续回归新增真实
+子进程在 active-version/project artifact rename 后 `SIGKILL`，同库重启保持
+产物、active pointer 与历史不变；双启动 fail closed。Task 2 聚焦测试
+30/30、server 全量 306/306 通过。
 
 ### 阶段 4：可观测性、交付和静态服务
 
@@ -84,7 +91,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 - 所有响应携带请求 ID；访问日志为结构化 JSON。
 - 增加请求延迟、上传、发布、失败、磁盘和数据库指标。
-- 服务支持 SIGTERM/SIGINT 优雅退出和 SQLite checkpoint。
+- 服务支持 SIGTERM/SIGINT 优雅退出、SQLite checkpoint 与 runtime ownership
+  release；超时和 drain 失败路径也释放。
 - 活跃别名使用 revalidate/ETag，显式版本 URL 才允许 immutable。
 - CI 增加依赖漏洞、CodeQL、secret scan、恶意 ZIP 和崩溃恢复测试。
 

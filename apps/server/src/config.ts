@@ -6,10 +6,15 @@ export type RuntimeEnvironment = 'development' | 'test' | 'production';
 export interface AppConfig {
   /** Runtime safety mode. Manual test fixtures may omit it (development). */
   environment?: RuntimeEnvironment;
-  /** SQLite metadata store. Omit only in isolated tests using JSON fixtures. */
+  /**
+   * SQLite metadata store. Omit only in isolated tests using JSON fixtures.
+   * A real runtime pairs its normalized path with storageDir for single-host
+   * process ownership before any reconciliation runs.
+   */
   databaseFile?: string;
   /** Legacy JSON store, imported once when SQLite is empty. */
   dataFile: string;
+  /** Local artifact root paired with databaseFile for runtime ownership. */
   storageDir: string;
   publicDir: string;
   /** Trusted browser origin serving the management UI and API. */

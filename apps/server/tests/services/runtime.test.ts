@@ -1,7 +1,13 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -10,6 +16,10 @@ import {
   installShutdownHandlers,
   type RuntimeLogEntry,
 } from '../../src/runtime';
+import {
+  acquireRuntimeOwnership,
+  getRuntimeOwnershipPath,
+} from '../../src/services/runtimeOwnership';
 
 describe('shutdown runtime', () => {
   test('drains once, checkpoints SQLite, and exits cleanly', async () => {
@@ -26,6 +36,7 @@ describe('shutdown runtime', () => {
       drainBackground: async () => {
         calls.push('worker-stop');
       },
+      releaseOwnership: () => calls.push('release-ownership'),
       logger: () => {},
       checkpoint: (path) => calls.push(`checkpoint:${path}`),
       exit: (code) => exits.push(code),
@@ -40,6 +51,7 @@ describe('shutdown runtime', () => {
       'drain',
       'worker-stop',
       'checkpoint:/tmp/deploykit.sqlite',
+      'release-ownership',
     ]);
     expect(exits).toEqual([0]);
     expect(controller.isShuttingDown()).toBe(true);
@@ -60,6 +72,7 @@ describe('shutdown runtime', () => {
       timeoutMs: 25,
       logger: (entry) => logs.push(entry),
       checkpoint: () => calls.push('checkpoint'),
+      releaseOwnership: () => calls.push('release-ownership'),
       exit: (code) => exits.push(code),
       scheduleTimeout: (callback) => {
         queueMicrotask(callback);
@@ -70,7 +83,12 @@ describe('shutdown runtime', () => {
 
     await controller.shutdown('SIGTERM');
 
-    expect(calls).toEqual(['drain', 'force-stop', 'checkpoint']);
+    expect(calls).toEqual([
+      'drain',
+      'force-stop',
+      'checkpoint',
+      'release-ownership',
+    ]);
     expect(exits).toEqual([1]);
     expect(logs.map((entry) => entry.event)).toEqual([
       'shutdown_started',
@@ -95,6 +113,7 @@ describe('shutdown runtime', () => {
       drainBackground: async () => {
         calls.push('worker-stop');
       },
+      releaseOwnership: () => calls.push('release-ownership'),
       timeoutMs: 1000,
       logger: () => {},
       exit: () => {},
@@ -106,6 +125,7 @@ describe('shutdown runtime', () => {
     expect(calls).toEqual(['drain', 'worker-stop']);
     finishHttpDrain?.();
     await shutdown;
+    expect(calls).toEqual(['drain', 'worker-stop', 'release-ownership']);
   });
 
   test('force-closes and exits non-zero when the drain fails', async () => {
@@ -120,11 +140,12 @@ describe('shutdown runtime', () => {
       },
       timeoutMs: 1000,
       logger: () => {},
+      releaseOwnership: () => calls.push('release-ownership'),
       exit: (code) => exits.push(code),
     });
 
     await controller.shutdown('SIGINT');
-    expect(calls).toEqual(['drain', 'force-stop']);
+    expect(calls).toEqual(['drain', 'force-stop', 'release-ownership']);
     expect(exits).toEqual([1]);
   });
 
@@ -143,11 +164,17 @@ describe('shutdown runtime', () => {
       },
       timeoutMs: 1000,
       logger: () => {},
+      releaseOwnership: () => calls.push('release-ownership'),
       exit: (code) => exits.push(code),
     });
 
     await controller.shutdown('SIGTERM');
-    expect(calls).toEqual(['drain', 'worker-stop', 'force-stop']);
+    expect(calls).toEqual([
+      'drain',
+      'worker-stop',
+      'force-stop',
+      'release-ownership',
+    ]);
     expect(exits).toEqual([1]);
   });
 
@@ -170,6 +197,47 @@ describe('shutdown runtime', () => {
     await Promise.resolve();
     expect(signals).toEqual(['SIGTERM', 'SIGINT']);
     dispose();
+  });
+});
+
+describe('runtime ownership', () => {
+  test('atomically rejects a second live owner and can be acquired after release', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    try {
+      const first = acquireRuntimeOwnership(databaseFile, storageDir);
+      expect(() => acquireRuntimeOwnership(databaseFile, storageDir)).toThrow(
+        'RUNTIME_OWNERSHIP_HELD'
+      );
+      first.release();
+
+      const second = acquireRuntimeOwnership(databaseFile, storageDir);
+      second.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('release does not delete an ownership record with another token', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const storageDir = join(tempDir, 'storage');
+    try {
+      const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+      const ownershipPath = getRuntimeOwnershipPath(databaseFile, storageDir);
+      const record = JSON.parse(readFileSync(ownershipPath, 'utf8'));
+      writeFileSync(
+        ownershipPath,
+        JSON.stringify({ ...record, ownerToken: 'another-owner-token-value' }),
+        'utf8'
+      );
+
+      ownership.release();
+      expect(existsSync(ownershipPath)).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 });
 
