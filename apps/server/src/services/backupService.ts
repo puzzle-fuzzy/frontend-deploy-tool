@@ -41,6 +41,9 @@ export interface BackupManifest {
     auditEvents: number;
     releases: number;
     sessions: number;
+    apiTokens?: number;
+    apiTokenSecurityEvents?: number;
+    ciIdempotencyRecords?: number;
   };
   artifactCounts: {
     files: number;
@@ -599,9 +602,12 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
 
   const databaseFile = join(backupPath, 'database', manifest.databaseFile);
   const storageDir = join(backupPath, manifest.storageDirectory);
-  if (manifest.schemaVersion !== RELATIONAL_SCHEMA_VERSION) {
+  if (
+    manifest.schemaVersion < 5 ||
+    manifest.schemaVersion > RELATIONAL_SCHEMA_VERSION
+  ) {
     errors.push(
-      `Unsupported relational schema version ${manifest.schemaVersion}; expected ${RELATIONAL_SCHEMA_VERSION}`
+      `Unsupported relational schema version ${manifest.schemaVersion}; supported range is 5-${RELATIONAL_SCHEMA_VERSION}`
     );
   }
   const databaseSnapshotError = inspectBackupDatabaseSnapshot(databaseFile);
@@ -742,6 +748,13 @@ function inspectOpenDatabase(database: Database) {
       auditEvents: count('audit_events'),
       releases: count('releases'),
       sessions: count('sessions'),
+      ...(schemaVersion >= 6
+        ? {
+            apiTokens: count('project_api_tokens'),
+            apiTokenSecurityEvents: count('api_token_security_events'),
+            ciIdempotencyRecords: count('ci_idempotency_records'),
+          }
+        : {}),
     },
   };
 }
@@ -858,7 +871,7 @@ function parseManifest(value: unknown): BackupManifest {
   if (candidate.storageDirectory !== 'storage') {
     throw new Error('invalid storageDirectory');
   }
-  const metadataCounts = parseCounts(candidate.metadataCounts, [
+  const metadataCountKeys = [
     'users',
     'projects',
     'versions',
@@ -867,7 +880,14 @@ function parseManifest(value: unknown): BackupManifest {
     'auditEvents',
     'releases',
     'sessions',
-  ]);
+    ...((candidate.schemaVersion as number) >= 6
+      ? ['apiTokens', 'apiTokenSecurityEvents', 'ciIdempotencyRecords']
+      : []),
+  ];
+  const metadataCounts = parseCounts(
+    candidate.metadataCounts,
+    metadataCountKeys
+  );
   const artifactCounts = parseCounts(candidate.artifactCounts, [
     'files',
     'bytes',

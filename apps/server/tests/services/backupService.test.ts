@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data } from '@deploykit/shared';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
+import { createSqliteApiTokenRepository } from '../../src/repositories/apiTokenRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { checksumDirectory } from '../../src/services/artifactService';
 import { createBackupService } from '../../src/services/backupService';
@@ -65,7 +66,17 @@ function createFixture(tempDir: string) {
         members: [],
       },
     ],
-    users: [],
+    users: [
+      {
+        id: 'user-1',
+        name: 'Owner',
+        email: 'owner@example.test',
+        passwordHash: 'hash',
+        role: 'developer',
+        createdAt: '2026-07-30T00:00:00.000Z',
+        updatedAt: '2026-07-30T00:00:00.000Z',
+      },
+    ],
     history: [],
     artifactAudits: [
       {
@@ -134,6 +145,43 @@ describe('createBackupService', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
     try {
       const fixture = createFixture(tempDir);
+      createSqliteApiTokenRepository(fixture.databaseFile).create({
+        token: {
+          id: 'token-1',
+          projectId: 'p1',
+          name: 'CI',
+          hashVersion: 1,
+          secretDigest: 'a'.repeat(64),
+          prefix: 'dpk_v1.token-1.alpha',
+          scopes: ['preview:upload'],
+          createdAt: '2026-07-30T00:00:00.000Z',
+          createdBy: 'user-1',
+          expiresAt: '2026-10-30T00:00:00.000Z',
+          lastUsedAt: null,
+          revokedAt: null,
+          replacedByTokenId: null,
+        },
+        projectName: 'Original',
+      });
+      const metadata = new Database(fixture.databaseFile);
+      metadata
+        .query(
+          `INSERT INTO ci_idempotency_records (
+             project_id, token_id, idempotency_key, request_digest, version_id,
+             version_name, created_at, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        )
+        .run(
+          'p1',
+          'token-1',
+          'ci-run-1',
+          'b'.repeat(64),
+          'v1',
+          'v1',
+          '2026-07-30T00:00:00.000Z',
+          '2026-07-31T00:00:00.000Z'
+        );
+      metadata.close();
       const backupDir = join(tempDir, 'backups', 'backup-1');
       const service = createBackupService(fixture);
 
@@ -149,6 +197,9 @@ describe('createBackupService', () => {
           versions: 1,
           artifactAudits: 1,
           artifactAuditJobs: 1,
+          apiTokens: 1,
+          apiTokenSecurityEvents: 1,
+          ciIdempotencyRecords: 1,
         },
         artifactCounts: { files: 1, deployableVersions: 1 },
       });
@@ -160,6 +211,67 @@ describe('createBackupService', () => {
       expect(
         existsSync(join(backupDir, 'storage', 'p1', 'v1', 'index.html'))
       ).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('verifies and restores a schema v5 backup before normal startup migrates it', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-v5-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-v5');
+      const service = createBackupService(fixture);
+      service.createBackup(backupDir);
+
+      const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+      const database = new Database(backupDatabase);
+      database.exec(`
+        DROP TABLE ci_idempotency_records;
+        DROP TABLE api_token_security_events;
+        DROP TABLE project_api_tokens;
+        DELETE FROM schema_migrations WHERE version = 6;
+      `);
+      database.close();
+
+      const manifestPath = join(backupDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        schemaVersion: number;
+        metadataCounts: Record<string, number>;
+      };
+      manifest.schemaVersion = 5;
+      delete manifest.metadataCounts.apiTokens;
+      delete manifest.metadataCounts.apiTokenSecurityEvents;
+      delete manifest.metadataCounts.ciIdempotencyRecords;
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+
+      expect(service.verifyBackup(backupDir)).toMatchObject({
+        valid: true,
+        errors: [],
+      });
+      service.restoreBackup(backupDir, { force: true });
+
+      fixture.repository.load();
+      const migrated = new Database(fixture.databaseFile);
+      const version = migrated
+        .query<{ version: number | null }, []>(
+          'SELECT MAX(version) AS version FROM schema_migrations'
+        )
+        .get()?.version;
+      const tokenTable = migrated
+        .query<{ present: number }, []>(
+          `SELECT 1 AS present
+           FROM sqlite_master
+           WHERE type = 'table' AND name = 'project_api_tokens'`
+        )
+        .get()?.present;
+      migrated.close();
+
+      expect(version).toBe(6);
+      expect(tokenTable).toBe(1);
+      expect(existsSync(`${fixture.databaseFile}.pre-relational-v6.bak`)).toBe(
+        true
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

@@ -61,6 +61,58 @@ export const userSchema = z.object({
  */
 export const safeUserSchema = userSchema.omit({ passwordHash: true });
 
+/** Automation permissions are explicit and deliberately narrower than user roles. */
+export const apiTokenScopeSchema = z.enum(['preview:upload']);
+
+/** Redacted project API-token metadata safe to return over management APIs. */
+export const apiTokenMetadataSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    name: z.string(),
+    prefix: z.string(),
+    scopes: z.array(apiTokenScopeSchema),
+    createdAt: z.string(),
+    createdBy: z.string(),
+    expiresAt: z.string(),
+    lastUsedAt: z.string().nullable(),
+    revokedAt: z.string().nullable(),
+    replacedByTokenId: z.string().nullable(),
+  })
+  .strict();
+
+export const apiTokenSecurityEventActionSchema = z.enum([
+  'api_token.create',
+  'api_token.rotate',
+  'api_token.revoke',
+  'api_token.authentication_failed',
+]);
+
+export const apiTokenSecurityReasonSchema = z.enum([
+  'digest_mismatch',
+  'expired',
+  'revoked',
+  'project_mismatch',
+  'scope_missing',
+  'hash_version_unsupported',
+]);
+
+/** Durable security evidence. It never includes a bearer value or digest. */
+export const apiTokenSecurityEventSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string(),
+    projectName: z.string(),
+    tokenId: z.string().nullable(),
+    tokenPrefix: z.string().nullable(),
+    action: apiTokenSecurityEventActionSchema,
+    outcome: z.enum(['succeeded', 'denied']),
+    actorId: z.string().nullable(),
+    reason: apiTokenSecurityReasonSchema.nullable(),
+    occurredAt: z.string(),
+  })
+  .strict();
+
 /**
  * How a version's artifacts entered storage. `unknown` is the migration default
  * for versions written before this field existed.
@@ -302,6 +354,15 @@ export interface ArtifactAuditJobPage {
 export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;
 export type SafeUser = z.infer<typeof safeUserSchema>;
+export type ApiTokenScope = z.infer<typeof apiTokenScopeSchema>;
+export type ApiTokenMetadata = z.infer<typeof apiTokenMetadataSchema>;
+export type ApiTokenSecurityEventAction = z.infer<
+  typeof apiTokenSecurityEventActionSchema
+>;
+export type ApiTokenSecurityReason = z.infer<
+  typeof apiTokenSecurityReasonSchema
+>;
+export type ApiTokenSecurityEvent = z.infer<typeof apiTokenSecurityEventSchema>;
 export type VersionSourceType = z.infer<typeof versionSourceTypeSchema>;
 export type VersionStatus = z.infer<typeof versionStatusSchema>;
 export type IntegrityStatus = z.infer<typeof integrityStatusSchema>;

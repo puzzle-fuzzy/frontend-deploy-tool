@@ -36,7 +36,7 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
-describe('SQLite v5 artifact audit queue', () => {
+describe('SQLite artifact audit queue', () => {
   test('migrates v4 with a backup and the complete queue index set', () => {
     const database = new Database(databaseFile, { create: true });
     configureSqlite(database);
@@ -80,9 +80,9 @@ describe('SQLite v5 artifact audit queue', () => {
       .all();
     verify.close();
 
-    expect(RELATIONAL_SCHEMA_VERSION).toBe(5);
-    expect(version).toBe(5);
-    expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
+    expect(RELATIONAL_SCHEMA_VERSION).toBe(6);
+    expect(version).toBe(6);
+    expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
     expect(indexes.map((index) => index.name)).toEqual(
       expect.arrayContaining([
         'artifact_audit_jobs_active_version_unique_idx',
@@ -133,7 +133,7 @@ describe('SQLite v5 artifact audit queue', () => {
     expect(() =>
       createSqliteProjectRepository({ databaseFile }).load()
     ).toThrow();
-    expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
+    expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
 
     const verify = new Database(databaseFile);
     expect(
@@ -1220,7 +1220,7 @@ function resetDatabase(): void {
   rmSync(databaseFile, { force: true });
   rmSync(`${databaseFile}-wal`, { force: true });
   rmSync(`${databaseFile}-shm`, { force: true });
-  rmSync(`${databaseFile}.pre-relational-v5.bak`, { force: true });
+  rmSync(`${databaseFile}.pre-relational-v6.bak`, { force: true });
 }
 
 function readJobs(): Array<Record<string, unknown>> {

@@ -165,7 +165,8 @@ export function createSqliteProjectRepository({
     save(data: Data): void {
       withDatabase((database) => {
         const replace = database.transaction((nextData: Data) => {
-          replaceDomainData(database, nextData);
+          const before = loadRelationalData(database);
+          persistDomainDiff(database, before, nextData);
         });
         replace.immediate(data);
       });
@@ -222,6 +223,9 @@ function initializeDatabase(
     'audit_events',
     'releases',
     'sessions',
+    'project_api_tokens',
+    'api_token_security_events',
+    'ci_idempotency_records',
   ].some((table) => hasTable(database, table));
   if (hasAnyRelationalTable) {
     throw new Error(

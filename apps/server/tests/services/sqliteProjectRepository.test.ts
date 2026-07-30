@@ -89,9 +89,12 @@ test('creates the normalized relational schema', () => {
   database.close();
 
   expect(tables).toEqual([
+    'api_token_security_events',
     'artifact_audit_jobs',
     'artifact_audits',
     'audit_events',
+    'ci_idempotency_records',
+    'project_api_tokens',
     'project_members',
     'projects',
     'releases',
@@ -102,7 +105,7 @@ test('creates the normalized relational schema', () => {
   ]);
 });
 
-test('upgrades the deployed relational v3 schema to v5 with a backup', () => {
+test('upgrades the deployed relational v3 schema to v6 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -132,13 +135,66 @@ test('upgrades the deployed relational v3 schema to v5 with a backup', () => {
   verify.close();
 
   expect(loaded.artifactAuditJobs).toEqual([]);
-  expect(migration?.version).toBe(5);
+  expect(migration?.version).toBe(6);
   expect(jobColumns).toContain('locked_until');
   expect(jobColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
 });
 
-test('upgrades relational v1 through v5 with policy, audit, jobs, integrity, and backup', () => {
+test('upgrades relational v5 to v6 with token tables and a backup', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  database.exec(`
+    DROP TABLE ci_idempotency_records;
+    DROP TABLE api_token_security_events;
+    DROP TABLE project_api_tokens;
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z'),
+      (4, '2026-07-30T00:00:00.000Z'),
+      (5, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  createSqliteProjectRepository({ databaseFile }).load();
+
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const tables = verify
+    .query<{ name: string }, []>(
+      `SELECT name
+       FROM sqlite_master
+       WHERE type = 'table'
+         AND name IN (
+           'project_api_tokens',
+           'api_token_security_events',
+           'ci_idempotency_records'
+         )
+       ORDER BY name`
+    )
+    .all()
+    .map((row) => row.name);
+  verify.close();
+
+  expect(migration?.version).toBe(6);
+  expect(tables).toEqual([
+    'api_token_security_events',
+    'ci_idempotency_records',
+    'project_api_tokens',
+  ]);
+  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+});
+
+test('upgrades relational v1 through v6 with policy, audit, jobs, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -205,11 +261,11 @@ test('upgrades relational v1 through v5 with policy, audit, jobs, integrity, and
   expect(columns).toContain('integrity_checked_at');
   expect(projectColumns).toContain('audit_enforcement');
   expect(projectColumns).toContain('audit_max_total_bytes');
-  expect(migration?.version).toBe(5);
-  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
+  expect(migration?.version).toBe(6);
+  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
 });
 
-test('upgrades the deployed relational v2 schema to v5 with a backup', () => {
+test('upgrades the deployed relational v2 schema to v6 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -254,10 +310,10 @@ test('upgrades the deployed relational v2 schema to v5 with a backup', () => {
   verify.close();
 
   expect(loaded.projects).toEqual([]);
-  expect(migration?.version).toBe(5);
+  expect(migration?.version).toBe(6);
   expect(auditColumns).toContain('engine_version');
   expect(auditColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {

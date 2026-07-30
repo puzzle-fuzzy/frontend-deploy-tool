@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 5;
+export const RELATIONAL_SCHEMA_VERSION = 6;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -220,6 +220,87 @@ const RELATIONAL_SCHEMA_SQL = `
 
   CREATE INDEX IF NOT EXISTS sessions_user_expiry_idx
     ON sessions(user_id, expires_at DESC);
+
+  CREATE TABLE IF NOT EXISTS project_api_tokens (
+    id TEXT PRIMARY KEY,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    hash_version INTEGER NOT NULL CHECK (hash_version = 1),
+    secret_digest TEXT NOT NULL CHECK (
+      length(secret_digest) = 64
+      AND secret_digest NOT GLOB '*[^0-9a-f]*'
+    ),
+    prefix TEXT NOT NULL,
+    scopes_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    created_by TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_used_at TEXT NULL,
+    revoked_at TEXT NULL,
+    replaced_by_token_id TEXT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+    FOREIGN KEY (replaced_by_token_id) REFERENCES project_api_tokens(id)
+      ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+  );
+
+  CREATE INDEX IF NOT EXISTS project_api_tokens_project_created_idx
+    ON project_api_tokens(project_id, created_at DESC, id DESC);
+
+  CREATE INDEX IF NOT EXISTS project_api_tokens_expiry_idx
+    ON project_api_tokens(expires_at, id)
+    WHERE revoked_at IS NULL;
+
+  CREATE TABLE IF NOT EXISTS api_token_security_events (
+    sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+    id TEXT NOT NULL UNIQUE,
+    project_id TEXT NOT NULL,
+    project_name TEXT NOT NULL,
+    token_id TEXT NULL,
+    token_prefix TEXT NULL,
+    action TEXT NOT NULL CHECK (
+      action IN (
+        'api_token.create',
+        'api_token.rotate',
+        'api_token.revoke',
+        'api_token.authentication_failed'
+      )
+    ),
+    outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied')),
+    actor_id TEXT NULL,
+    reason TEXT NULL CHECK (
+      reason IS NULL OR reason IN (
+        'digest_mismatch',
+        'expired',
+        'revoked',
+        'project_mismatch',
+        'scope_missing',
+        'hash_version_unsupported'
+      )
+    ),
+    occurred_at TEXT NOT NULL
+  );
+
+  CREATE INDEX IF NOT EXISTS api_token_security_events_project_sequence_idx
+    ON api_token_security_events(project_id, sequence DESC);
+
+  CREATE TABLE IF NOT EXISTS ci_idempotency_records (
+    project_id TEXT NOT NULL,
+    token_id TEXT NOT NULL,
+    idempotency_key TEXT NOT NULL,
+    request_digest TEXT NOT NULL,
+    version_id TEXT NOT NULL,
+    version_name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, token_id, idempotency_key),
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (token_id) REFERENCES project_api_tokens(id) ON DELETE CASCADE,
+    FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS ci_idempotency_records_expiry_idx
+    ON ci_idempotency_records(expires_at, project_id, token_id);
 `;
 
 export function configureSqlite(database: Database): void {
@@ -425,6 +506,97 @@ export function upgradeRelationalSchema(
       .query(
         `INSERT INTO schema_migrations (version, applied_at)
          VALUES (5, ?)`
+      )
+      .run(new Date().toISOString());
+  }
+  if (fromVersion < 6) {
+    database.exec(`
+      CREATE TABLE IF NOT EXISTS project_api_tokens (
+        id TEXT PRIMARY KEY,
+        project_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        hash_version INTEGER NOT NULL CHECK (hash_version = 1),
+        secret_digest TEXT NOT NULL CHECK (
+          length(secret_digest) = 64
+          AND secret_digest NOT GLOB '*[^0-9a-f]*'
+        ),
+        prefix TEXT NOT NULL,
+        scopes_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        created_by TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        last_used_at TEXT NULL,
+        revoked_at TEXT NULL,
+        replaced_by_token_id TEXT NULL,
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE RESTRICT,
+        FOREIGN KEY (replaced_by_token_id) REFERENCES project_api_tokens(id)
+          ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED
+      );
+
+      CREATE INDEX IF NOT EXISTS project_api_tokens_project_created_idx
+        ON project_api_tokens(project_id, created_at DESC, id DESC);
+
+      CREATE INDEX IF NOT EXISTS project_api_tokens_expiry_idx
+        ON project_api_tokens(expires_at, id)
+        WHERE revoked_at IS NULL;
+
+      CREATE TABLE IF NOT EXISTS api_token_security_events (
+        sequence INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT NOT NULL UNIQUE,
+        project_id TEXT NOT NULL,
+        project_name TEXT NOT NULL,
+        token_id TEXT NULL,
+        token_prefix TEXT NULL,
+        action TEXT NOT NULL CHECK (
+          action IN (
+            'api_token.create',
+            'api_token.rotate',
+            'api_token.revoke',
+            'api_token.authentication_failed'
+          )
+        ),
+        outcome TEXT NOT NULL CHECK (outcome IN ('succeeded', 'denied')),
+        actor_id TEXT NULL,
+        reason TEXT NULL CHECK (
+          reason IS NULL OR reason IN (
+            'digest_mismatch',
+            'expired',
+            'revoked',
+            'project_mismatch',
+            'scope_missing',
+            'hash_version_unsupported'
+          )
+        ),
+        occurred_at TEXT NOT NULL
+      );
+
+      CREATE INDEX IF NOT EXISTS api_token_security_events_project_sequence_idx
+        ON api_token_security_events(project_id, sequence DESC);
+
+      CREATE TABLE IF NOT EXISTS ci_idempotency_records (
+        project_id TEXT NOT NULL,
+        token_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        request_digest TEXT NOT NULL,
+        version_id TEXT NOT NULL,
+        version_name TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        PRIMARY KEY (project_id, token_id, idempotency_key),
+        FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+        FOREIGN KEY (token_id) REFERENCES project_api_tokens(id)
+          ON DELETE CASCADE,
+        FOREIGN KEY (version_id) REFERENCES versions(id) ON DELETE CASCADE
+      );
+
+      CREATE INDEX IF NOT EXISTS ci_idempotency_records_expiry_idx
+        ON ci_idempotency_records(expires_at, project_id, token_id);
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (6, ?)`
       )
       .run(new Date().toISOString());
   }

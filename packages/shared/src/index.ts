@@ -1,4 +1,9 @@
 export type {
+  ApiTokenMetadata,
+  ApiTokenScope,
+  ApiTokenSecurityEvent,
+  ApiTokenSecurityEventAction,
+  ApiTokenSecurityReason,
   ArtifactAuditCategory,
   ArtifactAuditCheck,
   ArtifactAuditEnforcement,
@@ -31,6 +36,11 @@ export type {
   VersionStatus,
 } from './domain';
 export {
+  apiTokenMetadataSchema,
+  apiTokenScopeSchema,
+  apiTokenSecurityEventActionSchema,
+  apiTokenSecurityEventSchema,
+  apiTokenSecurityReasonSchema,
   artifactAuditCategorySchema,
   artifactAuditCheckSchema,
   artifactAuditEnforcementSchema,
