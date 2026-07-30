@@ -11,6 +11,10 @@ import { dirname, isAbsolute, join, normalize, relative } from 'node:path';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import { checksumDirectory } from './artifactService';
+import {
+  assertStorageControlPathsAreSafe,
+  assertStoragePathHasNoSymlinkAncestors,
+} from './storagePathSafety';
 
 export interface ArtifactRecoveryLease {
   readonly moved: boolean;
@@ -95,7 +99,7 @@ export function createArtifactRecoveryService(
       versionId === null
         ? join(storageDir, projectId)
         : join(storageDir, projectId, versionId);
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, sourcePath);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, sourcePath);
     if (!pathExists(sourcePath)) return createNoopLease();
     assertNoSymlinks(sourcePath);
 
@@ -121,9 +125,9 @@ export function createArtifactRecoveryService(
       expectedVersionChecksums: sanitizeChecksums(evidence?.versionChecksums),
     };
 
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, operationDir);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, operationDir);
     mkdirSync(dirname(artifactPath), { recursive: true });
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, artifactPath);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, artifactPath);
     writeRecoveryManifest(storageDir, operationDir, manifest);
     try {
       renameSync(sourcePath, artifactPath);
@@ -134,16 +138,10 @@ export function createArtifactRecoveryService(
       writeRecoveryManifest(storageDir, operationDir, manifest);
     } catch (error) {
       if (!pathExists(sourcePath) && pathExists(artifactPath)) {
-        assertRootRelativePathHasNoSymlinkAncestors(storageDir, artifactPath);
-        assertRootRelativePathHasNoSymlinkAncestors(
-          storageDir,
-          dirname(sourcePath)
-        );
+        assertStoragePathHasNoSymlinkAncestors(storageDir, artifactPath);
+        assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(sourcePath));
         mkdirSync(dirname(sourcePath), { recursive: true });
-        assertRootRelativePathHasNoSymlinkAncestors(
-          storageDir,
-          dirname(sourcePath)
-        );
+        assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(sourcePath));
         renameSync(artifactPath, sourcePath);
       }
       removeRecoveryOperation(storageDir, operationDir);
@@ -167,23 +165,17 @@ export function createArtifactRecoveryService(
         if (state === 'committed') {
           throw new Error('Cannot roll back a committed artifact deletion');
         }
-        assertRootRelativePathHasNoSymlinkAncestors(storageDir, sourcePath);
-        assertRootRelativePathHasNoSymlinkAncestors(storageDir, artifactPath);
+        assertStoragePathHasNoSymlinkAncestors(storageDir, sourcePath);
+        assertStoragePathHasNoSymlinkAncestors(storageDir, artifactPath);
         if (pathExists(sourcePath)) {
           throw new Error(
             'Cannot restore artifacts because the original path exists'
           );
         }
         assertNoSymlinks(artifactPath);
-        assertRootRelativePathHasNoSymlinkAncestors(
-          storageDir,
-          dirname(sourcePath)
-        );
+        assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(sourcePath));
         mkdirSync(dirname(sourcePath), { recursive: true });
-        assertRootRelativePathHasNoSymlinkAncestors(
-          storageDir,
-          dirname(sourcePath)
-        );
+        assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(sourcePath));
         renameSync(artifactPath, sourcePath);
         removeRecoveryOperation(storageDir, operationDir);
         state = 'rolled-back';
@@ -210,7 +202,6 @@ export function recoverInterruptedArtifactOperations(
   repo: ProjectRepository,
   storageDir: string
 ): InterruptedArtifactRecoveryReport {
-  const recoveryRoot = join(storageDir, '.recovery');
   const trashRoot = join(storageDir, '.recovery', 'trash');
   const conflictRoot = join(storageDir, '.recovery', 'conflicts');
   const report: InterruptedArtifactRecoveryReport = {
@@ -219,10 +210,8 @@ export function recoverInterruptedArtifactOperations(
     conflicts: 0,
   };
   try {
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, recoveryRoot);
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, conflictRoot);
+    assertStorageControlPathsAreSafe(storageDir);
     report.conflicts = countEntries(conflictRoot);
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, trashRoot);
   } catch {
     // The symlink remains a durable, visible conflict on every restart. Never
     // enumerate or create through an unsafe recovery-control ancestor.
@@ -235,10 +224,7 @@ export function recoverInterruptedArtifactOperations(
     const operationDir = join(trashRoot, entry.name);
     let manifest: ParsedRecoveryManifest;
     try {
-      assertRootRelativePathHasNoSymlinkAncestors(
-        storageDir,
-        dirname(operationDir)
-      );
+      assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(operationDir));
       if (!entry.isDirectory()) {
         throw new Error('Recovery operation must be a directory');
       }
@@ -291,8 +277,8 @@ export function recoverInterruptedArtifactOperations(
     }
 
     try {
-      assertRootRelativePathHasNoSymlinkAncestors(storageDir, originalPath);
-      assertRootRelativePathHasNoSymlinkAncestors(storageDir, recoveryPath);
+      assertStoragePathHasNoSymlinkAncestors(storageDir, originalPath);
+      assertStoragePathHasNoSymlinkAncestors(storageDir, recoveryPath);
     } catch {
       quarantineConflict(storageDir, operationDir, conflictRoot, entry.name);
       report.conflicts += 1;
@@ -307,7 +293,7 @@ export function recoverInterruptedArtifactOperations(
     }
     if (originalExists) {
       try {
-        assertRootRelativePathHasNoSymlinkAncestors(storageDir, originalPath);
+        assertStoragePathHasNoSymlinkAncestors(storageDir, originalPath);
         assertNoSymlinks(originalPath);
         if (!canProveRestoredArtifact(manifest, originalPath)) {
           throw new Error('Restored artifact identity cannot be proven');
@@ -328,17 +314,11 @@ export function recoverInterruptedArtifactOperations(
     }
 
     try {
-      assertRootRelativePathHasNoSymlinkAncestors(storageDir, recoveryPath);
+      assertStoragePathHasNoSymlinkAncestors(storageDir, recoveryPath);
       assertNoSymlinks(recoveryPath);
-      assertRootRelativePathHasNoSymlinkAncestors(
-        storageDir,
-        dirname(originalPath)
-      );
+      assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(originalPath));
       mkdirSync(dirname(originalPath), { recursive: true });
-      assertRootRelativePathHasNoSymlinkAncestors(
-        storageDir,
-        dirname(originalPath)
-      );
+      assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(originalPath));
       renameSync(recoveryPath, originalPath);
       removeRecoveryOperation(storageDir, operationDir);
       report.restored += 1;
@@ -704,41 +684,18 @@ function assertNoSymlinks(path: string): void {
   }
 }
 
-function assertRootRelativePathHasNoSymlinkAncestors(
-  root: string,
-  target: string
-): void {
-  const relativeTarget = relative(root, target);
-  if (relativeTarget === '') return;
-  validateRelativePath(relativeTarget);
-  let current = root;
-  for (const component of relativeTarget.split(/[\\/]/)) {
-    current = join(current, component);
-    if (!pathExists(current)) break;
-    const stats = lstatSync(current);
-    if (stats.isSymbolicLink() || !stats.isDirectory()) {
-      const isFinalComponent = current === target;
-      if (stats.isSymbolicLink() || !isFinalComponent) {
-        throw new Error(
-          'Recovery paths and ancestors must not contain symbolic links'
-        );
-      }
-    }
-  }
-}
-
 function writeRecoveryManifest(
   storageDir: string,
   operationDir: string,
   manifest: RecoveryManifest
 ): void {
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, operationDir);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, operationDir);
   mkdirSync(operationDir, { recursive: true });
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, operationDir);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, operationDir);
   const manifestPath = join(operationDir, 'manifest.json');
   const temporaryPath = join(operationDir, `.manifest-${createId()}.tmp`);
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, manifestPath);
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, temporaryPath);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, manifestPath);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, temporaryPath);
   writeFileSync(temporaryPath, JSON.stringify(manifest, null, 2), 'utf8');
   renameSync(temporaryPath, manifestPath);
 }
@@ -748,9 +705,9 @@ function writeRecoveryMarker(
   operationDir: string,
   committedAt: string
 ): void {
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, operationDir);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, operationDir);
   const markerPath = join(operationDir, 'COMMITTED');
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, markerPath);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, markerPath);
   writeFileSync(markerPath, committedAt, 'utf8');
 }
 
@@ -758,7 +715,7 @@ function removeRecoveryOperation(
   storageDir: string,
   operationDir: string
 ): void {
-  assertRootRelativePathHasNoSymlinkAncestors(storageDir, operationDir);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, operationDir);
   assertNoSymlinks(operationDir);
   rmSync(operationDir, { recursive: true, force: true });
 }
@@ -788,20 +745,17 @@ function quarantineConflict(
   operationId: string
 ): boolean {
   try {
-    assertRootRelativePathHasNoSymlinkAncestors(
-      storageDir,
-      dirname(operationDir)
-    );
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, conflictRoot);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(operationDir));
+    assertStoragePathHasNoSymlinkAncestors(storageDir, conflictRoot);
     mkdirSync(conflictRoot, { recursive: true });
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, conflictRoot);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, conflictRoot);
     let target = join(conflictRoot, operationId);
     let suffix = 1;
     while (pathExists(target)) {
       target = join(conflictRoot, `${operationId}-${suffix}`);
       suffix += 1;
     }
-    assertRootRelativePathHasNoSymlinkAncestors(storageDir, dirname(target));
+    assertStoragePathHasNoSymlinkAncestors(storageDir, dirname(target));
     renameSync(operationDir, target);
     return true;
   } catch {

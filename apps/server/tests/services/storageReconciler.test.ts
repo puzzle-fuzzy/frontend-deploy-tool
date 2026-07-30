@@ -364,6 +364,110 @@ describe('reconcileStorage', () => {
     }
   });
 
+  test('freezes orphan quarantine and metadata repair while any recovery conflict exists', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
+    const demoProject = project();
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const orphanArtifact = join(
+      storageDir,
+      'orphan-project',
+      'orphan-version',
+      'index.html'
+    );
+    const conflictMarker = join(
+      storageDir,
+      '.recovery',
+      'conflicts',
+      'unresolved-operation',
+      'manifest.json'
+    );
+    const staleStaging = join(storageDir, '.staging', 'stale-upload');
+    const committedTrash = join(
+      storageDir,
+      '.recovery',
+      'trash',
+      'committed-operation'
+    );
+    const staleRecoveryOrphan = join(
+      storageDir,
+      '.recovery',
+      'orphans',
+      'stale-orphan'
+    );
+    const ancient = new Date('2000-01-01T00:00:00.000Z');
+    mkdirSync(join(storageDir, 'orphan-project', 'orphan-version'), {
+      recursive: true,
+    });
+    writeFileSync(orphanArtifact, 'orphan');
+    mkdirSync(staleStaging, { recursive: true });
+    writeFileSync(join(staleStaging, 'payload.txt'), 'stale');
+    utimesSync(staleStaging, ancient, ancient);
+    mkdirSync(committedTrash, { recursive: true });
+    writeFileSync(
+      join(committedTrash, 'manifest.json'),
+      JSON.stringify({
+        version: 2,
+        operation: 'delete',
+        kind: 'version',
+        target: { projectId: 'deleted-project', versionId: 'deleted-version' },
+        originalPath: 'deleted-project/deleted-version',
+        recoveryPath:
+          '.recovery/trash/committed-operation/artifacts/deleted-project/deleted-version',
+        committed: true,
+        stagedAt: ancient.toISOString(),
+        committedAt: ancient.toISOString(),
+      })
+    );
+    writeFileSync(join(committedTrash, 'COMMITTED'), ancient.toISOString());
+    utimesSync(join(committedTrash, 'COMMITTED'), ancient, ancient);
+    mkdirSync(staleRecoveryOrphan, { recursive: true });
+    writeFileSync(join(staleRecoveryOrphan, 'payload.txt'), 'stale orphan');
+    utimesSync(staleRecoveryOrphan, ancient, ancient);
+    mkdirSync(
+      join(storageDir, '.recovery', 'conflicts', 'unresolved-operation'),
+      {
+        recursive: true,
+      }
+    );
+    writeFileSync(conflictMarker, 'unresolved');
+    const metadataBefore = JSON.stringify(data);
+
+    try {
+      expect(reconcileStorage(repository(data), storageDir)).toEqual({
+        restoredInterruptedOperations: 0,
+        committedInterruptedOperations: 0,
+        recoveryConflicts: 1,
+        removedStagingEntries: 0,
+        removedCommittedTrashEntries: 0,
+        removedOrphanEntries: 0,
+        quarantinedOrphanVersions: 0,
+        markedFailedVersions: 0,
+        deactivatedProjects: 0,
+      });
+      expect(readFileSync(orphanArtifact, 'utf8')).toBe('orphan');
+      expect(readFileSync(conflictMarker, 'utf8')).toBe('unresolved');
+      expect(readFileSync(join(staleStaging, 'payload.txt'), 'utf8')).toBe(
+        'stale'
+      );
+      expect(readFileSync(join(committedTrash, 'COMMITTED'), 'utf8')).toBe(
+        ancient.toISOString()
+      );
+      expect(
+        readFileSync(join(staleRecoveryOrphan, 'payload.txt'), 'utf8')
+      ).toBe('stale orphan');
+      expect(JSON.stringify(data)).toBe(metadataBefore);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('quarantines a manifest whose relative paths do not match its target', () => {
     const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-reconcile-'));
     const operationDir = join(

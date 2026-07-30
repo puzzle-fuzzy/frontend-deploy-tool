@@ -235,11 +235,13 @@ describe('artifact recovery manifest safety', () => {
     }
   });
 
-  test('fails closed without traversing symlinked recovery control roots', () => {
+  test('fails closed without traversing symlinked storage control roots', () => {
     for (const variant of [
+      'staging-root',
       'recovery-root',
       'trash-root',
       'conflicts-root',
+      'orphans-root',
     ] as const) {
       const storageDir = mkdtempSync(
         join(tmpdir(), `deploykit-recovery-${variant}-`)
@@ -249,7 +251,9 @@ describe('artifact recovery manifest safety', () => {
       );
       writeFileSync(join(externalDir, 'marker'), 'outside');
 
-      if (variant === 'recovery-root') {
+      if (variant === 'staging-root') {
+        symlinkSync(externalDir, join(storageDir, '.staging'), 'dir');
+      } else if (variant === 'recovery-root') {
         symlinkSync(externalDir, join(storageDir, '.recovery'), 'dir');
       } else {
         mkdirSync(join(storageDir, '.recovery'), { recursive: true });
@@ -258,7 +262,11 @@ describe('artifact recovery manifest safety', () => {
           join(
             storageDir,
             '.recovery',
-            variant === 'trash-root' ? 'trash' : 'conflicts'
+            variant === 'trash-root'
+              ? 'trash'
+              : variant === 'conflicts-root'
+                ? 'conflicts'
+                : 'orphans'
           ),
           'dir'
         );

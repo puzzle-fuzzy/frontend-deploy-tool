@@ -3,10 +3,13 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
   statSync,
+  symlinkSync,
+  utimesSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -187,6 +190,62 @@ describe('storage crash recovery', () => {
     expect(existsSync(join(fixture.storageDir, '.recovery', 'conflicts'))).toBe(
       true
     );
+  });
+
+  test('readiness fails without traversing a symlinked orphan control root', async () => {
+    const fixture = createFixture();
+    const externalDir = join(fixture.tempDir, 'external-orphans');
+    const externalArtifact = join(externalDir, 'expired', 'index.html');
+    mkdirSync(join(externalDir, 'expired'), { recursive: true });
+    writeFileSync(externalArtifact, 'external');
+    const ancient = new Date('2000-01-01T00:00:00.000Z');
+    utimesSync(join(externalDir, 'expired'), ancient, ancient);
+    mkdirSync(join(fixture.storageDir, '.recovery'), { recursive: true });
+    symlinkSync(externalDir, join(fixture.storageDir, '.recovery', 'orphans'));
+
+    const app = createApp(fixture.config);
+    const readiness = await app.request('/health/ready');
+
+    expect(readiness.status).toBe(503);
+    expect(await readiness.json()).toEqual({
+      status: 'error',
+      reason: 'artifact_recovery_conflicts',
+      conflicts: 1,
+    });
+    expect(readFileSync(externalArtifact, 'utf8')).toBe('external');
+
+    const restarted = createApp(fixture.config);
+    expect((await restarted.request('/health/ready')).status).toBe(503);
+    expect(readFileSync(externalArtifact, 'utf8')).toBe('external');
+  });
+
+  test('readiness fails without writing through a symlinked recovery root', async () => {
+    const fixture = createFixture();
+    const externalRecovery = join(fixture.tempDir, 'external-recovery');
+    const orphanArtifact = join(
+      fixture.storageDir,
+      'orphan-project',
+      'orphan-version',
+      'index.html'
+    );
+    mkdirSync(externalRecovery, { recursive: true });
+    mkdirSync(join(fixture.storageDir, 'orphan-project', 'orphan-version'), {
+      recursive: true,
+    });
+    writeFileSync(orphanArtifact, 'orphan');
+    symlinkSync(externalRecovery, join(fixture.storageDir, '.recovery'));
+
+    const app = createApp(fixture.config);
+    const readiness = await app.request('/health/ready');
+
+    expect(readiness.status).toBe(503);
+    expect(await readiness.json()).toEqual({
+      status: 'error',
+      reason: 'artifact_recovery_conflicts',
+      conflicts: 1,
+    });
+    expect(readFileSync(orphanArtifact, 'utf8')).toBe('orphan');
+    expect(readdirSync(externalRecovery)).toEqual([]);
   });
 
   test('runtime ownership is released when application composition fails', () => {

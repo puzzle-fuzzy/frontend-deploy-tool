@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   utimesSync,
   writeFileSync,
 } from 'node:fs';
@@ -98,6 +99,37 @@ describe('collectStorageGarbage', () => {
       expect(existsSync(stale)).toBe(true);
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('does not traverse a symlinked orphan control root', () => {
+    const storageDir = mkdtempSync(join(tmpdir(), 'deploykit-gc-'));
+    const externalDir = mkdtempSync(join(tmpdir(), 'deploykit-gc-external-'));
+    const externalOld = join(externalDir, 'old-orphan');
+    const externalFresh = join(externalDir, 'fresh-orphan');
+
+    try {
+      touchDirectory(externalOld, old);
+      touchDirectory(externalFresh, fresh);
+      mkdirSync(join(storageDir, '.recovery'), { recursive: true });
+      symlinkSync(externalDir, join(storageDir, '.recovery', 'orphans'));
+
+      expect(
+        collectStorageGarbage(storageDir, {
+          now,
+          stagingRetentionMs: 1,
+          recoveryRetentionMs: 1,
+        })
+      ).toEqual({
+        removedStagingEntries: 0,
+        removedCommittedTrashEntries: 0,
+        removedOrphanEntries: 0,
+      });
+      expect(existsSync(join(externalOld, 'payload.txt'))).toBe(true);
+      expect(existsSync(join(externalFresh, 'payload.txt'))).toBe(true);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+      rmSync(externalDir, { recursive: true, force: true });
     }
   });
 });

@@ -13,6 +13,10 @@ import {
   collectStorageGarbage,
   type StorageGarbageCollectionOptions,
 } from './storageGarbageCollector';
+import {
+  assertStorageControlPathsAreSafe,
+  assertStoragePathHasNoSymlinkAncestors,
+} from './storagePathSafety';
 
 export interface StorageReconciliationReport {
   restoredInterruptedOperations: number;
@@ -57,24 +61,18 @@ export function reconcileStorage(
     repo,
     storageDir
   );
-  // Any unresolved recovery conflict freezes destructive GC for this pass.
-  // This also guarantees a symlinked recovery control root is never traversed
-  // by the garbage collector after recovery has failed closed.
-  const garbageCollection =
-    interruptedRecovery.conflicts === 0
-      ? collectStorageGarbage(storageDir, options)
-      : {
-          removedStagingEntries: 0,
-          removedCommittedTrashEntries: 0,
-          removedOrphanEntries: 0,
-        };
   const report: StorageReconciliationReport = {
     ...EMPTY_REPORT,
     restoredInterruptedOperations: interruptedRecovery.restored,
     committedInterruptedOperations: interruptedRecovery.committed,
     recoveryConflicts: interruptedRecovery.conflicts,
-    ...garbageCollection,
   };
+  // Any unresolved recovery conflict freezes every destructive phase for this
+  // pass: GC, orphan quarantine, and metadata repair.
+  if (report.recoveryConflicts > 0) return report;
+
+  assertStorageControlPathsAreSafe(storageDir);
+  Object.assign(report, collectStorageGarbage(storageDir, options));
   const orphanRecoveryRoot = join(storageDir, '.recovery', 'orphans');
 
   const snapshot = repo.load();
@@ -91,7 +89,11 @@ export function reconcileStorage(
     const project = projectsById.get(entry.name);
     if (!project) {
       report.quarantinedOrphanVersions += countChildDirectories(entryPath);
-      quarantinePath(entryPath, join(orphanRecoveryRoot, entry.name));
+      quarantinePath(
+        storageDir,
+        entryPath,
+        join(orphanRecoveryRoot, entry.name)
+      );
       continue;
     }
 
@@ -101,6 +103,7 @@ export function reconcileStorage(
     })) {
       if (versionEntry.isDirectory() && !versionIds.has(versionEntry.name)) {
         quarantinePath(
+          storageDir,
           join(entryPath, versionEntry.name),
           join(orphanRecoveryRoot, project.id, versionEntry.name)
         );
@@ -171,14 +174,22 @@ function countChildDirectories(path: string): number {
   ).length;
 }
 
-function quarantinePath(source: string, preferredTarget: string): void {
+function quarantinePath(
+  storageDir: string,
+  source: string,
+  preferredTarget: string
+): void {
+  assertStoragePathHasNoSymlinkAncestors(storageDir, source);
+  assertStoragePathHasNoSymlinkAncestors(storageDir, preferredTarget);
   mkdirSync(dirname(preferredTarget), { recursive: true });
+  assertStoragePathHasNoSymlinkAncestors(storageDir, preferredTarget);
   let target = preferredTarget;
   let suffix = 1;
   while (existsSync(target)) {
     target = `${preferredTarget}-${suffix}`;
     suffix += 1;
   }
+  assertStoragePathHasNoSymlinkAncestors(storageDir, target);
   renameSync(source, target);
   const quarantinedAt = new Date();
   utimesSync(target, quarantinedAt, quarantinedAt);

@@ -7,6 +7,10 @@ import {
   statSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import {
+  assertStorageControlPathsAreSafe,
+  assertStoragePathHasNoSymlinkAncestors,
+} from './storagePathSafety';
 
 export const DEFAULT_STAGING_RETENTION_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_RECOVERY_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
@@ -29,18 +33,24 @@ export function collectStorageGarbage(
   options: StorageGarbageCollectionOptions = {}
 ): StorageGarbageCollectionReport {
   mkdirSync(storageDir, { recursive: true });
-  const nowMs = (options.now ?? new Date()).getTime();
-  const stagingRetentionMs =
-    options.stagingRetentionMs ?? DEFAULT_STAGING_RETENTION_MS;
-  const recoveryRetentionMs =
-    options.recoveryRetentionMs ?? DEFAULT_RECOVERY_RETENTION_MS;
   const report: StorageGarbageCollectionReport = {
     removedStagingEntries: 0,
     removedCommittedTrashEntries: 0,
     removedOrphanEntries: 0,
   };
+  try {
+    assertStorageControlPathsAreSafe(storageDir);
+  } catch {
+    return report;
+  }
 
+  const nowMs = (options.now ?? new Date()).getTime();
+  const stagingRetentionMs =
+    options.stagingRetentionMs ?? DEFAULT_STAGING_RETENTION_MS;
+  const recoveryRetentionMs =
+    options.recoveryRetentionMs ?? DEFAULT_RECOVERY_RETENTION_MS;
   report.removedStagingEntries += removeExpiredChildren(
+    storageDir,
     join(storageDir, '.staging'),
     nowMs,
     stagingRetentionMs,
@@ -54,9 +64,12 @@ export function collectStorageGarbage(
   );
 
   const trashRoot = join(storageDir, '.recovery', 'trash');
+  assertStoragePathHasNoSymlinkAncestors(storageDir, trashRoot);
   for (const entry of listEntries(trashRoot)) {
     const operationPath = join(trashRoot, entry.name);
     const committedMarker = join(operationPath, 'COMMITTED');
+    assertStoragePathHasNoSymlinkAncestors(storageDir, operationPath);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, committedMarker);
     if (
       !entry.isDirectory() ||
       !existsSync(committedMarker) ||
@@ -71,6 +84,7 @@ export function collectStorageGarbage(
   }
 
   report.removedOrphanEntries += removeExpiredChildren(
+    storageDir,
     join(storageDir, '.recovery', 'orphans'),
     nowMs,
     recoveryRetentionMs,
@@ -78,22 +92,25 @@ export function collectStorageGarbage(
   );
 
   if (!options.dryRun) {
-    removeEmptyDirectory(join(storageDir, '.staging'));
-    removeEmptyDirectory(trashRoot);
-    removeEmptyDirectory(join(storageDir, '.recovery', 'orphans'));
+    removeEmptyDirectory(storageDir, join(storageDir, '.staging'));
+    removeEmptyDirectory(storageDir, trashRoot);
+    removeEmptyDirectory(storageDir, join(storageDir, '.recovery', 'orphans'));
   }
   return report;
 }
 
 function removeExpiredChildren(
+  storageDir: string,
   root: string,
   nowMs: number,
   retentionMs: number,
   dryRun: boolean
 ): number {
+  assertStoragePathHasNoSymlinkAncestors(storageDir, root);
   let removed = 0;
   for (const entry of listEntries(root)) {
     const path = join(root, entry.name);
+    assertStoragePathHasNoSymlinkAncestors(storageDir, path);
     if (!isExpired(path, nowMs, retentionMs)) continue;
     removed += 1;
     if (!dryRun) rmSync(path, { recursive: true, force: true });
@@ -130,7 +147,8 @@ function listEntries(path: string) {
   return existsSync(path) ? readdirSync(path, { withFileTypes: true }) : [];
 }
 
-function removeEmptyDirectory(path: string): void {
+function removeEmptyDirectory(storageDir: string, path: string): void {
+  assertStoragePathHasNoSymlinkAncestors(storageDir, path);
   if (existsSync(path) && readdirSync(path).length === 0) {
     rmdirSync(path);
   }

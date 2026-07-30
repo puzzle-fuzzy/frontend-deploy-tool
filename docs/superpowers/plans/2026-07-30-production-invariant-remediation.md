@@ -219,14 +219,16 @@ recoverInterruptedArtifactOperations(
   Acquire both sorted SQLite sidecar transaction locks before storage
   reconciliation and release them on connection close/process death. Extend
   recovery manifests with durable artifact identity/checksum proof, reject
-  symlinks, and run interrupted-operation recovery before orphan
-  reconciliation or GC.
+  symlinks through one storage-root-relative guard covering staging, recovery,
+  trash, conflicts, and orphans, and run interrupted-operation recovery before
+  orphan reconciliation or GC.
 
 - [x] **Step 4: Harden readiness and restore operations**
 
-  Readiness must fail when recovery reports unresolved conflicts. Operational
-  restore must refuse to run while runtime ownership is active; keep `--force`
-  as destructive-intent confirmation, not as a lock bypass.
+  Readiness must fail when recovery reports unresolved conflicts, and that
+  startup pass must freeze GC, orphan quarantine, and metadata repair.
+  Operational restore must refuse to run while runtime ownership is active;
+  keep `--force` as destructive-intent confirmation, not as a lock bypass.
 
 - [x] **Step 5: Re-run service, black-box, backup and runtime tests**
 
