@@ -1,5 +1,7 @@
+import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
 import { loadConfig } from '../config';
+import { createArtifactAuditJobCursorCodec } from '../domain/artifactAuditJobCursor';
 import { createSqliteArtifactAuditJobRepository } from '../repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../repositories/sqliteProjectRepository';
 import { createArtifactIntegrityService } from '../services/artifactIntegrityService';
@@ -18,6 +20,9 @@ const backupService = createBackupService({
   databaseFile: config.databaseFile,
   storageDir: config.storageDir,
 });
+const artifactAuditJobCursorCodec = createArtifactAuditJobCursorCodec(
+  config.sessionSecret ?? randomBytes(32).toString('base64url')
+);
 
 switch (command) {
   case 'backup': {
@@ -79,6 +84,7 @@ switch (command) {
     }).load();
     const repository = createSqliteArtifactAuditJobRepository({
       databaseFile: config.databaseFile,
+      cursorCodec: artifactAuditJobCursorCodec,
     });
     output({
       command,

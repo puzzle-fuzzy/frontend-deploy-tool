@@ -7,10 +7,7 @@ import {
   isActiveArtifactAuditJob,
   isArtifactAuditLeaseOwned,
 } from '../domain/artifactAuditJob';
-import {
-  decodeArtifactAuditJobCursor,
-  encodeArtifactAuditJobCursor,
-} from '../domain/artifactAuditJobCursor';
+import type { ArtifactAuditJobCursorCodec } from '../domain/artifactAuditJobCursor';
 import {
   createArtifactAuditCompletionRecords,
   decideArtifactAuditFailure,
@@ -37,6 +34,7 @@ import {
 
 export interface SqliteArtifactAuditJobRepositoryOptions {
   databaseFile: string;
+  cursorCodec: ArtifactAuditJobCursorCodec;
 }
 
 export function createSqliteArtifactAuditJobRepository(
@@ -618,7 +616,7 @@ export function createSqliteArtifactAuditJobRepository(
         const status = input.status ?? null;
         let anchor: { created_at: string; id: string } | null = null;
         if (input.cursor) {
-          const cursor = decodeArtifactAuditJobCursor(input.cursor);
+          const cursor = options.cursorCodec.decode(input.cursor);
           if (
             !cursor ||
             cursor.projectId !== input.projectId ||
@@ -673,7 +671,7 @@ export function createSqliteArtifactAuditJobRepository(
             items,
             nextCursor:
               hasMore && lastItem
-                ? encodeArtifactAuditJobCursor({
+                ? options.cursorCodec.encode({
                     projectId: input.projectId,
                     versionId: input.versionId,
                     anchorJobId: lastItem.id,

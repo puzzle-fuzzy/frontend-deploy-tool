@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { Buffer } from 'node:buffer';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,6 +10,7 @@ import type {
   Project,
 } from '@deploykit/shared';
 import { createDeployKitRuntime } from '../../src/app';
+import { createArtifactAuditJobCursorCodec } from '../../src/domain/artifactAuditJobCursor';
 import { createSqliteArtifactAuditJobRepository } from '../../src/repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import {
@@ -23,6 +25,7 @@ let tempDir: string;
 let runtime: ReturnType<typeof createDeployKitRuntime>;
 let app: ReturnType<typeof createDeployKitRuntime>['app'];
 let token: string;
+const SESSION_SECRET = 'test-session-secret';
 
 beforeEach(async () => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-audit-api-'));
@@ -34,7 +37,7 @@ beforeEach(async () => {
     environment: 'test',
     adminEmail: ADMIN_EMAIL,
     adminPassword: ADMIN_PASSWORD,
-    sessionSecret: 'test-session-secret',
+    sessionSecret: SESSION_SECRET,
     secureCookies: false,
     registrationEnabled: true,
     artifactAuditMaxActiveJobs: 1,
@@ -211,6 +214,67 @@ describe('artifact audit API', () => {
     if (!cursorPage.nextCursor) {
       throw new Error('audit-job cursor fixture is incomplete');
     }
+    const forgedAnchorCursor = rewriteCursorPayload(
+      cursorPage.nextCursor,
+      (payload) => ({
+        ...payload,
+        anchorJobId: first.job.id,
+      })
+    );
+    const forgedAnchor = await app.request(
+      `${endpoint}?cursor=${encodeURIComponent(forgedAnchorCursor)}`,
+      withBearer(undefined, token)
+    );
+    expect(forgedAnchor.status).toBe(400);
+    expect((await forgedAnchor.json()).error.code).toBe(
+      'INVALID_AUDIT_JOB_CURSOR'
+    );
+
+    const forgedStatusCursor = rewriteCursorPayload(
+      cursorPage.nextCursor,
+      (payload) => ({
+        ...payload,
+        status: 'failed',
+      })
+    );
+    const forgedStatus = await app.request(
+      `${endpoint}?status=failed&cursor=${encodeURIComponent(
+        forgedStatusCursor
+      )}`,
+      withBearer(undefined, token)
+    );
+    expect(forgedStatus.status).toBe(400);
+    expect((await forgedStatus.json()).error.code).toBe(
+      'INVALID_AUDIT_JOB_CURSOR'
+    );
+
+    for (const tamperedCursor of [
+      rewriteCursorPayload(cursorPage.nextCursor, (payload) => ({
+        ...payload,
+        projectId: 'other-project',
+      })),
+      rewriteCursorPayload(cursorPage.nextCursor, (payload) => ({
+        ...payload,
+        unexpected: true,
+      })),
+      rewriteCursorSignature(cursorPage.nextCursor),
+    ]) {
+      const response = await app.request(
+        `${endpoint}?cursor=${encodeURIComponent(tamperedCursor)}`,
+        withBearer(undefined, token)
+      );
+      expect(response.status).toBe(400);
+      expect((await response.json()).error.code).toBe(
+        'INVALID_AUDIT_JOB_CURSOR'
+      );
+    }
+
+    const unauthenticated = await app.request(
+      `${endpoint}?cursor=${encodeURIComponent(forgedAnchorCursor)}`
+    );
+    expect(unauthenticated.status).toBe(401);
+    expect((await unauthenticated.json()).error.code).toBe('UNAUTHORIZED');
+
     const filterMismatch = await app.request(
       `${endpoint}?status=failed&cursor=${encodeURIComponent(
         cursorPage.nextCursor
@@ -233,6 +297,7 @@ describe('artifact audit API', () => {
     expect(
       createSqliteArtifactAuditJobRepository({
         databaseFile: join(tempDir, 'deploykit.sqlite'),
+        cursorCodec: createArtifactAuditJobCursorCodec(SESSION_SECRET),
       }).pruneTerminal({
         cutoff: '9999-12-31T23:59:59.999Z',
         batchSize: 1_000,
@@ -631,4 +696,27 @@ async function publish(
       token
     )
   );
+}
+
+function rewriteCursorPayload(
+  cursor: string,
+  rewrite: (payload: Record<string, unknown>) => Record<string, unknown>
+): string {
+  const [encodedPayload, signature] = cursor.split('.');
+  if (!encodedPayload) throw new Error('cursor payload is missing');
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload, 'base64url').toString('utf8')
+  ) as Record<string, unknown>;
+  const rewritten = Buffer.from(JSON.stringify(rewrite(payload))).toString(
+    'base64url'
+  );
+  return signature ? `${rewritten}.${signature}` : rewritten;
+}
+
+function rewriteCursorSignature(cursor: string): string {
+  const [encodedPayload, signature] = cursor.split('.');
+  if (!encodedPayload) throw new Error('cursor payload is missing');
+  if (!signature) return `${encodedPayload}.AA`;
+  const first = signature.at(0);
+  return `${encodedPayload}.${first === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
 }

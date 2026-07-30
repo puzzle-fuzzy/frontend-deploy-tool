@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { Buffer } from 'node:buffer';
 import {
   mkdirSync,
   mkdtempSync,
@@ -10,6 +11,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Project } from '@deploykit/shared';
+import { createArtifactAuditJobCursorCodec } from '../../src/domain/artifactAuditJobCursor';
 import { createEmptyData } from '../../src/domain/schema';
 import { ErrorCode } from '../../src/errors';
 import { createAggregateArtifactAuditJobRepository } from '../../src/repositories/aggregateArtifactAuditJobRepository';
@@ -24,6 +26,9 @@ let storageDir: string;
 let dataFile: string;
 let currentTime: Date;
 let idSequence: number;
+const CURSOR_CODEC = createArtifactAuditJobCursorCodec(
+  'aggregate-audit-job-repository-test-secret'
+);
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-audit-jobs-'));
@@ -268,9 +273,57 @@ describe('createArtifactAuditJobService', () => {
     );
   });
 
+  test('rejects aggregate cursors whose authenticated payload is re-encoded', () => {
+    const { repo } = createFixture();
+    const service = createService(repo);
+    const first = service.enqueue('project-1', 'version-1', 'owner-1').job;
+    service.cancel('project-1', 'version-1', first.id, 'owner-1');
+    advance(1_000);
+    const second = service.enqueue('project-1', 'version-1', 'owner-1').job;
+    service.cancel('project-1', 'version-1', second.id, 'owner-1');
+    advance(1_000);
+    const third = service.enqueue('project-1', 'version-1', 'owner-1').job;
+    service.cancel('project-1', 'version-1', third.id, 'owner-1');
+
+    const queue = createAggregateArtifactAuditJobRepository(repo, CURSOR_CODEC);
+    const firstPage = queue.list({
+      projectId: 'project-1',
+      versionId: 'version-1',
+      limit: 1,
+    });
+    if (firstPage.kind !== 'page' || !firstPage.page.nextCursor) {
+      throw new Error('aggregate cursor fixture is incomplete');
+    }
+    const cursor = firstPage.page.nextCursor;
+
+    expect(
+      queue.list({
+        projectId: 'project-1',
+        versionId: 'version-1',
+        limit: 1,
+        cursor: rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          anchorJobId: second.id,
+        })),
+      })
+    ).toEqual({ kind: 'invalid-cursor' });
+    expect(
+      queue.list({
+        projectId: 'project-1',
+        versionId: 'version-1',
+        status: 'failed',
+        limit: 1,
+        cursor: rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          status: 'failed',
+        })),
+      })
+    ).toEqual({ kind: 'invalid-cursor' });
+  });
+
   test('keeps an empty aggregate claim read-only and preserves JSON mtime', () => {
     const { repo } = createFixture();
-    const queue = createAggregateArtifactAuditJobRepository(repo);
+    const queue = createAggregateArtifactAuditJobRepository(repo, CURSOR_CODEC);
     const oldTime = new Date('2020-01-01T00:00:00.000Z');
     utimesSync(dataFile, oldTime, oldTime);
 
@@ -292,7 +345,7 @@ describe('createArtifactAuditJobService', () => {
 
   test('keeps aggregate completion atomic when persistence rejects', () => {
     const { repo, checksum } = createFixture();
-    const queue = createAggregateArtifactAuditJobRepository(repo);
+    const queue = createAggregateArtifactAuditJobRepository(repo, CURSOR_CODEC);
     expect(
       queue.enqueue({
         projectId: 'project-1',
@@ -323,8 +376,10 @@ describe('createArtifactAuditJobService', () => {
         throw new Error('aggregate persistence rejected');
       },
     };
-    const rejectingQueue =
-      createAggregateArtifactAuditJobRepository(rejectingRepository);
+    const rejectingQueue = createAggregateArtifactAuditJobRepository(
+      rejectingRepository,
+      CURSOR_CODEC
+    );
 
     expect(() =>
       rejectingQueue.complete({
@@ -366,7 +421,7 @@ function createService(
   } = {}
 ) {
   return createArtifactAuditJobService(
-    createAggregateArtifactAuditJobRepository(repo),
+    createAggregateArtifactAuditJobRepository(repo, CURSOR_CODEC),
     storageDir,
     {
       now: () => new Date(currentTime),
@@ -450,4 +505,19 @@ function resultFixture(checksum: string): ArtifactAuditResult {
 
 function advance(milliseconds: number): void {
   currentTime = new Date(currentTime.getTime() + milliseconds);
+}
+
+function rewriteCursorPayload(
+  cursor: string,
+  rewrite: (payload: Record<string, unknown>) => Record<string, unknown>
+): string {
+  const [encodedPayload, signature] = cursor.split('.');
+  if (!encodedPayload) throw new Error('cursor payload is missing');
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload, 'base64url').toString('utf8')
+  ) as Record<string, unknown>;
+  const rewritten = Buffer.from(JSON.stringify(rewrite(payload))).toString(
+    'base64url'
+  );
+  return signature ? `${rewritten}.${signature}` : rewritten;
 }

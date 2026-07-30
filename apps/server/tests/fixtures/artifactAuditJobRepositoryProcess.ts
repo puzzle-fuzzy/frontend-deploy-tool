@@ -1,15 +1,26 @@
 import { existsSync, writeFileSync } from 'node:fs';
+import { createArtifactAuditJobCursorCodec } from '../../src/domain/artifactAuditJobCursor';
 import { createSqliteArtifactAuditJobRepository } from '../../src/repositories/sqliteArtifactAuditJobRepository';
 
-const [command, databaseFile, identity, readyFile, goFile] =
+const [command, databaseFile, identity, readyFile, goFile, cursorSecret] =
   process.argv.slice(2);
-if (!command || !databaseFile || !identity || !readyFile || !goFile) {
+if (
+  !command ||
+  !databaseFile ||
+  !identity ||
+  !readyFile ||
+  !goFile ||
+  !cursorSecret
+) {
   throw new Error(
-    'Expected command, database, identity, ready, and barrier paths'
+    'Expected command, database, identity, ready, barrier, and cursor secret'
   );
 }
 
-const repository = createSqliteArtifactAuditJobRepository({ databaseFile });
+const repository = createSqliteArtifactAuditJobRepository({
+  databaseFile,
+  cursorCodec: createArtifactAuditJobCursorCodec(cursorSecret),
+});
 writeFileSync(readyFile, identity);
 while (!existsSync(goFile)) {
   await Bun.sleep(5);

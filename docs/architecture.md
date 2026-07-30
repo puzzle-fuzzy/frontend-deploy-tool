@@ -142,8 +142,10 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 `POST/GET /api/projects/:id/versions/:versionId/audit`，并增加
 `POST/GET/DELETE .../audit-jobs[/jobId]`。异步 POST 返回 `202 { job, reused }`
 及相对 `Location`/整数 `Retry-After`；集合 GET 使用绑定项目、版本、状态筛选和
-锚点任务 ID 的严格 Base64URL keyset 游标，单项 GET 轮询持久化状态，DELETE
-先持久化取消再中止本机子进程。活动任务按 checksum、
+锚点任务 ID 的严格 Base64URL keyset 游标。游标 payload 使用从同一 effective
+`SESSION_SECRET` 派生的用途隔离 key 做 HMAC-SHA256 签名，语义重编码、跨 scope、
+状态或签名篡改都会返回 `INVALID_AUDIT_JOB_CURSOR`。单项 GET 轮询持久化状态，
+DELETE 先持久化取消再中止本机子进程。活动任务按 checksum、
 引擎版本与策略快照去重；执行采用租约/心跳，崩溃或过期后有限重试。项目 owner 通过
 `PATCH /api/projects/:id/audit-policy` 在 `advisory` 与 `blocking` 间切换并
 配置体积预算。详细报告每个版本保留一份，运行历史写入追加式 `audit_events`。

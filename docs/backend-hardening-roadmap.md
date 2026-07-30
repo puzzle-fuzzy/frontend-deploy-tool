@@ -143,7 +143,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
   过期后指数退避重试，最大尝试次数受配置约束。
 - 审计任务状态机由独立 SQLite 仓库按行更新；每次轮询同时恢复过期租约并至多
   领取一项，空队列不产生业务写入。全局/请求者/项目 admission limit 在同一
-  `BEGIN IMMEDIATE` 中校验，集合 API 使用稳定 keyset 游标。
+  `BEGIN IMMEDIATE` 中校验，集合 API 使用 HMAC-SHA256 认证、绑定 scope 与状态的
+  稳定 keyset 游标。
 - 终态任务传输记录按配置保留，并由
   `bun run ops -- audit-jobs-prune [--dry-run]` 分批清理；报告、历史和发布台账
   长期保留。

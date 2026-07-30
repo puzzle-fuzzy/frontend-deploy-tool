@@ -11,10 +11,7 @@ import {
   isActiveArtifactAuditJob,
   isArtifactAuditLeaseOwned,
 } from '../domain/artifactAuditJob';
-import {
-  decodeArtifactAuditJobCursor,
-  encodeArtifactAuditJobCursor,
-} from '../domain/artifactAuditJobCursor';
+import type { ArtifactAuditJobCursorCodec } from '../domain/artifactAuditJobCursor';
 import {
   applyArtifactAuditCancel,
   applyArtifactAuditClaim,
@@ -35,7 +32,8 @@ import type {
 import type { ProjectRepository } from './projectRepository';
 
 export function createAggregateArtifactAuditJobRepository(
-  projectRepository: ProjectRepository
+  projectRepository: ProjectRepository,
+  cursorCodec: ArtifactAuditJobCursorCodec
 ): ArtifactAuditJobRepository {
   return {
     enqueue(input) {
@@ -226,7 +224,7 @@ export function createAggregateArtifactAuditJobRepository(
       const status = input.status ?? null;
       let anchor: ArtifactAuditJob | null = null;
       if (input.cursor) {
-        const cursor = decodeArtifactAuditJobCursor(input.cursor);
+        const cursor = cursorCodec.decode(input.cursor);
         if (
           !cursor ||
           cursor.projectId !== input.projectId ||
@@ -269,7 +267,7 @@ export function createAggregateArtifactAuditJobRepository(
           items,
           nextCursor:
             hasMore && lastItem
-              ? encodeArtifactAuditJobCursor({
+              ? cursorCodec.encode({
                   projectId: input.projectId,
                   versionId: input.versionId,
                   anchorJobId: lastItem.id,

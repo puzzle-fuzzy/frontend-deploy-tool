@@ -1,8 +1,10 @@
 import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { Buffer } from 'node:buffer';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createArtifactAuditJobCursorCodec } from '../../src/domain/artifactAuditJobCursor';
 import { createSqliteArtifactAuditJobRepository } from '../../src/repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import {
@@ -12,6 +14,8 @@ import {
 } from '../../src/repositories/sqliteSchema';
 
 const NOW = '2026-07-30T00:00:00.000Z';
+const CURSOR_SECRET = 'sqlite-audit-job-repository-test-secret';
+const CURSOR_CODEC = createArtifactAuditJobCursorCodec(CURSOR_SECRET);
 const POLICY = {
   enforcement: 'advisory' as const,
   maxTotalBytes: 50 * 1024 * 1024,
@@ -172,6 +176,7 @@ describe('SQLite v5 artifact audit queue', () => {
             workerId,
             readyFile,
             goFile,
+            CURSOR_SECRET,
           ],
           stdout: 'pipe',
           stderr: 'pipe',
@@ -280,7 +285,10 @@ describe('SQLite v5 artifact audit queue', () => {
     expect(new Set(results.map((result) => result.jobId)).size).toBe(1);
     expect(readJobs()).toHaveLength(1);
 
-    const repository = createSqliteArtifactAuditJobRepository({ databaseFile });
+    const repository = createSqliteArtifactAuditJobRepository({
+      databaseFile,
+      cursorCodec: CURSOR_CODEC,
+    });
     expect(
       repository.enqueue({
         ...enqueueInput('job-third'),
@@ -595,6 +603,74 @@ describe('SQLite v5 artifact audit queue', () => {
     ).toEqual({ kind: 'invalid-cursor' });
   });
 
+  test('rejects re-encoded cursor payloads even when they name real scoped anchors', () => {
+    const repository = createFixture();
+    const database = new Database(databaseFile);
+    for (const id of ['job-a', 'job-b', 'job-c']) {
+      insertJob(database, {
+        id,
+        status: 'failed',
+        requestedBy: 'user-1',
+      });
+    }
+    database.close();
+
+    const first = repository.list({
+      projectId: 'project-1',
+      versionId: 'version-1',
+      limit: 1,
+    });
+    if (first.kind !== 'page' || !first.page.nextCursor) {
+      throw new Error('authenticated cursor fixture is incomplete');
+    }
+    const cursor = first.page.nextCursor;
+    const list = (nextCursor: string, status?: 'failed' | 'canceled') =>
+      repository.list({
+        projectId: 'project-1',
+        versionId: 'version-1',
+        limit: 1,
+        cursor: nextCursor,
+        ...(status ? { status } : {}),
+      });
+
+    expect(
+      list(
+        rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          anchorJobId: 'job-b',
+        }))
+      )
+    ).toEqual({ kind: 'invalid-cursor' });
+    expect(
+      list(
+        rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          status: 'failed',
+        })),
+        'failed'
+      )
+    ).toEqual({ kind: 'invalid-cursor' });
+    expect(
+      list(
+        rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          projectId: 'other-project',
+        }))
+      )
+    ).toEqual({ kind: 'invalid-cursor' });
+    expect(
+      list(
+        rewriteCursorPayload(cursor, (payload) => ({
+          ...payload,
+          unexpected: true,
+        }))
+      )
+    ).toEqual({ kind: 'invalid-cursor' });
+    expect(list(rewriteCursorSignature(cursor))).toEqual({
+      kind: 'invalid-cursor',
+    });
+  });
+
   test('continues an unfiltered cursor after a queued anchor is claimed', () => {
     const repository = createFixture();
     const database = new Database(databaseFile);
@@ -774,7 +850,10 @@ function createFixture() {
   const database = new Database(databaseFile);
   seedProject(database);
   database.close();
-  return createSqliteArtifactAuditJobRepository({ databaseFile });
+  return createSqliteArtifactAuditJobRepository({
+    databaseFile,
+    cursorCodec: CURSOR_CODEC,
+  });
 }
 
 function seedProject(database: Database): void {
@@ -911,6 +990,29 @@ function scoped(jobId: string) {
     versionId: 'version-1',
     jobId,
   };
+}
+
+function rewriteCursorPayload(
+  cursor: string,
+  rewrite: (payload: Record<string, unknown>) => Record<string, unknown>
+): string {
+  const [encodedPayload, signature] = cursor.split('.');
+  if (!encodedPayload) throw new Error('cursor payload is missing');
+  const payload = JSON.parse(
+    Buffer.from(encodedPayload, 'base64url').toString('utf8')
+  ) as Record<string, unknown>;
+  const rewritten = Buffer.from(JSON.stringify(rewrite(payload))).toString(
+    'base64url'
+  );
+  return signature ? `${rewritten}.${signature}` : rewritten;
+}
+
+function rewriteCursorSignature(cursor: string): string {
+  const [encodedPayload, signature] = cursor.split('.');
+  if (!encodedPayload) throw new Error('cursor payload is missing');
+  if (!signature) return `${encodedPayload}.AA`;
+  const first = signature.at(0);
+  return `${encodedPayload}.${first === 'A' ? 'B' : 'A'}${signature.slice(1)}`;
 }
 
 function insertJob(
@@ -1173,6 +1275,7 @@ async function runBarrierProcesses(
           identity,
           readyFile,
           goFile,
+          CURSOR_SECRET,
         ],
         stdout: 'pipe',
         stderr: 'pipe',

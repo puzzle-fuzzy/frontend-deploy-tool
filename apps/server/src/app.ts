@@ -7,6 +7,7 @@ import { requestId } from 'hono/request-id';
 import { createApiApp } from './api';
 import { type AppConfig, validateAppConfig } from './config';
 import { createDesktopAuthCodeStore } from './desktopAuth';
+import { createArtifactAuditJobCursorCodec } from './domain/artifactAuditJobCursor';
 import { ApiError, ErrorCode } from './errors';
 import {
   createObservabilityMiddleware,
@@ -124,6 +125,20 @@ function composeApp(
   validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
 
+  // One effective secret owns both session tokens and purpose-separated
+  // audit-job cursor signatures. Development fallback is random per process.
+  const sessionSecret =
+    config.sessionSecret ?? randomBytes(32).toString('base64url');
+  if (!config.sessionSecret) {
+    console.warn(
+      '[deploykit] SESSION_SECRET not set; generated an ephemeral secret. ' +
+        'Sessions and audit-job cursors will not survive a restart. ' +
+        'Set SESSION_SECRET in production.'
+    );
+  }
+  const artifactAuditJobCursorCodec =
+    createArtifactAuditJobCursorCodec(sessionSecret);
+
   const repo = config.databaseFile
     ? createSqliteProjectRepository({
         databaseFile: config.databaseFile,
@@ -143,8 +158,12 @@ function composeApp(
   const artifactAuditJobRepository = config.databaseFile
     ? createSqliteArtifactAuditJobRepository({
         databaseFile: config.databaseFile,
+        cursorCodec: artifactAuditJobCursorCodec,
       })
-    : createAggregateArtifactAuditJobRepository(repo);
+    : createAggregateArtifactAuditJobRepository(
+        repo,
+        artifactAuditJobCursorCodec
+      );
   let recordArtifactAuditJob: MetricsRegistry['recordArtifactAuditJob'] =
     () => {};
   let recordArtifactAuditLeaseRecovery: MetricsRegistry['recordArtifactAuditLeaseRecovery'] =
@@ -224,16 +243,6 @@ function composeApp(
         (config.adminPassword
           ? '(password from ADMIN_PASSWORD)'
           : `Generated password: ${seededPassword}`)
-    );
-  }
-
-  // Resolve the session secret; warn when falling back to an ephemeral one.
-  const sessionSecret =
-    config.sessionSecret ?? randomBytes(32).toString('base64url');
-  if (!config.sessionSecret) {
-    console.warn(
-      '[deploykit] SESSION_SECRET not set; generated an ephemeral secret. ' +
-        'Sessions will not survive a restart. Set SESSION_SECRET in production.'
     );
   }
 

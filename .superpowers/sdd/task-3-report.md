@@ -133,9 +133,12 @@ The three contract groups first failed independently:
 ### Implementation
 
 - Added strict canonical Base64URL keyset cursors bound to project, version,
-  optional status filter and an anchor job ID. The anchor is resolved by scope
-  only, so pagination continues when its current status changes; a missing or
-  pruned anchor is invalid.
+  optional status filter and an anchor job ID. A post-review remediation signs
+  the canonical payload with HMAC-SHA256 using a purpose-separated key derived
+  from the same effective `SESSION_SECRET` as sessions. Semantic re-encoding,
+  cross-scope/status, payload and signature tampering are invalid. The anchor is
+  resolved by scope only after authentication, so pagination continues when
+  its current status changes; a missing or pruned anchor is invalid.
 - Added the collection GET, relative `Location`, and integer ceiling
   `Retry-After`. Project authorization runs before cursor parsing.
 - Added strict global/requester/project active limits and terminal retention
@@ -153,9 +156,10 @@ The three contract groups first failed independently:
 
 Repository/API coverage includes equal timestamps, new list heads, an anchor
 status transition, a real `queued -> running` claim transition, filter mismatch,
-tampering, cross-layer invalid-cursor mapping, pruned anchors, cutoff/batch and
-dry-run behavior, preserved reports/history/releases, missing-artifact no-write,
-and `2501ms -> Retry-After: 3`.
+same-scope real-anchor re-encoding, scope/status/payload/signature tampering,
+cross-layer invalid-cursor mapping, auth-before-cursor, pruned anchors,
+cutoff/batch and dry-run behavior, preserved reports/history/releases,
+missing-artifact no-write, and `2501ms -> Retry-After: 3`.
 
 The focused nine-file gate completed with `91 pass / 0 fail / 436 assertions`
 before the final coverage additions. The final full server gate includes those
@@ -173,9 +177,10 @@ additions and is recorded below.
   pruning and health output. No behavior drift remains for valid queue state.
 - Verified metric labels are finite enums and contain no project, version,
   requester, job or error text.
-- Independent read-only review found no P0/P1/P2 correctness, transaction,
-  lease, migration, cursor, pruning or compatibility defect. Its three P3
-  coverage suggestions were added before the final gates.
+- The initial read-only review's coverage suggestions were added before the
+  original final gates. A later adversarial review found that canonical
+  Base64URL alone did not authenticate cursor semantics; the HMAC codec and
+  explicit production/CLI/test repository wiring close that gap.
 
 ### Final gates
 
