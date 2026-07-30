@@ -91,7 +91,9 @@ interface BackupServiceDependencies {
 
 const DATABASE_AUXILIARY_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
 type DatabaseAuxiliarySuffix = (typeof DATABASE_AUXILIARY_SUFFIXES)[number];
+const BACKUP_DATABASE_SNAPSHOT_UNSAFE = 'BACKUP_DATABASE_SNAPSHOT_UNSAFE';
 const RESTORE_CONTROL_LAYOUT_UNSAFE = 'RESTORE_CONTROL_LAYOUT_UNSAFE';
+const RESTORE_DATABASE_STAGE_UNSAFE = 'RESTORE_DATABASE_STAGE_UNSAFE';
 
 interface RestoreFileSystem {
   rename(source: string, target: string): void;
@@ -378,6 +380,7 @@ function executeRestore({
       }
     );
 
+    assertRestoreDatabaseStageSafe(operation.databaseStage);
     assertRuntimeResourceLeavesSafe(layout);
     preRestoreState = captureRuntimeStatePresence(layout);
     mkdirSync(operation.rollbackDatabaseDirectory, { recursive: true });
@@ -601,7 +604,8 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
       `Unsupported relational schema version ${manifest.schemaVersion}; expected ${RELATIONAL_SCHEMA_VERSION}`
     );
   }
-  if (!existsSync(databaseFile)) errors.push('Database snapshot is missing');
+  const databaseSnapshotError = inspectBackupDatabaseSnapshot(databaseFile);
+  if (databaseSnapshotError) errors.push(databaseSnapshotError);
   if (!existsSync(storageDir)) errors.push('Artifact storage is missing');
   if (errors.length > 0) return { valid: false, errors, warnings, manifest };
 
@@ -658,6 +662,45 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
   }
 
   return { valid: errors.length === 0, errors, warnings, manifest };
+}
+
+function inspectBackupDatabaseSnapshot(
+  databaseFile: string
+): string | undefined {
+  let stats: ReturnType<typeof lstatSync> | undefined;
+  try {
+    stats = lstatIfPresent(databaseFile);
+  } catch {
+    return `[${BACKUP_DATABASE_SNAPSHOT_UNSAFE}] Database snapshot identity could not be verified`;
+  }
+  if (!stats) return 'Database snapshot is missing';
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    return `[${BACKUP_DATABASE_SNAPSHOT_UNSAFE}] Database snapshot must be a non-symbolic regular file`;
+  }
+  return undefined;
+}
+
+function assertRestoreDatabaseStageSafe(databaseStage: string): void {
+  let stats: ReturnType<typeof lstatSync> | undefined;
+  try {
+    stats = lstatIfPresent(databaseStage);
+  } catch (error) {
+    const stageError = new Error(
+      `[${RESTORE_DATABASE_STAGE_UNSAFE}] Database restore stage identity could not be verified`
+    );
+    (stageError as Error & { cause?: unknown }).cause = error;
+    throw stageError;
+  }
+  if (
+    !stats ||
+    stats.isSymbolicLink() ||
+    !stats.isFile() ||
+    stats.nlink !== 1
+  ) {
+    throw new Error(
+      `[${RESTORE_DATABASE_STAGE_UNSAFE}] Database restore stage must be a single-link regular file`
+    );
+  }
 }
 
 function inspectDatabase(databaseFile: string) {

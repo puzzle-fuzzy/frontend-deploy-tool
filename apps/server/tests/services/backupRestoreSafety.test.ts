@@ -640,6 +640,138 @@ test('restore fully stages a verified backup located inside live storage before 
   }
 });
 
+test('verify and restore reject a symlinked backup database before ownership or mutation', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'backup-db-symlink';
+  const operationName = '2026-07-30T12-34-56-789Z-backup-db-symlink';
+  const backupDatabase = join(
+    fixture.backupDir,
+    'database',
+    basename(fixture.databaseFile)
+  );
+  const externalDatabase = join(
+    dirname(fixture.backupDir),
+    'external-snapshot.sqlite'
+  );
+  const rollbackRoot = join(
+    dirname(fixture.databaseFile),
+    '.deploykit-rollback'
+  );
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  const storageStage = join(
+    dirname(fixture.storageDir),
+    `.${basename(fixture.storageDir)}.restore-${operationName}`
+  );
+  let ownershipAttempts = 0;
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const storageBytes = readFileSync(fixture.storageMarker);
+    renameSync(backupDatabase, externalDatabase);
+    symlinkSync(externalDatabase, backupDatabase);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => {
+          ownershipAttempts += 1;
+          return { release() {} };
+        },
+      })
+    );
+
+    const verification = service.verifyBackup(fixture.backupDir);
+    expect(verification.valid).toBe(false);
+    expect(verification.errors.join('\n')).toContain(
+      'BACKUP_DATABASE_SNAPSHOT_UNSAFE'
+    );
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
+    expect(ownershipAttempts).toBe(0);
+    expect(lstatSync(backupDatabase).isSymbolicLink()).toBe(true);
+    expect(lstatSync(fixture.databaseFile).isSymbolicLink()).toBe(false);
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+    expect(existsSync(rollbackRoot)).toBe(false);
+    expect(existsSync(databaseStage)).toBe(false);
+    expect(existsSync(storageStage)).toBe(false);
+    expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
+      false
+    );
+    expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('restore rejects and cleans a symlinked database stage before moving live state', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'database-stage-symlink';
+  const operationName = '2026-07-30T12-34-56-789Z-database-stage-symlink';
+  const rollbackRoot = join(
+    dirname(fixture.databaseFile),
+    '.deploykit-rollback'
+  );
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  const storageStage = join(
+    dirname(fixture.storageDir),
+    `.${basename(fixture.storageDir)}.restore-${operationName}`
+  );
+  let ownershipAttempts = 0;
+  let releaseAttempts = 0;
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const storageBytes = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => {
+          ownershipAttempts += 1;
+          return {
+            release() {
+              releaseAttempts += 1;
+            },
+          };
+        },
+        restoreFileSystem: {
+          rename: renameSync,
+          copy(source, target, options) {
+            if (target === databaseStage) {
+              symlinkSync(source, target);
+              return;
+            }
+            cpSync(source, target, options);
+          },
+          remove: rmSync,
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_DATABASE_STAGE_UNSAFE');
+    expect(ownershipAttempts).toBe(1);
+    expect(releaseAttempts).toBe(1);
+    expect(lstatSync(fixture.databaseFile).isSymbolicLink()).toBe(false);
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+    expect(existsSync(databaseStage)).toBe(false);
+    expect(existsSync(storageStage)).toBe(false);
+    expect(existsSync(rollbackRoot)).toBe(false);
+    expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
+      false
+    );
+    expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 function createRestoreFixture() {
   const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-restore-safety-'));
   const databaseFile = join(tempDir, 'deploykit.sqlite');
