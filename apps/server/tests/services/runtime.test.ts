@@ -531,6 +531,38 @@ describe('runtime ownership', () => {
     }
   });
 
+  test('rejects Darwin full case-fold missing-path aliases before mutation', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-ownership-casefold-')
+    );
+    try {
+      for (const [index, [left, right]] of [
+        ['SS', '\u00df'],
+        ['\u03c3', '\u03c2'],
+        ['\ufb00', 'ff'],
+        ['\u017f', 's'],
+      ].entries()) {
+        const pairRoot = join(tempDir, `pair-${index}`);
+        mkdirSync(pairRoot);
+        if (!hasUnicodeCaseFoldAliases(pairRoot, left, right)) continue;
+
+        const databaseFile = join(pairRoot, left, 'metadata.sqlite');
+        const storageDir = join(pairRoot, right);
+
+        expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+          'DATABASE_STORAGE_OVERLAP'
+        );
+        expect(existsSync(databaseFile)).toBe(false);
+        expect(existsSync(join(pairRoot, left))).toBe(false);
+        expect(existsSync(storageDir)).toBe(false);
+        expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+        expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects database journal, WAL, and SHM collisions with storage before creating sidecars', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-layout-'));
     try {
@@ -936,5 +968,19 @@ function hasUnicodeNormalizationAliases(directory: string): boolean {
     return existsSync(join(directory, 'unicode-cafe\u0301-probe'));
   } finally {
     rmSync(composed, { recursive: true, force: true });
+  }
+}
+
+function hasUnicodeCaseFoldAliases(
+  directory: string,
+  left: string,
+  right: string
+): boolean {
+  const leftPath = join(directory, left);
+  mkdirSync(leftPath);
+  try {
+    return existsSync(join(directory, right));
+  } finally {
+    rmSync(leftPath, { recursive: true, force: true });
   }
 }

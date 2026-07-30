@@ -56,7 +56,8 @@ DEPLOY_BASE_URL=https://deploy.example.net
 两把锁。数据库 journal/WAL/SHM、存储、两个 sidecar 及各自
 journal/WAL/SHM 会先作为一个布局校验，任何相等或祖先碰撞都以
 `RUNTIME_OWNERSHIP_LAYOUT_UNSAFE` 拒绝；Darwin 对不存在的尾部先做 Unicode
-NFD 规范化再保守忽略大小写，Windows 也保守忽略大小写，I/O 路径不改写。
+NFD 规范化并用 upper-then-lower case-fold 保守忽略大小写，Windows 也保守
+忽略大小写，I/O 路径不改写。
 大小写敏感 APFS 上可能拒绝仅大小写或规范化形式不同的配置。database/storage
 leaf symlink 不受支持；已存在数据库必须是普通文件、存储必须是目录。数据库有
 多个 hard link 时，会在创建 sidecar 前以
@@ -65,8 +66,11 @@ leaf symlink 不受支持；已存在数据库必须是普通文件、存储必�
 资源不得共享 dev/inode；完成全部 preflight 后 sidecar 固定为
 `journal_mode=DELETE`。backup/restore 在打开源数据库或变更目标前复用同一
 preflight；备份只安装 `VACUUM INTO` 快照，不安装 journal/WAL/SHM，失败恢复
-会先清理安装阶段目标，再按显式 pre-state presence 从 rollback 还原，原本缺失的
-DB/storage/auxiliary 仍保持缺失；安装前错误不会清理 live state。正常
+按显式 pre-state presence 与逐资源 published/source-removed 状态从 rollback
+还原，原本缺失的 DB/storage/auxiliary 仍保持缺失。跨卷 move 先复制到全新
+sibling temp 并原子发布，不能把部分副本当成 rollback；补偿、stage 清理与
+ownership release 都是 best effort，初始错误保持权威并携带结构化 secondary
+failure。完整 published rollback operation 会保留，未发布部分副本会清理。正常
 HTTP/worker drain 全部确认后才显式
 release；timeout、drain/force-stop 失败或未完成时保留 ownership 到进程退出。
 sidecar 内的 PID/token 只是诊断数据，不参与正确性判断。Bun 的 path-based
@@ -133,7 +137,10 @@ manifest 可以证明歧义清理：只要有一个有效 checksum，checksum �
 
 `bun run ops -- restore <backup> --force` 仅把 `--force` 当作破坏性操作确认。
 restore 仍需获取同一 runtime ownership；后端正在运行时必须先优雅停止，
-不能用 `--force` 绕过。
+不能用 `--force` 绕过。restore control/stage/rollback 路径在 acquisition 前
+必须与全部 runtime resources 无祖先重叠，且不会复用已有 operation/stage。
+rollback operation 可能包含完整数据库、产物与 live storage 内的备份副本；
+将其视为敏感数据，限制服务账号目录权限，并在验证恢复后由运维按保留策略清理。
 
 ## CI 证据
 

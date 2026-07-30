@@ -180,15 +180,24 @@ export function findRuntimeResourceOverlap(
     ) {
       const right = resources[rightIndex];
       if (!right) continue;
-      if (
-        isPathSameOrDescendant(left.path, right.path, platform) ||
-        isPathSameOrDescendant(right.path, left.path, platform)
-      ) {
+      if (runtimePathsOverlap(left.path, right.path, platform)) {
         return [left.name, right.name];
       }
     }
   }
   return undefined;
+}
+
+/** Returns whether either runtime path is the same as or contains the other. */
+export function runtimePathsOverlap(
+  left: string,
+  right: string,
+  platform: NodeJS.Platform = process.platform
+): boolean {
+  return (
+    isPathSameOrDescendant(left, right, platform) ||
+    isPathSameOrDescendant(right, left, platform)
+  );
 }
 
 function isPathSameOrDescendant(
@@ -213,7 +222,7 @@ function isPathSameOrDescendant(
 
 function pathComparisonKey(path: string, platform: NodeJS.Platform): string {
   if (platform === 'darwin') {
-    return path.normalize('NFD').toLowerCase();
+    return path.normalize('NFD').toUpperCase().toLowerCase().normalize('NFD');
   }
   return platform === 'win32' ? path.toLowerCase() : path;
 }

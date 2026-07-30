@@ -202,8 +202,13 @@ bun run ops -- restore <备份目录> --force
 备份同时包含 `VACUUM INTO` 生成的 SQLite 快照、完整产物树和版本化清单。
 `verify` 校验数据库完整性/外键、清单计数、入口文件与 checksum。`inspect`
 会持久化完整性结果；`gc` 默认遵守配置的保留期。执行 `restore` 前必须停止
-服务；当前状态会先进入 `.deploykit-rollback/`，安装失败时自动恢复且保留该
-目录供人工处理。
+服务；当前状态会先进入数据库同目录的
+`.deploykit-rollback/{operationId}/`。安装失败时会独立尝试恢复
+DB、journal/WAL/SHM 和 storage，并继续清理两个 stage 与释放 ownership；
+原始 restore 错误保持主错误，其他失败作为结构化 secondary failure 附加。
+已完整发布的 rollback operation 会保留供审计和人工恢复，可能包含完整数据库、
+产物及 live storage 内的备份副本，必须由服务账号限制目录权限并由运维按保留
+策略清理；未发布或不可信的部分副本会尽力删除。
 
 ## 测试
 

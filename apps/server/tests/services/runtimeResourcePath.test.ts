@@ -37,6 +37,29 @@ describe('runtime resource path identity', () => {
     expect(findRuntimeResourceOverlap(resources, 'linux')).toBeUndefined();
   });
 
+  for (const [left, right] of [
+    ['SS', '\u00df'],
+    ['\u03c3', '\u03c2'],
+    ['\ufb00', 'ff'],
+    ['\u017f', 's'],
+  ]) {
+    test(`uses Darwin full case-fold semantics for ${left}/${right}`, () => {
+      const resources: NamedRuntimeResource[] = [
+        {
+          name: 'database',
+          path: `/srv/deploykit/${left}/metadata.sqlite`,
+        },
+        { name: 'storage', path: `/srv/deploykit/${right}` },
+      ];
+
+      expect(findRuntimeResourceOverlap(resources, 'darwin')).toEqual([
+        'database',
+        'storage',
+      ]);
+      expect(findRuntimeResourceOverlap(resources, 'linux')).toBeUndefined();
+    });
+  }
+
   test('uses Windows path semantics and case-folding', () => {
     const resources: NamedRuntimeResource[] = [
       {

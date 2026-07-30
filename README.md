@@ -317,9 +317,14 @@ bun run ops -- restore <备份目录> --force
 - `gc --dry-run` 只报告过期项；不带 `--dry-run` 才会删除过期 staging、已提交
   trash 和 orphan。未提交 trash 不会自动删除。
 - `restore` 是破坏性运维，必须先停止 DeployKit 服务并显式传入 `--force`。
-  安装备份前，当前数据库、WAL sidecar 和产物会保存到
-  `apps/server/.deploykit-rollback/`；安装失败会自动恢复当前状态，同时保留
-  rollback 目录。
+  安装备份前，当前数据库、journal/WAL/SHM 和产物会保存到数据库同目录的
+  `.deploykit-rollback/{operationId}/`；安装失败会尽力恢复每个资源并保留已经
+  原子发布的完整 rollback operation，初始 restore/finalize 错误仍是主错误，
+  补偿、清理和 ownership release 错误作为结构化 secondary failure 附加。
+  rollback 可能包含完整数据库、产物和位于 live storage 内的备份副本，属于
+  敏感运维数据；部署账号必须限制父目录权限，运维人员验证恢复后负责按保留
+  策略清理。未发布的跨卷临时副本、restore stage 和仅含不可信部分副本的
+  operation 会尽力清理。
 
 ## 测试
 

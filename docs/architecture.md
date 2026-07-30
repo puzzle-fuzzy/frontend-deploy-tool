@@ -205,7 +205,8 @@ apps/server/
   对数据库及其 journal/WAL/SHM、存储、两个 ownership sidecar 及各自的
   journal/WAL/SHM 做一次统一布局解析。
   每个现有路径前缀先 `realpath`；Darwin 对尚不存在的尾部先做 Unicode NFD
-  规范化再保守 case-fold，Windows 也保守 case-fold。I/O 路径仍保留原始拼写；
+  规范化并用 upper-then-lower 的完整 case-fold 近似保守比较，Windows 也保守
+  case-fold。I/O 路径仍保留原始拼写；
   比较键可能在大小写敏感 APFS 卷上拒绝仅大小写或 Unicode 规范化形式不同的
   名称。所有主资源和 SQLite 辅助路径不得相等或互为祖先/后代，否则以
   `RUNTIME_OWNERSHIP_LAYOUT_UNSAFE` fail closed。随后按路径排序获取两个
@@ -269,11 +270,28 @@ leaf preflight；数据库/存储重叠、错误 leaf 类型或 aliased SQLite a
 不会携带或安装 journal/WAL/SHM。
 恢复会先复制到数据库和存储各自同卷的临时路径；验证通过后，当前数据库及其
 journal/WAL/SHM 与存储移动到 `.deploykit-rollback/{operationId}`，再原子安装
-新状态。move 前会记录数据库、每个 auxiliary 与存储各自是否存在；安装阶段
-开始后任一步骤或 finalize 失败，先清理全部新运行目标，再只恢复原本存在且已
-保留在 rollback 的资源，因此原本缺失的数据库、auxiliary 或存储仍保持缺失。
-安装前的验证/移动失败只恢复已经移入 rollback 的资源，不会先删除 live state。
-这些 auxiliary 只用于失败回滚与审计，不会从备份安装到新状态。
+新状态。rollback root、operation、stage、DB/storage target 和 auxiliary target
+会在获取 ownership 或创建目录前与全部 runtime resource 做双向祖先校验；
+固定 operation 或 stage 已存在也会拒绝，不能复用旧残留。备份源即使位于 live
+storage 内，也会在任何 live move 前把数据库和存储 payload 完整复制到上述已
+校验 stage。
+
+move 前会记录数据库、每个 auxiliary 与存储各自是否存在，并为每个资源分别记录
+rollback 是否已发布、source 是否已移除。跨卷 move 只复制到 rollback target
+同目录的全新 pending sibling，再原子 rename 发布，发布后才删除 source；恢复
+绝不以 target 的 `exists` 代替发布状态。source 删除失败时，即使 live source
+可能只被删了一部分，完整 published rollback 仍是权威副本。补偿也先复制到
+live target 同卷的全新 recovery sibling，完成后才替换 live target。
+
+任一步骤或 finalize 失败都会独立尝试 DB、三个 auxiliary、storage、两个 stage
+清理和 ownership release；一个补偿错误不会跳过后续动作。初始错误对象、message
+与 code 保持权威，补偿/清理/release 失败通过 `restoreSecondaryFailures` 和
+`AggregateError` cause 附加。已经发布完整资源的 rollback operation 在成功或
+失败后均保留供审计/人工恢复；仅含未发布部分副本的 pending target、stage 和
+operation 会尽力清理。rollback 可能包含完整数据库、产物以及原本位于 live
+storage 内的备份副本，属于敏感数据：父目录必须仅由受信服务账号写入并限制
+读取权限，运维在验证恢复后负责按保留策略清理。原本缺失的数据库、auxiliary
+或存储仍保持缺失；这些 auxiliary 只用于失败回滚与审计，不会从备份安装。
 
 ## 前端结构（packages/client/src）
 
