@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import {
   copyFileSync,
@@ -6,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -178,6 +180,9 @@ describe('createBackupService', () => {
         join(fixture.storageDir, 'p1', 'v1', 'index.html'),
         '<html>mutated</html>'
       );
+      const journalPath = `${fixture.databaseFile}-journal`;
+      const journalMarker = Buffer.alloc(512);
+      writeFileSync(journalPath, journalMarker);
 
       const result = service.restoreBackup(backupDir, { force: true });
 
@@ -197,6 +202,12 @@ describe('createBackupService', () => {
           'utf8'
         )
       ).toBe('<html>mutated</html>');
+      expect(
+        readFileSync(
+          join(result.rollbackPath, 'database', 'deploykit.sqlite-journal')
+        )
+      ).toEqual(journalMarker);
+      expect(existsSync(journalPath)).toBe(false);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -212,6 +223,9 @@ describe('createBackupService', () => {
       fixture.repository.mutate((data) => {
         data.projects[0].name = 'Current Before Failure';
       });
+      const journalPath = `${fixture.databaseFile}-journal`;
+      const journalMarker = Buffer.alloc(512);
+      writeFileSync(journalPath, journalMarker);
 
       const failingService = createBackupService(fixture, {
         afterCurrentStateMoved(path) {
@@ -230,6 +244,168 @@ describe('createBackupService', () => {
       expect(
         existsSync(join(rollbackPath, 'database', 'deploykit.sqlite'))
       ).toBe(true);
+      expect(
+        readFileSync(join(rollbackPath, 'database', 'deploykit.sqlite-journal'))
+      ).toEqual(journalMarker);
+      expect(readFileSync(journalPath)).toEqual(journalMarker);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores an absent database when storage installation fails after database install', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    let rollbackPath = '';
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      createBackupService(fixture).createBackup(backupDir);
+      writeFileSync(
+        join(fixture.storageDir, 'p1', 'v1', 'index.html'),
+        '<html>pre-restore storage</html>'
+      );
+      rmSync(fixture.databaseFile, { force: true });
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        rmSync(`${fixture.databaseFile}${suffix}`, { force: true });
+      }
+
+      const failingService = createBackupService(fixture, {
+        afterCurrentStateMoved(path) {
+          rollbackPath = path;
+          mkdirSync(fixture.storageDir, { recursive: true });
+          writeFileSync(join(fixture.storageDir, 'install-blocker'), 'blocked');
+        },
+      });
+
+      expect(() =>
+        failingService.restoreBackup(backupDir, { force: true })
+      ).toThrow();
+      expect(existsSync(fixture.databaseFile)).toBe(false);
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        expect(existsSync(`${fixture.databaseFile}${suffix}`)).toBe(false);
+      }
+      expect(
+        readFileSync(join(fixture.storageDir, 'p1', 'v1', 'index.html'), 'utf8')
+      ).toBe('<html>pre-restore storage</html>');
+      expect(existsSync(join(fixture.storageDir, 'install-blocker'))).toBe(
+        false
+      );
+      expect(existsSync(join(rollbackPath, 'storage'))).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores an existing database and partial auxiliaries without creating absent storage', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      createBackupService(fixture).createBackup(backupDir);
+      fixture.repository.mutate((data) => {
+        data.projects[0].name = 'Database Before Failed Install';
+      });
+      checkpointDatabase(fixture.databaseFile);
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        rmSync(`${fixture.databaseFile}${suffix}`, { force: true });
+      }
+      const journalPath = `${fixture.databaseFile}-journal`;
+      const journalMarker = Buffer.alloc(512);
+      writeFileSync(journalPath, journalMarker);
+      rmSync(fixture.storageDir, { recursive: true, force: true });
+
+      const failingService = createBackupService(fixture, {
+        afterDatabaseInstalled() {
+          throw new Error('injected post-database failure');
+        },
+      });
+
+      expect(() =>
+        failingService.restoreBackup(backupDir, { force: true })
+      ).toThrow('injected post-database failure');
+      expect(existsSync(fixture.databaseFile)).toBe(true);
+      expect(readFileSync(journalPath)).toEqual(journalMarker);
+      expect(existsSync(`${fixture.databaseFile}-wal`)).toBe(false);
+      expect(existsSync(`${fixture.databaseFile}-shm`)).toBe(false);
+      expect(existsSync(fixture.storageDir)).toBe(false);
+      expect(fixture.repository.load().projects[0].name).toBe(
+        'Database Before Failed Install'
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preserves absent database and storage after a post-database install failure', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      createBackupService(fixture).createBackup(backupDir);
+      rmSync(fixture.databaseFile, { force: true });
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        rmSync(`${fixture.databaseFile}${suffix}`, { force: true });
+      }
+      rmSync(fixture.storageDir, { recursive: true, force: true });
+
+      const failingService = createBackupService(fixture, {
+        afterDatabaseInstalled() {
+          throw new Error('injected post-database failure');
+        },
+      });
+
+      expect(() =>
+        failingService.restoreBackup(backupDir, { force: true })
+      ).toThrow('injected post-database failure');
+      expect(existsSync(fixture.databaseFile)).toBe(false);
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        expect(existsSync(`${fixture.databaseFile}${suffix}`)).toBe(false);
+      }
+      expect(existsSync(fixture.storageDir)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('restores the exact prior state after all restored resources are installed', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-1');
+      createBackupService(fixture).createBackup(backupDir);
+      fixture.repository.mutate((data) => {
+        data.projects[0].name = 'State Before Finalize Failure';
+      });
+      checkpointDatabase(fixture.databaseFile);
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        rmSync(`${fixture.databaseFile}${suffix}`, { force: true });
+      }
+      const journalPath = `${fixture.databaseFile}-journal`;
+      const journalMarker = Buffer.alloc(512);
+      writeFileSync(journalPath, journalMarker);
+      writeFileSync(
+        join(fixture.storageDir, 'p1', 'v1', 'index.html'),
+        '<html>state before finalize failure</html>'
+      );
+
+      const failingService = createBackupService(fixture, {
+        afterRestoredStateInstalled() {
+          throw new Error('injected restore finalize failure');
+        },
+      });
+
+      expect(() =>
+        failingService.restoreBackup(backupDir, { force: true })
+      ).toThrow('injected restore finalize failure');
+      expect(readFileSync(journalPath)).toEqual(journalMarker);
+      expect(existsSync(`${fixture.databaseFile}-wal`)).toBe(false);
+      expect(existsSync(`${fixture.databaseFile}-shm`)).toBe(false);
+      expect(
+        readFileSync(join(fixture.storageDir, 'p1', 'v1', 'index.html'), 'utf8')
+      ).toBe('<html>state before finalize failure</html>');
+      expect(fixture.repository.load().projects[0].name).toBe(
+        'State Before Finalize Failure'
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -308,4 +484,76 @@ describe('createBackupService', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('rejects case-folded missing resource overlap before backup or restore mutation', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-casefold-'));
+    try {
+      if (!isCaseInsensitiveVolume(tempDir)) return;
+
+      const storageDir = join(tempDir, 'Storage');
+      const databaseFile = join(tempDir, 'storage', 'metadata.sqlite');
+      const destination = join(tempDir, 'backups', 'backup-1');
+      const service = createBackupService({ databaseFile, storageDir });
+
+      expect(() => service.createBackup(destination)).toThrow(
+        'DATABASE_STORAGE_OVERLAP'
+      );
+      expect(() =>
+        service.restoreBackup(join(tempDir, 'missing-backup'), { force: true })
+      ).toThrow('DATABASE_STORAGE_OVERLAP');
+      expect(existsSync(storageDir)).toBe(false);
+      expect(existsSync(databaseFile)).toBe(false);
+      expect(existsSync(destination)).toBe(false);
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects an aliased database auxiliary before opening the backup source', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-db-aux-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const externalDatabase = join(tempDir, 'external.sqlite');
+      const destination = join(tempDir, 'backups', 'backup-1');
+      copyFileSync(fixture.databaseFile, externalDatabase);
+      const externalBytes = readFileSync(externalDatabase);
+      symlinkSync(externalDatabase, `${fixture.databaseFile}-journal`);
+
+      expect(() =>
+        createBackupService(fixture).createBackup(destination)
+      ).toThrow('RUNTIME_OWNERSHIP_LAYOUT_UNSAFE');
+      expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+      expect(existsSync(destination)).toBe(false);
+      expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
+        false
+      );
+      expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(
+        false
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
+
+function isCaseInsensitiveVolume(directory: string): boolean {
+  const probe = join(directory, 'DeployKit-Case-Probe');
+  mkdirSync(probe);
+  try {
+    return existsSync(join(directory, 'deploykit-case-probe'));
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}
+
+function checkpointDatabase(databaseFile: string): void {
+  const database = new Database(databaseFile);
+  try {
+    database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    database.exec('PRAGMA journal_mode = DELETE');
+  } finally {
+    database.close();
+  }
+}

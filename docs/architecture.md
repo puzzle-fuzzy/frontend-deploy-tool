@@ -201,17 +201,34 @@ apps/server/
   `index.html` 和目录 checksum。`blocking` 项目还会在快照检查与同一元数据
   事务内重复校验当前审计报告；删除线上版本只会将项目下线，不会隐式发布
   另一个版本。
-- 真实运行入口会在任何存储对账或 HTTP serving 前，按规范化路径排序获取两个
+- 真实运行入口会在任何目录创建、SQLite 打开、存储对账或 HTTP serving 前，
+  对数据库及其 journal/WAL/SHM、存储、两个 ownership sidecar 及各自的
+  journal/WAL/SHM 做一次统一布局解析。
+  每个现有路径前缀先 `realpath`；Darwin 对尚不存在的尾部先做 Unicode NFD
+  规范化再保守 case-fold，Windows 也保守 case-fold。I/O 路径仍保留原始拼写；
+  比较键可能在大小写敏感 APFS 卷上拒绝仅大小写或 Unicode 规范化形式不同的
+  名称。所有主资源和 SQLite 辅助路径不得相等或互为祖先/后代，否则以
+  `RUNTIME_OWNERSHIP_LAYOUT_UNSAFE` fail closed。随后按路径排序获取两个
   SQLite sidecar 的 `BEGIN EXCLUSIVE` 事务锁：
   `<DATABASE_FILE>.runtime-lock.sqlite` 与
   `<STORAGE_DIR>.runtime-lock.sqlite`。数据库或存储任一资源已被活跃进程持有，
   启动都会以 `RUNTIME_OWNERSHIP_HELD` fail closed；若第二把锁失败，第一把立即
   释放。锁的正确性只依赖打开的 SQLite 事务，连接关闭或进程死亡由内核释放；
-  sidecar 内的 PID/token 仅供诊断。规范化后数据库路径不得等于或位于 artifact
-  storage 内；已存在数据库若有多个 hard link，会在创建任何 sidecar 前以
-  `RUNTIME_DATABASE_HARDLINK_UNSAFE` 拒绝。正常 HTTP/worker drain 全部确认后
-  才显式释放 ownership；timeout、drain/force-stop 失败或未完成时保留到进程
-  退出。该机制只承诺单机进程互斥，不是多主机分布式锁；纯
+  sidecar 内的 PID/token 仅供诊断。数据库与存储配置 leaf 都拒绝 symlink；
+  已存在数据库必须是普通文件，存储必须是目录。数据库若有多个 hard link，会在
+  创建任何 sidecar 前以 `RUNTIME_DATABASE_HARDLINK_UNSAFE` 拒绝。数据库的
+  journal/WAL/SHM、两个 sidecar 及其全部 SQLite auxiliary 会先全部经过
+  `lstat`：必须是非 symlink、单 hard-link 的普通文件；所有既有 runtime
+  资源的 dev/inode 也必须互不相同。不安全 leaf 使用
+  `RUNTIME_OWNERSHIP_LAYOUT_UNSAFE`，不会打开目标 SQLite，也不会创建另一条
+  sidecar。sidecar 打开前会完成全部 auxiliary leaf preflight，再固定并验证
+  `journal_mode=DELETE`；rollback journal 路径仍属于上述布局。正常 HTTP/worker
+  drain 全部确认后才显式释放 ownership；timeout、
+  drain/force-stop 失败或未完成时保留到进程退出。Bun SQLite 的按路径打开不能
+  把 `lstat` 与后续 path-based open/copy 合并成原子
+  `openat(O_NOFOLLOW)`，因此所有 runtime 资源父目录必须只允许可信服务账号
+  写入；若要支持不可信本机目录，需要原生 no-follow/openat 锁实现。该机制只
+  承诺单机进程互斥，不是多主机分布式锁；纯
   `createApp/app.request` 测试不获取它。
 - 应用开始服务前先恢复未完成删除，再执行 GC 和 orphan 对账。元数据仍引用目标
   时把 recovery 产物恢复到原路径；元数据已删除目标时补齐 committed manifest
@@ -246,12 +263,17 @@ apps/server/
 
 恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
 ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
-数据库路径等于或位于 artifact storage 内时，backup/restore 都会在复制、
-移动或创建 rollback 路径前拒绝。
-备份会先复制到数据库和存储各自同卷的
-临时路径；验证通过后，当前数据库、WAL sidecar 与存储移动到
-`.deploykit-rollback/{operationId}`，再原子安装新状态。任一安装步骤失败都会
-从 rollback 副本恢复运行路径，同时保留 rollback 内容供人工审计。
+backup/restore 会在打开源数据库、创建目标或移动当前状态前复用同一布局与
+leaf preflight；数据库/存储重叠、错误 leaf 类型或 aliased SQLite auxiliary
+都会 fail closed。备份负载只包含经 `VACUUM INTO` 验证的数据库快照和存储树，
+不会携带或安装 journal/WAL/SHM。
+恢复会先复制到数据库和存储各自同卷的临时路径；验证通过后，当前数据库及其
+journal/WAL/SHM 与存储移动到 `.deploykit-rollback/{operationId}`，再原子安装
+新状态。move 前会记录数据库、每个 auxiliary 与存储各自是否存在；安装阶段
+开始后任一步骤或 finalize 失败，先清理全部新运行目标，再只恢复原本存在且已
+保留在 rollback 的资源，因此原本缺失的数据库、auxiliary 或存储仍保持缺失。
+安装前的验证/移动失败只恢复已经移入 rollback 的资源，不会先删除 live state。
+这些 auxiliary 只用于失败回滚与审计，不会从备份安装到新状态。
 
 ## 前端结构（packages/client/src）
 
@@ -307,6 +329,9 @@ SIGTERM/SIGINT 首次到达后，`runtime.ts` 先调用 `server.stop(false)` 停
 排队，取消或丢失租约的迟到完成会被拒绝。若 drain 失败或超过配置时限，则
 调用 `server.stop(true)`；force stop 本身也有独立上限，即使其 Promise 不结束
 仍尝试 checkpoint，并以非零状态退出；重复信号
-复用同一个关机 Promise。正常、超时和 drain 失败的退出路径都会释放本进程
-ownership；`Bun.serve`、信号注册、Worker 启动和启动日志位于同一清理边界，
-任一步失败都会有界停止已启动资源、移除信号处理器并在抛错前释放 ownership。
+  复用同一个关机 Promise。只有正常 drain 才会 checkpoint 后释放本进程
+  ownership；timeout、drain/force-stop 失败或未完成会保留 kernel ownership
+  到进程死亡，避免仍在运行的工作与新进程重叠。`Bun.serve`、信号注册、Worker
+  启动和启动日志位于同一清理边界；启动失败会有界停止已启动资源并移除信号
+  处理器，只有 HTTP/worker cleanup 都确认完成才释放 ownership，否则同样保留
+  到进程死亡。

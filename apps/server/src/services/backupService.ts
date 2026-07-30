@@ -13,10 +13,13 @@ import {
 import { basename, dirname, join } from 'node:path';
 import { RELATIONAL_SCHEMA_VERSION } from '../repositories/sqliteSchema';
 import { createId } from '../utils/id';
-import { assertDatabaseOutsideStorage } from '../utils/runtimeResourcePath';
+import { resolveRuntimeResourceLayout } from '../utils/runtimeResourcePath';
 import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
-import { acquireRuntimeOwnership } from './runtimeOwnership';
+import {
+  acquireRuntimeOwnership,
+  assertRuntimeResourceLeavesSafe,
+} from './runtimeOwnership';
 
 export interface BackupManifest {
   formatVersion: 1;
@@ -71,6 +74,17 @@ interface BackupServiceConfig {
 interface BackupServiceDependencies {
   now?: () => Date;
   afterCurrentStateMoved?: (rollbackPath: string) => void;
+  afterDatabaseInstalled?: (rollbackPath: string) => void;
+  afterRestoredStateInstalled?: (rollbackPath: string) => void;
+}
+
+const DATABASE_AUXILIARY_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
+type DatabaseAuxiliarySuffix = (typeof DATABASE_AUXILIARY_SUFFIXES)[number];
+
+interface RuntimeStatePresence {
+  database: boolean;
+  storage: boolean;
+  databaseAuxiliaries: Readonly<Record<DatabaseAuxiliarySuffix, boolean>>;
 }
 
 interface VersionIntegrityRow {
@@ -89,9 +103,13 @@ export function createBackupService(
 
   return {
     createBackup(destination) {
-      assertDatabaseOutsideStorage(config.databaseFile, config.storageDir);
-      if (!existsSync(config.databaseFile)) {
-        throw new Error(`Database does not exist: ${config.databaseFile}`);
+      const layout = resolveRuntimeResourceLayout(
+        config.databaseFile,
+        config.storageDir
+      );
+      assertRuntimeResourceLeavesSafe(layout);
+      if (!existsSync(layout.databaseFile)) {
+        throw new Error(`Database does not exist: ${layout.databaseFile}`);
       }
       if (existsSync(destination)) {
         throw new Error(`Backup destination already exists: ${destination}`);
@@ -102,13 +120,13 @@ export function createBackupService(
       const databaseDirectory = join(temporaryPath, 'database');
       const snapshotFile = join(
         databaseDirectory,
-        basename(config.databaseFile)
+        basename(layout.databaseFile)
       );
       const backupStorage = join(temporaryPath, 'storage');
 
       try {
         mkdirSync(databaseDirectory, { recursive: true });
-        const database = new Database(config.databaseFile);
+        const database = new Database(layout.databaseFile);
         try {
           database.exec('PRAGMA busy_timeout = 5000');
           database.query('VACUUM INTO ?').run(snapshotFile);
@@ -116,8 +134,8 @@ export function createBackupService(
           database.close();
         }
 
-        if (existsSync(config.storageDir)) {
-          cpSync(config.storageDir, backupStorage, {
+        if (existsSync(layout.storageDir)) {
+          cpSync(layout.storageDir, backupStorage, {
             recursive: true,
             preserveTimestamps: true,
           });
@@ -136,7 +154,7 @@ export function createBackupService(
           formatVersion: 1,
           createdAt: now().toISOString(),
           schemaVersion: metadata.schemaVersion,
-          databaseFile: basename(config.databaseFile),
+          databaseFile: basename(layout.databaseFile),
           storageDirectory: 'storage',
           metadataCounts: metadata.counts,
           artifactCounts: {
@@ -173,7 +191,11 @@ export function createBackupService(
     },
 
     restoreBackup(backupPath, options) {
-      assertDatabaseOutsideStorage(config.databaseFile, config.storageDir);
+      const layout = resolveRuntimeResourceLayout(
+        config.databaseFile,
+        config.storageDir
+      );
+      assertRuntimeResourceLeavesSafe(layout);
       if (!options.force) {
         throw new Error('Restore requires an explicit force flag');
       }
@@ -185,22 +207,24 @@ export function createBackupService(
       }
 
       const runtimeOwnership = acquireRuntimeOwnership(
-        config.databaseFile,
-        config.storageDir
+        layout.databaseFile,
+        layout.storageDir
       );
       try {
         const operationId = `${formatTimestamp(now())}-${createId()}`;
         const rollbackPath = join(
-          dirname(config.databaseFile),
+          dirname(layout.databaseFile),
           '.deploykit-rollback',
           operationId
         );
-        const databaseStage = `${config.databaseFile}.restore-${operationId}`;
+        const databaseStage = `${layout.databaseFile}.restore-${operationId}`;
         const storageStage = join(
-          dirname(config.storageDir),
-          `.${basename(config.storageDir)}.restore-${operationId}`
+          dirname(layout.storageDir),
+          `.${basename(layout.storageDir)}.restore-${operationId}`
         );
         let rollbackStarted = false;
+        let installStarted = false;
+        let preRestoreState: RuntimeStatePresence | undefined;
 
         try {
           mkdirSync(dirname(databaseStage), { recursive: true });
@@ -214,43 +238,45 @@ export function createBackupService(
             preserveTimestamps: true,
           });
 
+          assertRuntimeResourceLeavesSafe(layout);
+          preRestoreState = captureRuntimeStatePresence(layout);
           mkdirSync(join(rollbackPath, 'database'), { recursive: true });
           rollbackStarted = true;
           moveIfPresent(
-            config.databaseFile,
-            join(rollbackPath, 'database', basename(config.databaseFile))
+            layout.databaseFile,
+            join(rollbackPath, 'database', basename(layout.databaseFile))
           );
-          moveIfPresent(
-            `${config.databaseFile}-wal`,
-            join(
-              rollbackPath,
-              'database',
-              `${basename(config.databaseFile)}-wal`
-            )
-          );
-          moveIfPresent(
-            `${config.databaseFile}-shm`,
-            join(
-              rollbackPath,
-              'database',
-              `${basename(config.databaseFile)}-shm`
-            )
-          );
-          moveIfPresent(config.storageDir, join(rollbackPath, 'storage'));
+          for (const suffix of DATABASE_AUXILIARY_SUFFIXES) {
+            moveIfPresent(
+              `${layout.databaseFile}${suffix}`,
+              join(
+                rollbackPath,
+                'database',
+                `${basename(layout.databaseFile)}${suffix}`
+              )
+            );
+          }
+          moveIfPresent(layout.storageDir, join(rollbackPath, 'storage'));
           ensureRollbackManifest(
             rollbackPath,
-            basename(config.databaseFile),
+            basename(layout.databaseFile),
             now()
           );
 
           dependencies.afterCurrentStateMoved?.(rollbackPath);
 
-          renameSync(databaseStage, config.databaseFile);
-          mkdirSync(dirname(config.storageDir), { recursive: true });
-          renameSync(storageStage, config.storageDir);
+          installStarted = true;
+          renameSync(databaseStage, layout.databaseFile);
+          dependencies.afterDatabaseInstalled?.(rollbackPath);
+          mkdirSync(dirname(layout.storageDir), { recursive: true });
+          renameSync(storageStage, layout.storageDir);
+          dependencies.afterRestoredStateInstalled?.(rollbackPath);
         } catch (error) {
-          if (rollbackStarted) {
-            recoverCurrentState(config, rollbackPath);
+          if (rollbackStarted && preRestoreState) {
+            recoverCurrentState(layout, rollbackPath, {
+              installStarted,
+              preRestoreState,
+            });
           }
           rmSync(databaseStage, { force: true });
           rmSync(storageStage, { recursive: true, force: true });
@@ -578,35 +604,112 @@ function moveIfPresent(source: string, target: string): void {
 
 function recoverCurrentState(
   config: BackupServiceConfig,
-  rollbackPath: string
+  rollbackPath: string,
+  options: {
+    installStarted: boolean;
+    preRestoreState: RuntimeStatePresence;
+  }
 ): void {
   const rollbackDatabase = join(
     rollbackPath,
     'database',
     basename(config.databaseFile)
   );
-  if (existsSync(rollbackDatabase)) {
-    rmSync(config.databaseFile, { force: true });
-    cpSync(rollbackDatabase, config.databaseFile, { preserveTimestamps: true });
-  }
-  for (const suffix of ['-wal', '-shm']) {
-    const rollbackSidecar = `${rollbackDatabase}${suffix}`;
-    if (existsSync(rollbackSidecar)) {
-      rmSync(`${config.databaseFile}${suffix}`, { force: true });
-      cpSync(rollbackSidecar, `${config.databaseFile}${suffix}`, {
-        preserveTimestamps: true,
+  const rollbackStorage = join(rollbackPath, 'storage');
+
+  if (options.installStarted) {
+    rmSync(config.databaseFile, { recursive: true, force: true });
+    for (const suffix of DATABASE_AUXILIARY_SUFFIXES) {
+      rmSync(`${config.databaseFile}${suffix}`, {
+        recursive: true,
+        force: true,
       });
     }
-  }
-  const rollbackStorage = join(rollbackPath, 'storage');
-  if (existsSync(rollbackStorage)) {
-    mkdirSync(dirname(config.storageDir), { recursive: true });
     rmSync(config.storageDir, { recursive: true, force: true });
-    cpSync(rollbackStorage, config.storageDir, {
-      recursive: true,
-      preserveTimestamps: true,
-    });
   }
+
+  restoreRollbackFile(
+    rollbackDatabase,
+    config.databaseFile,
+    options.preRestoreState.database,
+    options.installStarted,
+    'database'
+  );
+  // These are rollback-state companions only. Backup payloads contain the
+  // verified VACUUM snapshot and never install auxiliary files.
+  for (const suffix of DATABASE_AUXILIARY_SUFFIXES) {
+    restoreRollbackFile(
+      `${rollbackDatabase}${suffix}`,
+      `${config.databaseFile}${suffix}`,
+      options.preRestoreState.databaseAuxiliaries[suffix],
+      options.installStarted,
+      `database${suffix}`
+    );
+  }
+  restoreRollbackDirectory(
+    rollbackStorage,
+    config.storageDir,
+    options.preRestoreState.storage,
+    options.installStarted,
+    'storage'
+  );
+}
+
+function captureRuntimeStatePresence(
+  config: BackupServiceConfig
+): RuntimeStatePresence {
+  return {
+    database: existsSync(config.databaseFile),
+    storage: existsSync(config.storageDir),
+    databaseAuxiliaries: {
+      '-journal': existsSync(`${config.databaseFile}-journal`),
+      '-wal': existsSync(`${config.databaseFile}-wal`),
+      '-shm': existsSync(`${config.databaseFile}-shm`),
+    },
+  };
+}
+
+function restoreRollbackFile(
+  rollbackFile: string,
+  targetFile: string,
+  existedBeforeRestore: boolean,
+  installStarted: boolean,
+  resource: string
+): void {
+  if (!existedBeforeRestore) return;
+  if (!existsSync(rollbackFile)) {
+    if (!installStarted && existsSync(targetFile)) return;
+    throw incompleteRollbackError(resource);
+  }
+  rmSync(targetFile, { recursive: true, force: true });
+  mkdirSync(dirname(targetFile), { recursive: true });
+  cpSync(rollbackFile, targetFile, { preserveTimestamps: true });
+}
+
+function restoreRollbackDirectory(
+  rollbackDirectory: string,
+  targetDirectory: string,
+  existedBeforeRestore: boolean,
+  installStarted: boolean,
+  resource: string
+): void {
+  if (!existedBeforeRestore) return;
+  if (!existsSync(rollbackDirectory)) {
+    if (!installStarted && existsSync(targetDirectory)) return;
+    throw incompleteRollbackError(resource);
+  }
+  rmSync(targetDirectory, { recursive: true, force: true });
+  mkdirSync(dirname(targetDirectory), { recursive: true });
+  cpSync(rollbackDirectory, targetDirectory, {
+    recursive: true,
+    preserveTimestamps: true,
+  });
+}
+
+function incompleteRollbackError(resource: string): Error {
+  return new Error(
+    `[RESTORE_ROLLBACK_INCOMPLETE] Missing pre-restore rollback copy for ${resource}`
+  );
 }
 
 function ensureRollbackManifest(

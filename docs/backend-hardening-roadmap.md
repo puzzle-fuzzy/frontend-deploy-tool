@@ -72,8 +72,16 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
   storage-root 下任一祖先 symlink 或原路径冲突都会进入持久隔离并让 readiness
   返回非 200；统一守卫覆盖 staging/recovery/trash/conflicts/orphans 控制根，
   冲突轮次暂停 GC、orphan 隔离和元数据修复。
-- 数据库不得等于或位于 artifact storage 内，已有数据库 hard link 会在 sidecar
-  创建前拒绝；运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
+- 数据库 journal/WAL/SHM、storage、两个 sidecar 及各自
+  journal/WAL/SHM 的规范化布局不得相等或互为祖先；Darwin 对缺失尾部做
+  Unicode NFD + case-fold，Windows 保守 case-fold。database/storage leaf
+  symlink、错误主资源类型、已有数据库 hard link，以及 symlink/非普通/多
+  hard-link 或 dev/inode alias 的数据库/sidecar auxiliary 都会在任何 sidecar、
+  backup 或 restore mutation 前拒绝；sidecar 固定验证
+  `journal_mode=DELETE`。备份 payload 不含 SQLite auxiliary；失败 restore
+  进入安装阶段后先清理所有目标，再按显式 presence bitmap 只还原原本存在的
+  DB/storage/auxiliary，缺失状态不会被备份内容污染；安装前失败不删除 live
+  state。运维 restore 在活跃 ownership 存在时拒绝，`--force` 不能绕过。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
 - 增加校验和巡检和明确的损坏状态。

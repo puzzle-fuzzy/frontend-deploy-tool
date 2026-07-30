@@ -1,7 +1,18 @@
 import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import { EventEmitter } from 'node:events';
-import { existsSync, linkSync, mkdtempSync, rmSync, unlinkSync } from 'node:fs';
+import {
+  existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -419,6 +430,439 @@ describe('runtime ownership', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('rejects a database leaf symlink before touching its target or sidecars', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-database-link-'));
+    try {
+      const databaseTarget = join(tempDir, 'target.sqlite');
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      createMarkerDatabase(databaseTarget);
+      const targetBytes = readFileSync(databaseTarget);
+      symlinkSync(databaseTarget, databaseFile);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(databaseTarget)).toEqual(targetBytes);
+      expect(listDatabaseTables(databaseTarget)).toEqual(['marker']);
+      expect(lstatSync(databaseFile).isSymbolicLink()).toBe(true);
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a storage leaf symlink before touching its target or sidecars', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-storage-link-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageTarget = join(tempDir, 'storage-target');
+      const storageDir = join(tempDir, 'storage');
+      mkdirSync(storageTarget);
+      symlinkSync(storageTarget, storageDir);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(lstatSync(storageDir).isSymbolicLink()).toBe(true);
+      expect(existsSync(databaseFile)).toBe(false);
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageTarget}.runtime-lock.sqlite`)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects derived sidecar collisions before mutating the database or storage', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-layout-'));
+    try {
+      const storageDir = join(tempDir, 'storage');
+      const databaseFile = `${storageDir}.runtime-lock.sqlite`;
+      createMarkerDatabase(databaseFile);
+      const databaseBytes = readFileSync(databaseFile);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(databaseFile)).toEqual(databaseBytes);
+      expect(listDatabaseTables(databaseFile)).toEqual(['marker']);
+      expect(existsSync(storageDir)).toBe(false);
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+
+      const reverseDatabaseFile = join(tempDir, 'reverse.sqlite');
+      const reverseStorageDir = `${reverseDatabaseFile}.runtime-lock.sqlite`;
+      createMarkerDatabase(reverseDatabaseFile);
+      const reverseDatabaseBytes = readFileSync(reverseDatabaseFile);
+
+      expect(
+        errorMessage(acquireError(reverseDatabaseFile, reverseStorageDir))
+      ).toContain('RUNTIME_OWNERSHIP_LAYOUT_UNSAFE');
+      expect(readFileSync(reverseDatabaseFile)).toEqual(reverseDatabaseBytes);
+      expect(listDatabaseTables(reverseDatabaseFile)).toEqual(['marker']);
+      expect(existsSync(reverseStorageDir)).toBe(false);
+      expect(existsSync(`${reverseStorageDir}.runtime-lock.sqlite`)).toBe(
+        false
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects Darwin Unicode-normalized missing-path aliases before mutation', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-unicode-'));
+    try {
+      if (!hasUnicodeNormalizationAliases(tempDir)) return;
+
+      const databaseFile = join(tempDir, 'cafe\u0301', 'metadata.sqlite');
+      const storageDir = join(tempDir, 'caf\u00e9');
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'DATABASE_STORAGE_OVERLAP'
+      );
+      expect(existsSync(databaseFile)).toBe(false);
+      expect(existsSync(storageDir)).toBe(false);
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects database journal, WAL, and SHM collisions with storage before creating sidecars', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-layout-'));
+    try {
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        const databaseFile = join(
+          tempDir,
+          `deploykit-${suffix.slice(1)}.sqlite`
+        );
+        const storageDir = `${databaseFile}${suffix}`;
+        createMarkerDatabase(databaseFile);
+        const databaseBytes = readFileSync(databaseFile);
+
+        expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+          'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+        );
+        expect(readFileSync(databaseFile)).toEqual(databaseBytes);
+        expect(existsSync(storageDir)).toBe(false);
+        expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+        expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  for (const auxiliarySuffix of ['-journal', '-wal', '-shm']) {
+    test(`rejects storage collision with an ownership sidecar ${auxiliarySuffix} file`, () => {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), 'deploykit-ownership-auxiliary-')
+      );
+      try {
+        const databaseFile = join(
+          tempDir,
+          `deploykit-${auxiliarySuffix.slice(1)}.sqlite`
+        );
+        const databaseSidecar = `${databaseFile}.runtime-lock.sqlite`;
+        const storageDir = `${databaseSidecar}${auxiliarySuffix}`;
+        createMarkerDatabase(databaseFile);
+        const databaseBytes = readFileSync(databaseFile);
+
+        expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+          'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+        );
+        expect(readFileSync(databaseFile)).toEqual(databaseBytes);
+        expect(listDatabaseTables(databaseFile)).toEqual(['marker']);
+        expect(existsSync(storageDir)).toBe(false);
+        expect(existsSync(databaseSidecar)).toBe(false);
+        expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('rejects an ownership auxiliary symlink before touching its external target', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-ownership-aux-link-')
+    );
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const externalDatabase = join(tempDir, 'external.sqlite');
+      createMarkerDatabase(externalDatabase);
+      const externalBytes = readFileSync(externalDatabase);
+      const [databaseSidecar, storageSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+      const journalPath = `${databaseSidecar}-journal`;
+      symlinkSync(externalDatabase, journalPath);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+      expect(listDatabaseTables(externalDatabase)).toEqual(['marker']);
+      expect(lstatSync(journalPath).isSymbolicLink()).toBe(true);
+      expect(existsSync(databaseSidecar)).toBe(false);
+      expect(existsSync(storageSidecar)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  for (const variant of ['symlink-wal', 'hardlink-shm'] as const) {
+    test(`rejects a production SQLite auxiliary ${variant} alias before sidecar creation`, () => {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), 'deploykit-database-aux-alias-')
+      );
+      try {
+        const databaseFile = join(tempDir, 'deploykit.sqlite');
+        const storageDir = join(tempDir, 'storage');
+        const externalDatabase = join(tempDir, 'external.sqlite');
+        createMarkerDatabase(externalDatabase);
+        const externalBytes = readFileSync(externalDatabase);
+        const auxiliaryPath =
+          variant === 'symlink-wal'
+            ? `${databaseFile}-wal`
+            : `${databaseFile}-shm`;
+        if (variant === 'symlink-wal') {
+          symlinkSync(externalDatabase, auxiliaryPath);
+        } else {
+          linkSync(externalDatabase, auxiliaryPath);
+        }
+
+        expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+          'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+        );
+        expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+        expect(listDatabaseTables(externalDatabase)).toEqual(['marker']);
+        expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+        expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('rejects a sidecar symlink before changing its database target', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-alias-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const externalDatabase = join(tempDir, 'external.sqlite');
+      createMarkerDatabase(databaseFile);
+      createMarkerDatabase(externalDatabase);
+      const databaseBytes = readFileSync(databaseFile);
+      const externalBytes = readFileSync(externalDatabase);
+      const [databaseSidecar, storageSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+
+      symlinkSync(databaseFile, databaseSidecar);
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(databaseFile)).toEqual(databaseBytes);
+      expect(listDatabaseTables(databaseFile)).toEqual(['marker']);
+      expect(lstatSync(databaseSidecar).isSymbolicLink()).toBe(true);
+      expect(existsSync(storageSidecar)).toBe(false);
+
+      unlinkSync(databaseSidecar);
+      symlinkSync(externalDatabase, databaseSidecar);
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+      expect(listDatabaseTables(externalDatabase)).toEqual(['marker']);
+      expect(lstatSync(databaseSidecar).isSymbolicLink()).toBe(true);
+      expect(existsSync(storageSidecar)).toBe(false);
+
+      unlinkSync(databaseSidecar);
+      symlinkSync(join(tempDir, 'missing-target.sqlite'), databaseSidecar);
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(databaseFile)).toEqual(databaseBytes);
+      expect(lstatSync(databaseSidecar).isSymbolicLink()).toBe(true);
+      expect(existsSync(storageSidecar)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a hard-linked sidecar before changing its database target', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-alias-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const externalDatabase = join(tempDir, 'external.sqlite');
+      createMarkerDatabase(databaseFile);
+      createMarkerDatabase(externalDatabase);
+      const externalBytes = readFileSync(externalDatabase);
+      const [databaseSidecar, storageSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+      linkSync(externalDatabase, databaseSidecar);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+      expect(listDatabaseTables(externalDatabase)).toEqual(['marker']);
+      expect(lstatSync(databaseSidecar).nlink).toBe(2);
+      expect(existsSync(storageSidecar)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a non-regular sidecar before creating another owned resource', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-leaf-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const [databaseSidecar, storageSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+      mkdirSync(databaseSidecar);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(lstatSync(databaseSidecar).isDirectory()).toBe(true);
+      expect(existsSync(storageSidecar)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('preflights an unsafe second sidecar before creating the first', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-order-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const [firstSidecar, secondSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+      mkdirSync(secondSidecar);
+
+      expect(errorMessage(acquireError(databaseFile, storageDir))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(existsSync(firstSidecar)).toBe(false);
+      expect(lstatSync(secondSidecar).isDirectory()).toBe(true);
+      expect(existsSync(databaseFile)).toBe(false);
+      expect(existsSync(storageDir)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('reuses legal existing sidecars without replacing their filesystem identity', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-reuse-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const first = acquireRuntimeOwnership(databaseFile, storageDir);
+      first.release();
+      const sidecars = getRuntimeOwnershipPaths(databaseFile, storageDir);
+      const identities = sidecars.map((path) => {
+        const stats = lstatSync(path, { bigint: true });
+        return `${stats.dev}:${stats.ino}`;
+      });
+
+      const second = acquireRuntimeOwnership(databaseFile, storageDir);
+      second.release();
+
+      expect(
+        sidecars.map((path) => {
+          const stats = lstatSync(path, { bigint: true });
+          return `${stats.dev}:${stats.ino}`;
+        })
+      ).toEqual(identities);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('normalizes an existing ownership sidecar to DELETE journal mode', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sidecar-mode-'));
+    try {
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageDir = join(tempDir, 'storage');
+      const [databaseSidecar] = getRuntimeOwnershipPaths(
+        databaseFile,
+        storageDir
+      );
+      const legacySidecar = new Database(databaseSidecar, { create: true });
+      expect(
+        legacySidecar
+          .query<{ journal_mode: string }, []>('PRAGMA journal_mode = WAL')
+          .get()?.journal_mode
+      ).toBe('wal');
+      legacySidecar.exec('CREATE TABLE legacy (value TEXT NOT NULL)');
+      legacySidecar.close();
+
+      const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+      ownership.release();
+
+      const normalizedSidecar = new Database(databaseSidecar);
+      try {
+        expect(
+          normalizedSidecar
+            .query<{ journal_mode: string }, []>('PRAGMA journal_mode')
+            .get()?.journal_mode
+        ).toBe('delete');
+      } finally {
+        normalizedSidecar.close();
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects non-file database and non-directory storage leaves before sidecars', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-resource-leaf-'));
+    try {
+      const databaseDirectory = join(tempDir, 'database-directory');
+      const storageForDatabaseDirectory = join(tempDir, 'storage-one');
+      mkdirSync(databaseDirectory);
+
+      expect(
+        errorMessage(
+          acquireError(databaseDirectory, storageForDatabaseDirectory)
+        )
+      ).toContain('RUNTIME_OWNERSHIP_LAYOUT_UNSAFE');
+      expect(existsSync(`${databaseDirectory}.runtime-lock.sqlite`)).toBe(
+        false
+      );
+      expect(
+        existsSync(`${storageForDatabaseDirectory}.runtime-lock.sqlite`)
+      ).toBe(false);
+
+      const databaseFile = join(tempDir, 'deploykit.sqlite');
+      const storageFile = join(tempDir, 'storage-file');
+      writeFileSync(storageFile, 'not a directory');
+
+      expect(errorMessage(acquireError(databaseFile, storageFile))).toContain(
+        'RUNTIME_OWNERSHIP_LAYOUT_UNSAFE'
+      );
+      expect(existsSync(`${databaseFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(existsSync(`${storageFile}.runtime-lock.sqlite`)).toBe(false);
+      expect(readFileSync(storageFile, 'utf8')).toBe('not a directory');
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
 
 test('checkpointSqlite flushes and truncates an existing WAL', () => {
@@ -456,4 +900,41 @@ function acquireError(databaseFile: string, storageDir: string): unknown {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function createMarkerDatabase(databaseFile: string): void {
+  const database = new Database(databaseFile, { create: true });
+  try {
+    database.exec('CREATE TABLE marker (value TEXT NOT NULL)');
+    database.query('INSERT INTO marker (value) VALUES (?)').run('untouched');
+  } finally {
+    database.close();
+  }
+}
+
+function listDatabaseTables(databaseFile: string): string[] {
+  const database = new Database(databaseFile, { readonly: true });
+  try {
+    return database
+      .query<{ name: string }, []>(
+        `SELECT name
+         FROM sqlite_schema
+         WHERE type = 'table'
+         ORDER BY name`
+      )
+      .all()
+      .map((row) => row.name);
+  } finally {
+    database.close();
+  }
+}
+
+function hasUnicodeNormalizationAliases(directory: string): boolean {
+  const composed = join(directory, 'unicode-caf\u00e9-probe');
+  mkdirSync(composed);
+  try {
+    return existsSync(join(directory, 'unicode-cafe\u0301-probe'));
+  } finally {
+    rmSync(composed, { recursive: true, force: true });
+  }
 }

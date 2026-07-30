@@ -24,7 +24,7 @@ export interface RuntimeLogEntry {
 
 export type RuntimeLogger = (entry: RuntimeLogEntry) => void;
 
-interface ShutdownControllerOptions {
+export interface ShutdownControllerOptions {
   server: DrainableServer;
   databaseFile?: string;
   timeoutMs: number;

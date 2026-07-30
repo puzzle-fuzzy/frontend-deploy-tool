@@ -3,17 +3,14 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
-  assertDatabaseOutsideStorage,
-  canonicalizeResourcePath,
+  RUNTIME_OWNERSHIP_LAYOUT_UNSAFE,
+  type RuntimeResourceLayout,
+  type RuntimeResourceName,
+  resolveRuntimeResourceLayout,
 } from '../utils/runtimeResourcePath';
 
 export interface RuntimeOwnership {
   release(): void;
-}
-
-interface RuntimePair {
-  databaseFile: string;
-  storageDir: string;
 }
 
 interface HeldSidecarLock {
@@ -24,6 +21,7 @@ interface HeldSidecarLock {
 export const RUNTIME_OWNERSHIP_HELD = 'RUNTIME_OWNERSHIP_HELD';
 export const RUNTIME_DATABASE_HARDLINK_UNSAFE =
   'RUNTIME_DATABASE_HARDLINK_UNSAFE';
+export { RUNTIME_OWNERSHIP_LAYOUT_UNSAFE };
 
 /**
  * Acquires kernel-released SQLite transaction locks for both resources.
@@ -36,21 +34,30 @@ export function acquireRuntimeOwnership(
   databaseFile: string,
   storageDir: string
 ): RuntimeOwnership {
-  const pair = normalizeRuntimePair(databaseFile, storageDir);
-  assertDatabaseHasSingleLink(pair.databaseFile);
+  const layout = resolveRuntimeResourceLayout(databaseFile, storageDir);
+  assertRuntimeResourceLeavesSafe(layout);
   const ownerToken = randomBytes(24).toString('base64url');
-  const lockPaths = getRuntimeOwnershipPaths(
-    pair.databaseFile,
-    pair.storageDir
-  );
   const held: HeldSidecarLock[] = [];
 
   try {
-    for (const path of lockPaths) {
+    for (const path of layout.ownershipPaths) {
       mkdirSync(dirname(path), { recursive: true });
+    }
+    assertRuntimeResourceLeavesSafe(layout);
+
+    for (const path of layout.ownershipPaths) {
+      assertRuntimeResourceLeavesSafe(layout);
       const database = new Database(path, { create: true });
       try {
         database.exec('PRAGMA busy_timeout = 0');
+        const journalMode = database
+          .query<{ journal_mode: string }, []>('PRAGMA journal_mode = DELETE')
+          .get()?.journal_mode;
+        if (journalMode?.toLowerCase() !== 'delete') {
+          throw new Error(
+            `[${RUNTIME_OWNERSHIP_LAYOUT_UNSAFE}] Ownership sidecar journal mode must be DELETE`
+          );
+        }
         database.exec('BEGIN EXCLUSIVE');
         database.exec(`
           CREATE TABLE IF NOT EXISTS runtime_ownership_diagnostics (
@@ -80,8 +87,8 @@ export function acquireRuntimeOwnership(
                acquired_at = excluded.acquired_at`
           )
           .run(
-            pair.databaseFile,
-            pair.storageDir,
+            layout.databaseFile,
+            layout.storageDir,
             process.pid,
             ownerToken,
             new Date().toISOString()
@@ -91,7 +98,7 @@ export function acquireRuntimeOwnership(
         closeWithoutCommit(database);
         if (isSqliteLockError(error)) {
           throw new Error(
-            `[${RUNTIME_OWNERSHIP_HELD}] Runtime resource is already owned: "${path}" for database "${pair.databaseFile}" and storage "${pair.storageDir}"`
+            `[${RUNTIME_OWNERSHIP_HELD}] Runtime resource is already owned: "${path}" for database "${layout.databaseFile}" and storage "${layout.storageDir}"`
           );
         }
         throw error;
@@ -117,18 +124,14 @@ export function acquireRuntimeOwnership(
   };
 }
 
-/** Returns the deterministic, sorted, de-duplicated sidecar lock paths. */
+/** Returns the deterministic, sorted sidecar lock paths for a safe layout. */
 export function getRuntimeOwnershipPaths(
   databaseFile: string,
   storageDir: string
 ): string[] {
-  const pair = normalizeRuntimePair(databaseFile, storageDir);
   return [
-    `${pair.databaseFile}.runtime-lock.sqlite`,
-    `${pair.storageDir}.runtime-lock.sqlite`,
-  ]
-    .filter((path, index, paths) => paths.indexOf(path) === index)
-    .sort();
+    ...resolveRuntimeResourceLayout(databaseFile, storageDir).ownershipPaths,
+  ];
 }
 
 function releaseSidecarLocks(
@@ -171,25 +174,90 @@ function closeWithoutCommit(database: Database): void {
   }
 }
 
-function normalizeRuntimePair(
-  databaseFile: string,
-  storageDir: string
-): RuntimePair {
-  assertDatabaseOutsideStorage(databaseFile, storageDir);
-  return {
-    databaseFile: canonicalizeResourcePath(databaseFile),
-    storageDir: canonicalizeResourcePath(storageDir),
-  };
-}
-
-function assertDatabaseHasSingleLink(databaseFile: string): void {
+function assertDatabaseLeafSafe(databaseFile: string): void {
   if (!existsSync(databaseFile)) return;
   const stats = lstatSync(databaseFile);
+  if (stats.isSymbolicLink() || !stats.isFile()) {
+    throw unsafeRuntimeLeafError(
+      'database',
+      'must be a non-symlink regular file'
+    );
+  }
   if (stats.nlink > 1) {
     throw new Error(
       `[${RUNTIME_DATABASE_HARDLINK_UNSAFE}] Database file must not have hard-link aliases: "${databaseFile}"`
     );
   }
+}
+
+export function assertRuntimeResourceLeavesSafe(
+  layout: RuntimeResourceLayout
+): void {
+  assertDatabaseLeafSafe(layout.databaseFile);
+  const identities = new Map<string, RuntimeResourceName>();
+  for (const resource of layout.resources) {
+    try {
+      const stats = lstatSync(resource.path, { bigint: true });
+      if (resource.name === 'storage') {
+        if (stats.isSymbolicLink() || !stats.isDirectory()) {
+          throw unsafeRuntimeLeafError(
+            resource.name,
+            'must be a non-symlink directory'
+          );
+        }
+      } else if (
+        stats.isSymbolicLink() ||
+        !stats.isFile() ||
+        stats.nlink !== 1n
+      ) {
+        throw unsafeRuntimeLeafError(
+          resource.name,
+          'must be a non-symlink, single-link regular file'
+        );
+      }
+
+      const identity = `${stats.dev}:${stats.ino}`;
+      const existingResource = identities.get(identity);
+      if (existingResource) {
+        throw new Error(
+          `[${RUNTIME_OWNERSHIP_LAYOUT_UNSAFE}] Runtime resource filesystem alias: ${existingResource} aliases ${resource.name}`
+        );
+      }
+      identities.set(identity, resource.name);
+    } catch (error) {
+      if (isMissingPathError(error)) continue;
+      if (isRuntimeLayoutError(error)) throw error;
+      throw unsafeRuntimeLeafError(
+        resource.name,
+        'identity could not be verified'
+      );
+    }
+  }
+}
+
+function unsafeRuntimeLeafError(
+  resource: RuntimeResourceName,
+  reason: string
+): Error {
+  return new Error(
+    `[${RUNTIME_OWNERSHIP_LAYOUT_UNSAFE}] Unsafe existing runtime resource leaf: ${resource} ${reason}`
+  );
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    error.code === 'ENOENT'
+  );
+}
+
+function isRuntimeLayoutError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    error.message.includes(`[${RUNTIME_OWNERSHIP_LAYOUT_UNSAFE}]`)
+  );
 }
 
 function isSqliteLockError(error: unknown): boolean {

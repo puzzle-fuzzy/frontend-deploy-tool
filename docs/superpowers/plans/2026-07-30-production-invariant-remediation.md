@@ -158,6 +158,7 @@ createRequestOriginProtection({
 - Modify: `apps/server/tests/services/storageReconciler.test.ts`
 - Create: `apps/server/tests/api/storageCrashRecovery.test.ts`
 - Modify: `apps/server/tests/services/runtime.test.ts`
+- Create: `apps/server/tests/services/runtimeResourcePath.test.ts`
 - Modify: `docs/architecture.md`
 - Modify: `docs/development.md`
 - Modify: `docs/backend-hardening-roadmap.md`
@@ -202,9 +203,20 @@ recoverInterruptedArtifactOperations(
   storage-root-relative ancestor guard protects source, operation, upload
   staging/final, trash and conflict paths, and conflicts freeze destructive GC
   for that startup pass.
-- The canonical database path must remain outside storage. An existing database
-  with multiple hard links is rejected before sidecar creation. Backup and
-  restore enforce the same containment invariant.
+- Database journal/WAL/SHM, storage, both sidecars and each sidecar's
+  journal/WAL/SHM are resolved once and must be pairwise distinct with no
+  ancestor collisions. Darwin uses Unicode NFD plus conservative case-folding
+  for missing suffixes; Windows conservatively case-folds them. Database and
+  storage leaf symlinks, wrong primary resource types, database hard-link
+  aliases, and primary/sidecar auxiliary symlink/non-regular/multi-link or
+  dev/inode aliases are rejected before any mkdir or SQLite open. Sidecars then
+  force and verify DELETE journal mode. Config, runtime, backup and restore
+  enforce the same layout invariant. Backup payloads exclude SQLite
+  auxiliaries. Restore records presence for the database, storage and every
+  primary auxiliary before moving them. Once installation starts, any failure
+  clears all installed targets and reinstates only resources present in that
+  snapshot; pre-existing absence remains absence, while pre-install failures
+  do not clear live state.
 - Ownership is released only after HTTP and worker cleanup are both confirmed.
   Timeout, rejection or non-settling force-stop paths retain it until process
   death. Upload storage conflicts use path-free
@@ -244,9 +256,17 @@ recoverInterruptedArtifactOperations(
   startup pass must freeze GC, orphan quarantine, and metadata repair.
   Operational restore must refuse to run while runtime ownership is active;
   keep `--force` as destructive-intent confirmation, not as a lock bypass.
-  Reject database/storage containment and database hard-link aliases before
-  ownership sidecars or backup mutations. Release ownership only after
-  confirmed cleanup; fatal shutdown retains it until process exit.
+  Reject all primary/SQLite-auxiliary layout collisions, database
+  and storage leaf/type aliases, database hard-link aliases, and unsafe
+  existing primary/sidecar auxiliary leaves before ownership sidecars or
+  backup mutations. Backup payloads contain only the verified SQLite snapshot,
+  while failed restore uses an explicit pre-state presence snapshot: failures
+  after installation begins clear all targets and restore only resources that
+  originally existed; pre-install failures never blanket-delete live state.
+  Release ownership only after confirmed cleanup; fatal shutdown retains it
+  until process exit. Runtime resource parents are a trusted service-account
+  boundary because Bun SQLite cannot atomically combine leaf preflight with a
+  no-follow open.
 
 - [x] **Step 5: Re-run service, black-box, backup and runtime tests**
 

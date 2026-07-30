@@ -1,4 +1,6 @@
 import { describe, expect, test } from 'bun:test';
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { loadConfig, validateAppConfig } from '../../src/config';
 
@@ -132,6 +134,43 @@ describe('loadConfig', () => {
         },
       })
     ).toThrow('DATABASE_STORAGE_OVERLAP');
+  });
+
+  test('rejects case-folded missing database paths on a case-insensitive volume', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-config-casefold-'));
+    try {
+      if (!isCaseInsensitiveVolume(tempDir)) return;
+
+      const storageDir = join(tempDir, 'Storage');
+      const databaseFile = join(tempDir, 'storage', 'metadata.sqlite');
+      const manualConfig = {
+        databaseFile,
+        dataFile: join(tempDir, 'data.json'),
+        storageDir,
+        publicDir: join(tempDir, 'public'),
+        adminEmail: 'admin@test.local',
+        adminPassword: 'test-password',
+        secureCookies: false,
+        registrationEnabled: false,
+      };
+
+      expect(() => validateAppConfig(manualConfig)).toThrow(
+        'DATABASE_STORAGE_OVERLAP'
+      );
+      expect(() =>
+        loadConfig({
+          appDir: tempDir,
+          env: {
+            DATABASE_FILE: databaseFile,
+            STORAGE_DIR: storageDir,
+          },
+        })
+      ).toThrow('DATABASE_STORAGE_OVERLAP');
+      expect(existsSync(storageDir)).toBe(false);
+      expect(existsSync(databaseFile)).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test('rejects an invalid PORT instead of silently using another port', () => {
@@ -374,3 +413,13 @@ describe('loadConfig', () => {
     expect(config.metricsToken).toBe('m'.repeat(32));
   });
 });
+
+function isCaseInsensitiveVolume(directory: string): boolean {
+  const probe = join(directory, 'DeployKit-Case-Probe');
+  mkdirSync(probe);
+  try {
+    return existsSync(join(directory, 'deploykit-case-probe'));
+  } finally {
+    rmSync(probe, { recursive: true, force: true });
+  }
+}

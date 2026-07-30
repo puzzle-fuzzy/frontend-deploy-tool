@@ -53,11 +53,25 @@ DEPLOY_BASE_URL=https://deploy.example.net
 `<STORAGE_DIR>.runtime-lock.sqlite` 两个 SQLite `BEGIN EXCLUSIVE` 事务锁。
 数据库或存储任一资源已有活跃 owner，第二个进程都会在对账和监听端口前以
 `RUNTIME_OWNERSHIP_HELD` 退出；若进程死亡，SQLite 连接关闭会由内核立即释放
-两把锁。数据库路径规范化后不得等于或位于 `STORAGE_DIR` 内；已存在数据库有
-多个 hard link 时，会在创建 sidecar 前以 `RUNTIME_DATABASE_HARDLINK_UNSAFE`
-退出。正常 HTTP/worker drain 全部确认后才显式 release；timeout、drain/
-force-stop 失败或未完成时保留 ownership 到进程退出。sidecar 内的 PID/token
-只是诊断数据，不参与正确性判断。这是本机进程锁，不支持多主机同时读写同一份
+两把锁。数据库 journal/WAL/SHM、存储、两个 sidecar 及各自
+journal/WAL/SHM 会先作为一个布局校验，任何相等或祖先碰撞都以
+`RUNTIME_OWNERSHIP_LAYOUT_UNSAFE` 拒绝；Darwin 对不存在的尾部先做 Unicode
+NFD 规范化再保守忽略大小写，Windows 也保守忽略大小写，I/O 路径不改写。
+大小写敏感 APFS 上可能拒绝仅大小写或规范化形式不同的配置。database/storage
+leaf symlink 不受支持；已存在数据库必须是普通文件、存储必须是目录。数据库有
+多个 hard link 时，会在创建 sidecar 前以
+`RUNTIME_DATABASE_HARDLINK_UNSAFE` 退出。数据库 auxiliary、既有 sidecar 及
+其 SQLite auxiliary 必须是非 symlink、单链接普通文件，且所有既有 runtime
+资源不得共享 dev/inode；完成全部 preflight 后 sidecar 固定为
+`journal_mode=DELETE`。backup/restore 在打开源数据库或变更目标前复用同一
+preflight；备份只安装 `VACUUM INTO` 快照，不安装 journal/WAL/SHM，失败恢复
+会先清理安装阶段目标，再按显式 pre-state presence 从 rollback 还原，原本缺失的
+DB/storage/auxiliary 仍保持缺失；安装前错误不会清理 live state。正常
+HTTP/worker drain 全部确认后才显式
+release；timeout、drain/force-stop 失败或未完成时保留 ownership 到进程退出。
+sidecar 内的 PID/token 只是诊断数据，不参与正确性判断。Bun 的 path-based
+SQLite/file API 不能原子合并 leaf preflight 与 no-follow open，因此所有 runtime
+资源父目录必须仅由可信服务账号写入；这是本机进程锁，不支持多主机同时读写同一份
 SQLite/本地存储。
 
 ## 测试

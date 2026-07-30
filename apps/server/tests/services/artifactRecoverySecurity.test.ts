@@ -395,6 +395,100 @@ describe('artifact recovery manifest safety', () => {
     }
   });
 
+  test('restores an unambiguous v3 recovery object when the original is missing', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-recovery-v3-object-')
+    );
+    const originalPath = join(storageDir, 'p1', 'version-1');
+    mkdirSync(originalPath, { recursive: true });
+    writeFileSync(join(originalPath, 'index.html'), 'version 3 recovery');
+    const checksum = checksumDirectory(originalPath);
+    const lease = createArtifactRecoveryService(
+      storageDir
+    ).stageVersionDeletion('p1', 'version-1', {
+      versionChecksums: { 'version-1': checksum },
+    });
+    if (!lease.recoveryPath) throw new Error('Expected a staged operation');
+    const manifestPath = join(lease.recoveryPath, 'manifest.json');
+    const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+      version: number;
+      targetVersionIds?: string[];
+    };
+    manifest.version = 3;
+    delete manifest.targetVersionIds;
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+
+    try {
+      expect(
+        recoverInterruptedArtifactOperations(
+          repositoryWithReferencedVersion(checksum),
+          storageDir
+        )
+      ).toEqual({ restored: 1, committed: 0, conflicts: 0 });
+      expect(readFileSync(join(originalPath, 'index.html'), 'utf8')).toBe(
+        'version 3 recovery'
+      );
+      expect(existsSync(lease.recoveryPath)).toBe(false);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('cleans a v4 multi-version project with complete checksum proof', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-recovery-v4-project-')
+    );
+    const projectPath = join(storageDir, 'p1');
+    const contents = {
+      'version-1': 'first version',
+      'version-2': 'second version',
+    };
+    for (const [versionId, content] of Object.entries(contents)) {
+      const versionPath = join(projectPath, versionId);
+      mkdirSync(versionPath, { recursive: true });
+      writeFileSync(join(versionPath, 'index.html'), content);
+    }
+    const versionChecksums = Object.fromEntries(
+      Object.keys(contents).map((versionId) => [
+        versionId,
+        checksumDirectory(join(projectPath, versionId)),
+      ])
+    );
+    const lease = createArtifactRecoveryService(
+      storageDir
+    ).stageProjectDeletion('p1', {
+      targetVersionIds: Object.keys(contents),
+      versionChecksums,
+    });
+    const manifest = readManifest(lease.recoveryPath);
+    rmSync(join(storageDir, manifest.recoveryPath), {
+      recursive: true,
+      force: true,
+    });
+    for (const [versionId, content] of Object.entries(contents)) {
+      const versionPath = join(projectPath, versionId);
+      mkdirSync(versionPath, { recursive: true });
+      writeFileSync(join(versionPath, 'index.html'), content);
+    }
+
+    try {
+      expect(
+        recoverInterruptedArtifactOperations(
+          repositoryWithReferencedVersions(versionChecksums),
+          storageDir
+        )
+      ).toEqual({ restored: 1, committed: 0, conflicts: 0 });
+      expect(existsSync(lease.recoveryPath ?? '')).toBe(false);
+      for (const [versionId, content] of Object.entries(contents)) {
+        expect(
+          readFileSync(join(projectPath, versionId, 'index.html'), 'utf8')
+        ).toBe(content);
+      }
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('quarantines an original path whose identity and checksum both mismatch', () => {
     const storageDir = mkdtempSync(
       join(tmpdir(), 'deploykit-recovery-mismatch-')
@@ -465,6 +559,12 @@ function readManifest(operationDir: string | null): { recoveryPath: string } {
 function repositoryWithReferencedVersion(
   checksum = ''
 ): ServerProjectRepository {
+  return repositoryWithReferencedVersions({ 'version-1': checksum });
+}
+
+function repositoryWithReferencedVersions(
+  checksums: Record<string, string>
+): ServerProjectRepository {
   const data: Data = {
     schemaVersion: 5,
     projects: [
@@ -475,10 +575,10 @@ function repositoryWithReferencedVersion(
         description: '',
         createdAt: '2026-07-30T00:00:00.000Z',
         updatedAt: '2026-07-30T00:00:00.000Z',
-        versions: [
-          {
-            id: 'version-1',
-            name: 'Version 1',
+        versions: Object.entries(checksums).map(
+          ([versionId, checksum], index) => ({
+            id: versionId,
+            name: `Version ${index + 1}`,
             description: '',
             createdAt: '2026-07-30T00:00:00.000Z',
             size: 1,
@@ -490,8 +590,8 @@ function repositoryWithReferencedVersion(
             checksum,
             integrityStatus: 'unknown',
             integrityCheckedAt: null,
-          },
-        ],
+          })
+        ),
         activeVersionId: null,
         settings: { spaMode: false, routingType: 'path' },
         auditPolicy: {

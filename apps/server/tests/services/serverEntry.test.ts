@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { DeployKitRuntime } from '../../src/app';
 import type { ServerConfig } from '../../src/config';
+import { createShutdownController } from '../../src/runtime';
 import { startDeployKitServer } from '../../src/serverEntry';
 import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
@@ -67,6 +68,40 @@ describe('startDeployKitServer', () => {
     ]);
     started.disposeSignalHandlers();
     expect(calls.at(-1)).toBe('dispose-handlers');
+  });
+
+  test('propagates an injected logger from server start through graceful shutdown', async () => {
+    const calls: string[] = [];
+    const runtime = fakeRuntime(calls);
+    const started = await startDeployKitServer(config, runtime, {
+      serve: () => ({
+        stop: async (force) => {
+          calls.push(force ? 'force-stop' : 'drain');
+        },
+      }),
+      installHandlers: () => () => calls.push('dispose-handlers'),
+      createShutdown: (options) =>
+        createShutdownController({
+          ...options,
+          checkpoint: () => calls.push('checkpoint'),
+          exit: (code) => calls.push(`exit:${code}`),
+        }),
+      logger: (entry) => calls.push(`log:${entry.event}`),
+    });
+
+    await started.shutdown.shutdown('SIGTERM');
+
+    expect(calls).toEqual([
+      'worker-start',
+      'log:server_started',
+      'log:shutdown_started',
+      'drain',
+      'worker-stop',
+      'checkpoint',
+      'release-ownership',
+      'log:shutdown_completed',
+      'exit:0',
+    ]);
   });
 
   test('cleans every post-serve resource when worker start fails', async () => {

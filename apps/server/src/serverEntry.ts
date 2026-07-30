@@ -7,6 +7,7 @@ import {
   installShutdownHandlers,
   type RuntimeLogger,
   type ShutdownController,
+  type ShutdownControllerOptions,
 } from './runtime';
 
 interface ServeOptions {
@@ -17,6 +18,7 @@ interface ServeOptions {
 export interface ServerEntryDependencies {
   serve?: (options: ServeOptions) => DrainableServer;
   installHandlers?: (controller: ShutdownController) => () => void;
+  createShutdown?: (options: ShutdownControllerOptions) => ShutdownController;
   logger?: RuntimeLogger;
   cleanupTimeoutMs?: number;
   scheduleTimeout?: (callback: () => void, timeoutMs: number) => unknown;
@@ -48,6 +50,8 @@ export async function startDeployKitServer(
       }));
   const installHandlers =
     dependencies.installHandlers ?? installShutdownHandlers;
+  const createShutdown =
+    dependencies.createShutdown ?? createShutdownController;
   const logger = dependencies.logger ?? defaultRuntimeLogger;
   const scheduleTimeout =
     dependencies.scheduleTimeout ??
@@ -63,7 +67,7 @@ export async function startDeployKitServer(
 
   try {
     server = serve({ port: config.port, fetch: runtime.app.fetch });
-    const shutdown = createShutdownController({
+    const shutdown = createShutdown({
       server,
       databaseFile: config.databaseFile,
       timeoutMs: config.shutdownTimeoutMs ?? 30_000,
