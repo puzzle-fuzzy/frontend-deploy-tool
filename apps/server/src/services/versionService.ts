@@ -1,6 +1,8 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, renameSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  Data,
   HistoryAction,
   Version,
   VersionSourceType,
@@ -31,7 +33,12 @@ import {
   removeDir,
   writeFolderFiles,
 } from './artifactService';
-import type { VersionService } from './contracts';
+import type {
+  ApiTokenPrincipal,
+  ApiTokenService,
+  UploadVersionInput,
+  VersionService,
+} from './contracts';
 import {
   assertStorageMutationPathsAreSafe,
   StoragePathConflictError,
@@ -39,11 +46,21 @@ import {
 
 export type { UploadVersionInput, VersionService } from './contracts';
 
+const CI_IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1_000;
+const CI_UPLOAD_DIGEST_DOMAIN = 'deploykit:ci-preview-upload:v1\0';
+
 export function createVersionService(
   repo: ProjectRepository,
   config: AppConfig,
-  options: { artifactRecovery?: ArtifactRecoveryService } = {}
+  options: {
+    artifactRecovery?: ArtifactRecoveryService;
+    apiTokenService?: Pick<ApiTokenService, 'revalidatePrincipal'>;
+  } = {}
 ): VersionService {
+  if (options.apiTokenService && !repo.commitVersionUpload) {
+    throw new Error('CI upload composition requires atomic repository support');
+  }
+  const commitVersionUpload = repo.commitVersionUpload?.bind(repo);
   const artifactRecovery =
     options.artifactRecovery ??
     createArtifactRecoveryService(config.storageDir);
@@ -155,281 +172,347 @@ export function createVersionService(
     });
   };
 
-  return {
-    async uploadVersion(
-      projectId,
-      { versionDesc, file, folderFiles },
-      actorId
-    ) {
-      if (!repo.load().projects.some((project) => project.id === projectId))
+  const performUpload = async (
+    projectId: string,
+    { versionDesc, file, folderFiles }: UploadVersionInput,
+    actorId: string,
+    ci?: {
+      principal: ApiTokenPrincipal;
+      idempotencyKey: string;
+    }
+  ): Promise<{
+    version: { id: string; name: string };
+    replayed: boolean;
+  }> => {
+    if (!repo.load().projects.some((project) => project.id === projectId))
+      throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
+
+    const normalizedVersionDesc = versionDesc.trim();
+    const versionId = createId();
+    const versionName = versionId.substring(0, 7);
+    const stagingRoot = join(config.storageDir, '.staging');
+    const stagingDir = join(stagingRoot, versionId);
+    const versionDir = join(config.storageDir, projectId, versionId);
+    const projectDir = join(config.storageDir, projectId);
+
+    let sourceType: VersionSourceType = 'unknown';
+    let promotedToFinal = false;
+    let version: Version | undefined;
+    try {
+      assertStorageMutationPathsAreSafe(
+        config.storageDir,
+        stagingRoot,
+        stagingDir,
+        versionDir
+      );
+      mkdirSync(stagingDir, { recursive: true });
+      assertStorageMutationPathsAreSafe(
+        config.storageDir,
+        stagingRoot,
+        stagingDir,
+        versionDir
+      );
+
+      // Check file count limit
+      if (config.maxFileCount && folderFiles.length > config.maxFileCount) {
         throw new ApiError(
-          ErrorCode.PROJECT_NOT_FOUND,
-          'Project not found',
-          404
+          ErrorCode.TOO_MANY_FILES,
+          `Too many files. Maximum ${config.maxFileCount} files allowed.`
         );
+      }
 
-      const versionId = createId();
-      const versionName = versionId.substring(0, 7);
-      const stagingRoot = join(config.storageDir, '.staging');
-      const stagingDir = join(stagingRoot, versionId);
-      const versionDir = join(config.storageDir, projectId, versionId);
-      const projectDir = join(config.storageDir, projectId);
-
-      let sourceType: VersionSourceType = 'unknown';
-      let promotedToFinal = false;
-      let version: Version | undefined;
-      try {
-        assertStorageMutationPathsAreSafe(
-          config.storageDir,
-          stagingRoot,
-          stagingDir,
-          versionDir
-        );
-        mkdirSync(stagingDir, { recursive: true });
-        assertStorageMutationPathsAreSafe(
-          config.storageDir,
-          stagingRoot,
-          stagingDir,
-          versionDir
-        );
-
-        // Check file count limit
-        if (config.maxFileCount && folderFiles.length > config.maxFileCount) {
+      if (file && file.size > 0 && file.name.endsWith('.zip')) {
+        sourceType = 'zip';
+        // Check ZIP size limit
+        if (config.maxZipSize && file.size > config.maxZipSize) {
           throw new ApiError(
-            ErrorCode.TOO_MANY_FILES,
-            `Too many files. Maximum ${config.maxFileCount} files allowed.`
+            ErrorCode.ZIP_TOO_LARGE,
+            `ZIP file too large. Maximum size is ${config.maxZipSize / (1024 * 1024)}MB.`
           );
         }
 
-        if (file && file.size > 0 && file.name.endsWith('.zip')) {
-          sourceType = 'zip';
-          // Check ZIP size limit
-          if (config.maxZipSize && file.size > config.maxZipSize) {
-            throw new ApiError(
-              ErrorCode.ZIP_TOO_LARGE,
-              `ZIP file too large. Maximum size is ${config.maxZipSize / (1024 * 1024)}MB.`
-            );
-          }
+        const zipPath = join(stagingDir, 'upload.zip');
+        let zipCleanupNeeded = true;
+        let zipFailed = false;
+        let zipFailure: unknown;
+        let zipCleanupFailure: unknown;
 
-          const zipPath = join(stagingDir, 'upload.zip');
-          let zipCleanupNeeded = true;
-          let zipFailed = false;
-          let zipFailure: unknown;
-          let zipCleanupFailure: unknown;
-
-          try {
-            assertStorageMutationPathsAreSafe(
-              config.storageDir,
-              stagingDir,
-              zipPath
-            );
-            await Bun.write(zipPath, file);
-            assertStorageMutationPathsAreSafe(
-              config.storageDir,
-              stagingDir,
-              zipPath
-            );
-            await extractZip(zipPath, stagingDir, {
-              maxExtractedSize: config.maxExtractedSize,
-              maxFileCount: config.maxFileCount,
-              maxPathLength: config.maxPathLength,
-              maxCompressionRatio: config.maxCompressionRatio,
-            });
-            assertStorageMutationPathsAreSafe(
-              config.storageDir,
-              stagingDir,
-              zipPath
-            );
-            rmSync(zipPath, { force: true });
-            zipCleanupNeeded = false;
-
-            // Check extracted size limit
-            if (config.maxExtractedSize) {
-              assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-              const extractedSize = getDirectorySize(stagingDir);
-              if (extractedSize > config.maxExtractedSize) {
-                throw new ApiError(
-                  ErrorCode.EXTRACTED_TOO_LARGE,
-                  `Extracted files too large. Maximum size is ${config.maxExtractedSize / (1024 * 1024)}MB.`
-                );
-              }
-            }
-
-            assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-            flattenOutput(stagingDir);
-            assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-          } catch (error) {
-            zipFailed = true;
-            zipFailure = error;
-          } finally {
-            // Ensure ZIP temp file is cleaned up in all cases
-            if (zipCleanupNeeded) {
-              try {
-                assertStorageMutationPathsAreSafe(
-                  config.storageDir,
-                  stagingDir,
-                  zipPath
-                );
-                rmSync(zipPath, { force: true });
-              } catch (cleanupError) {
-                zipCleanupFailure = cleanupError;
-              }
-            }
-          }
-          if (zipFailed) throw zipFailure;
-          if (zipCleanupFailure instanceof StoragePathConflictError) {
-            throw zipCleanupFailure;
-          }
-        } else if (folderFiles.length > 0) {
-          sourceType = 'folder';
-          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-          const { extractedBytes: totalSize } = await writeFolderFiles(
+        try {
+          assertStorageMutationPathsAreSafe(
+            config.storageDir,
             stagingDir,
-            folderFiles,
-            {
-              maxExtractedSize: config.maxExtractedSize,
-              maxFileCount: config.maxFileCount,
-              maxPathLength: config.maxPathLength,
-            }
+            zipPath
           );
-          assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+          await Bun.write(zipPath, file);
+          assertStorageMutationPathsAreSafe(
+            config.storageDir,
+            stagingDir,
+            zipPath
+          );
+          await extractZip(zipPath, stagingDir, {
+            maxExtractedSize: config.maxExtractedSize,
+            maxFileCount: config.maxFileCount,
+            maxPathLength: config.maxPathLength,
+            maxCompressionRatio: config.maxCompressionRatio,
+          });
+          assertStorageMutationPathsAreSafe(
+            config.storageDir,
+            stagingDir,
+            zipPath
+          );
+          rmSync(zipPath, { force: true });
+          zipCleanupNeeded = false;
 
-          // Check total size limit for folder uploads
-          if (config.maxExtractedSize && totalSize > config.maxExtractedSize) {
-            throw new ApiError(
-              ErrorCode.FILES_TOO_LARGE,
-              `Files too large. Maximum size is ${config.maxExtractedSize / (1024 * 1024)}MB.`
-            );
+          // Check extracted size limit
+          if (config.maxExtractedSize) {
+            assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+            const extractedSize = getDirectorySize(stagingDir);
+            if (extractedSize > config.maxExtractedSize) {
+              throw new ApiError(
+                ErrorCode.EXTRACTED_TOO_LARGE,
+                `Extracted files too large. Maximum size is ${config.maxExtractedSize / (1024 * 1024)}MB.`
+              );
+            }
           }
 
           assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
           flattenOutput(stagingDir);
           assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-        } else if (file && file.size > 0) {
+        } catch (error) {
+          zipFailed = true;
+          zipFailure = error;
+        } finally {
+          // Ensure ZIP temp file is cleaned up in all cases
+          if (zipCleanupNeeded) {
+            try {
+              assertStorageMutationPathsAreSafe(
+                config.storageDir,
+                stagingDir,
+                zipPath
+              );
+              rmSync(zipPath, { force: true });
+            } catch (cleanupError) {
+              zipCleanupFailure = cleanupError;
+            }
+          }
+        }
+        if (zipFailed) throw zipFailure;
+        if (zipCleanupFailure instanceof StoragePathConflictError) {
+          throw zipCleanupFailure;
+        }
+      } else if (folderFiles.length > 0) {
+        sourceType = 'folder';
+        assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+        const { extractedBytes: totalSize } = await writeFolderFiles(
+          stagingDir,
+          folderFiles,
+          {
+            maxExtractedSize: config.maxExtractedSize,
+            maxFileCount: config.maxFileCount,
+            maxPathLength: config.maxPathLength,
+          }
+        );
+        assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+
+        // Check total size limit for folder uploads
+        if (config.maxExtractedSize && totalSize > config.maxExtractedSize) {
           throw new ApiError(
-            ErrorCode.INVALID_UPLOAD,
-            'Please upload a .zip file'
+            ErrorCode.FILES_TOO_LARGE,
+            `Files too large. Maximum size is ${config.maxExtractedSize / (1024 * 1024)}MB.`
           );
-        } else {
-          throw new ApiError(ErrorCode.INVALID_UPLOAD, 'Please upload files');
         }
 
-        // A deployable build must expose an index.html; otherwise the upload
-        // would "succeed" but /deploy/:slug/ would 404.
         assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-        assertIndexHtml(stagingDir);
-
+        flattenOutput(stagingDir);
         assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
-        version = {
-          id: versionId,
-          name: versionName,
-          description: versionDesc,
-          createdAt: new Date().toISOString(),
-          size: getDirectorySize(stagingDir),
-          fileCount: countFiles(stagingDir),
-          sourceType,
-          status: 'preview',
-          publishedAt: null,
-          publishedBy: null,
-          checksum: checksumDirectory(stagingDir),
-          integrityStatus: 'unknown',
-          integrityCheckedAt: null,
-        };
-
-        assertStorageMutationPathsAreSafe(
-          config.storageDir,
-          stagingDir,
-          projectDir,
-          versionDir
+      } else if (file && file.size > 0) {
+        throw new ApiError(
+          ErrorCode.INVALID_UPLOAD,
+          'Please upload a .zip file'
         );
-        mkdirSync(projectDir, { recursive: true });
-        assertStorageMutationPathsAreSafe(
-          config.storageDir,
-          stagingDir,
-          projectDir,
-          versionDir
-        );
-        renameSync(stagingDir, versionDir);
-        promotedToFinal = true;
-        assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
-      } catch (err) {
-        const failure = cleanupFailedUpload(
-          config.storageDir,
-          promotedToFinal ? versionDir : stagingDir,
-          err
-        );
-        throw normalizeUploadProcessingError(failure);
+      } else {
+        throw new ApiError(ErrorCode.INVALID_UPLOAD, 'Please upload files');
       }
 
-      if (!version) {
+      // A deployable build must expose an index.html; otherwise the upload
+      // would "succeed" but /deploy/:slug/ would 404.
+      assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+      assertIndexHtml(stagingDir);
+
+      assertStorageMutationPathsAreSafe(config.storageDir, stagingDir);
+      version = {
+        id: versionId,
+        name: versionName,
+        description: normalizedVersionDesc,
+        createdAt: new Date().toISOString(),
+        size: getDirectorySize(stagingDir),
+        fileCount: countFiles(stagingDir),
+        sourceType,
+        status: 'preview',
+        publishedAt: null,
+        publishedBy: null,
+        checksum: checksumDirectory(stagingDir),
+        integrityStatus: 'unknown',
+        integrityCheckedAt: null,
+      };
+
+      assertStorageMutationPathsAreSafe(
+        config.storageDir,
+        stagingDir,
+        projectDir,
+        versionDir
+      );
+      mkdirSync(projectDir, { recursive: true });
+      assertStorageMutationPathsAreSafe(
+        config.storageDir,
+        stagingDir,
+        projectDir,
+        versionDir
+      );
+      renameSync(stagingDir, versionDir);
+      promotedToFinal = true;
+      assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
+    } catch (err) {
+      const failure = cleanupFailedUpload(
+        config.storageDir,
+        promotedToFinal ? versionDir : stagingDir,
+        err
+      );
+      throw normalizeUploadProcessingError(failure);
+    }
+
+    if (!version) {
+      const cleanupFailure = cleanupFailedUpload(config.storageDir, versionDir);
+      if (cleanupFailure) throw normalizeUploadProcessingError(cleanupFailure);
+      throw new ApiError(
+        ErrorCode.FILE_PROCESSING_FAILED,
+        'File processing failed before version metadata was created',
+        500
+      );
+    }
+    // Upload ≠ go-live (principle §6.1): every version starts preview-only.
+    // Production is reached only by an explicit publish (activateVersion).
+    try {
+      assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
+      const mutateUpload = (data: Data) => {
+        const project = data.projects.find(
+          (candidate) => candidate.id === projectId
+        );
+        if (!project)
+          throw new ApiError(
+            ErrorCode.PROJECT_NOT_FOUND,
+            'Project not found',
+            404
+          );
+
+        const quotaViolation = findStorageQuotaViolation(
+          data,
+          projectId,
+          version.size,
+          storageQuotaLimits
+        );
+        if (quotaViolation) {
+          throw new ApiError(
+            ErrorCode.STORAGE_QUOTA_EXCEEDED,
+            `${quotaViolation.scope} storage quota exceeded`,
+            413
+          );
+        }
+
+        project.versions.push(version);
+        project.updatedAt = new Date().toISOString();
+        appendHistoryEvent(data, 'version.upload', project, actorId, version, {
+          sourceType: version.sourceType,
+          size: version.size,
+          fileCount: version.fileCount,
+        });
+      };
+
+      if (!ci) {
+        repo.mutate(mutateUpload);
+        return {
+          version: { id: version.id, name: version.name },
+          replayed: false,
+        };
+      }
+
+      if (!options.apiTokenService || !commitVersionUpload) {
+        throw new Error(
+          'CI upload requires token revalidation and atomic repository support'
+        );
+      }
+      try {
+        options.apiTokenService.revalidatePrincipal(
+          ci.principal,
+          projectId,
+          'preview:upload'
+        );
+      } catch (error) {
+        if (isApiTokenStateError(error)) throw invalidCiToken();
+        throw error;
+      }
+      const committedAt = new Date().toISOString();
+      const commitResult = commitVersionUpload(
+        {
+          projectId,
+          tokenId: ci.principal.tokenId,
+          requiredScope: 'preview:upload',
+          idempotencyKey: ci.idempotencyKey,
+          requestDigest: digestCiUpload(version),
+          version: { id: version.id, name: version.name },
+          committedAt,
+          expiresAt: new Date(
+            Date.parse(committedAt) + CI_IDEMPOTENCY_TTL_MS
+          ).toISOString(),
+        },
+        mutateUpload
+      );
+      if (commitResult.outcome === 'token-inactive') {
+        throw invalidCiToken();
+      }
+      if (commitResult.outcome === 'conflict') {
+        throw new ApiError(
+          ErrorCode.IDEMPOTENCY_CONFLICT,
+          'Idempotency key was already used for a different upload',
+          409
+        );
+      }
+      if (commitResult.outcome === 'replayed') {
         const cleanupFailure = cleanupFailedUpload(
           config.storageDir,
           versionDir
         );
         if (cleanupFailure)
           throw normalizeUploadProcessingError(cleanupFailure);
-        throw new ApiError(
-          ErrorCode.FILE_PROCESSING_FAILED,
-          'File processing failed before version metadata was created',
-          500
-        );
+        return {
+          version: commitResult.version,
+          replayed: true,
+        };
       }
-      // Upload ≠ go-live (principle §6.1): every version starts preview-only.
-      // Production is reached only by an explicit publish (activateVersion).
-      try {
-        assertStorageMutationPathsAreSafe(config.storageDir, versionDir);
-        repo.mutate((data) => {
-          const project = data.projects.find(
-            (candidate) => candidate.id === projectId
-          );
-          if (!project)
-            throw new ApiError(
-              ErrorCode.PROJECT_NOT_FOUND,
-              'Project not found',
-              404
-            );
-
-          const quotaViolation = findStorageQuotaViolation(
-            data,
-            projectId,
-            version.size,
-            storageQuotaLimits
-          );
-          if (quotaViolation) {
-            throw new ApiError(
-              ErrorCode.STORAGE_QUOTA_EXCEEDED,
-              `${quotaViolation.scope} storage quota exceeded`,
-              413
-            );
-          }
-
-          project.versions.push(version);
-          project.updatedAt = new Date().toISOString();
-          appendHistoryEvent(
-            data,
-            'version.upload',
-            project,
-            actorId,
-            version,
-            {
-              sourceType: version.sourceType,
-              size: version.size,
-              fileCount: version.fileCount,
-            }
-          );
-        });
-      } catch (error) {
-        const failure = cleanupFailedUpload(
-          config.storageDir,
-          versionDir,
-          error
-        );
-        if (failure instanceof StoragePathConflictError) {
-          throw normalizeUploadProcessingError(failure);
-        }
-        throw failure;
+      return {
+        version: commitResult.version,
+        replayed: false,
+      };
+    } catch (error) {
+      const failure = cleanupFailedUpload(config.storageDir, versionDir, error);
+      if (failure instanceof StoragePathConflictError) {
+        throw normalizeUploadProcessingError(failure);
       }
-      return { version: { id: version.id, name: version.name } };
+      throw failure;
+    }
+  };
+
+  return {
+    async uploadVersion(projectId, input, actorId) {
+      const result = await performUpload(projectId, input, actorId);
+      return { version: result.version };
+    },
+
+    uploadCiVersion(projectId, input, principal, idempotencyKey) {
+      return performUpload(projectId, input, principal.actorId, {
+        principal,
+        idempotencyKey,
+      });
     },
 
     publishVersion(projectId, versionId, actorId, command) {
@@ -575,4 +658,34 @@ function normalizeUploadProcessingError(error: unknown): ApiError {
     `File processing failed: ${error instanceof Error ? error.message : String(error)}`,
     500
   );
+}
+
+function digestCiUpload(version: Version): string {
+  return createHash('sha256')
+    .update(CI_UPLOAD_DIGEST_DOMAIN, 'utf8')
+    .update(
+      JSON.stringify({
+        description: version.description,
+        checksum: version.checksum,
+        sourceType: version.sourceType,
+        size: version.size,
+        fileCount: version.fileCount,
+      }),
+      'utf8'
+    )
+    .digest('hex');
+}
+
+function isApiTokenStateError(error: unknown): boolean {
+  if (!(error instanceof ApiError)) return false;
+  return (
+    error.code === ErrorCode.API_TOKEN_INVALID ||
+    error.code === ErrorCode.API_TOKEN_EXPIRED ||
+    error.code === ErrorCode.API_TOKEN_REVOKED ||
+    error.code === ErrorCode.API_TOKEN_SCOPE_REQUIRED
+  );
+}
+
+function invalidCiToken(): ApiError {
+  return new ApiError(ErrorCode.API_TOKEN_INVALID, 'API token is invalid', 401);
 }

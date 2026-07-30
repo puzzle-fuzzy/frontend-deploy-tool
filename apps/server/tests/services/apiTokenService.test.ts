@@ -49,19 +49,25 @@ describe('createApiTokenService', () => {
     const fixture = createFixture();
     const issued = fixture.service.create(PROJECT_ID, { name: 'CI' }, 'user-1');
 
-    expect(
-      fixture.service.authenticate(
-        issued.plaintextToken,
-        PROJECT_ID,
-        'preview:upload'
-      )
-    ).toEqual({
+    const principal = fixture.service.authenticate(
+      issued.plaintextToken,
+      PROJECT_ID,
+      'preview:upload'
+    );
+    expect(principal).toEqual({
       actorId: 'api-token:token-1',
       prefix: 'dpk_v1.token-1',
       projectId: PROJECT_ID,
       scopes: ['preview:upload'],
       tokenId: 'token-1',
     });
+    expect(() =>
+      fixture.service.revalidatePrincipal(
+        principal,
+        PROJECT_ID,
+        'preview:upload'
+      )
+    ).not.toThrow();
 
     expectApiError(
       () =>

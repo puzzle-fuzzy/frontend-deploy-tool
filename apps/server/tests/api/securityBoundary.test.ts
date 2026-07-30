@@ -189,6 +189,47 @@ test('rejects deploy-origin writes made with a real browser session cookie', asy
     }
   );
   expect(legitimateTokenCreate.status).toBe(201);
+  const legitimateApiToken = (await legitimateTokenCreate.json()) as {
+    plaintextToken: string;
+  };
+
+  const ciSessionForm = new FormData();
+  ciSessionForm.append(
+    'folderFiles',
+    new File(['<html><body>session CI</body></html>'], 'index.html')
+  );
+  const rejectedCiSession = await app.request(
+    `${MANAGEMENT_ORIGIN}/api/ci/projects/${project.id}/versions`,
+    {
+      method: 'POST',
+      headers: {
+        Cookie: cookie,
+        Origin: MANAGEMENT_ORIGIN,
+        'Idempotency-Key': 'browser-session-ci',
+      },
+      body: ciSessionForm,
+    }
+  );
+  expect(rejectedCiSession.status).toBe(401);
+  expect((await rejectedCiSession.json()).error.code).toBe('API_TOKEN_INVALID');
+
+  const deployOriginCiForm = new FormData();
+  deployOriginCiForm.append(
+    'folderFiles',
+    new File(['<html><body>wrong origin</body></html>'], 'index.html')
+  );
+  const rejectedDeployOriginCi = await app.request(
+    `${DEPLOY_ORIGIN}/api/ci/projects/${project.id}/versions`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${legitimateApiToken.plaintextToken}`,
+        'Idempotency-Key': 'deploy-origin-ci',
+      },
+      body: deployOriginCiForm,
+    }
+  );
+  expect(rejectedDeployOriginCi.status).toBe(404);
 
   const previewForm = new FormData();
   previewForm.append(

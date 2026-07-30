@@ -280,15 +280,12 @@ rotation and secret-redaction behavior before starting Task 3.
 
 - Create: `apps/server/src/middleware/apiToken.ts`
 - Create: `apps/server/src/routes/ciVersions.ts`
-- Modify: `apps/server/src/middleware/auth.ts`
-- Modify: `apps/server/src/middleware/session.ts`
 - Modify: `apps/server/src/middleware/uploadLimits.ts`
 - Modify: `apps/server/src/services/contracts.ts`
 - Modify: `apps/server/src/services/versionService.ts`
 - Modify: `apps/server/src/repositories/projectRepository.ts`
 - Modify: `apps/server/src/repositories/jsonProjectRepository.ts`
 - Modify: `apps/server/src/repositories/sqliteProjectRepository.ts`
-- Modify: `apps/server/src/api.ts`
 - Modify: `apps/server/src/app.ts`
 - Test: `apps/server/tests/services/versionService.test.ts`
 - Test: `apps/server/tests/api/ciUpload.test.ts`
@@ -334,14 +331,23 @@ Expected: fail because the CI route and atomic idempotency commit do not exist.
 
 **Step 2: Add an automation principal without impersonating a user**
 
-Extend `AppEnv` with a nullable, redacted API-token principal. The session
-middleware initializes only session identity. The CI token middleware reads
-the `Authorization: Bearer` header itself, authorizes the route project and
-scope, and sets only the automation principal.
+Extend `AppEnv` with a nullable, redacted API-token principal. The CI token
+middleware reads the `Authorization: Bearer` header itself, authorizes the
+route project and scope, and sets only the automation principal.
 
-Allow `/api/ci/*` past the global session requirement only because every
-registered CI route has its own fail-closed token middleware. Unknown paths
-remain harmless 404s. Ordinary management routes continue to require a session.
+Mount the exact CI route as a sibling before the session-only API app:
+
+```text
+request id -> observability -> trust boundary -> origin protection
+  -> exact /api/ci route
+  -> terminal /api/ci and /api/ci/* 404
+  -> session-only management API
+```
+
+Do not add `/api/ci/*` to the session middleware's public-path exemptions.
+This structural split means browser and desktop sessions never run through a
+credential multiplexer, while unknown CI paths and methods cannot fall through
+to session authentication.
 
 **Step 3: Generalize upload admission identity**
 
@@ -357,11 +363,12 @@ SQLite implementation:
 
 1. starts `BEGIN IMMEDIATE`;
 2. deletes only expired idempotency rows;
-3. checks the project/token/key tuple;
-4. returns the stored version for the same digest or throws conflict for a
+3. re-reads token project, revocation, expiry and scope inside the transaction;
+4. checks the project/token/key tuple;
+5. returns the stored version for the same digest or throws conflict for a
    different digest;
-5. otherwise applies the existing synchronous aggregate mutation;
-6. persists version/history metadata and the idempotency row in that same
+6. otherwise applies the existing synchronous aggregate mutation;
+7. persists version/history metadata and the idempotency row in that same
    transaction.
 
 The JSON test repository implements equivalent in-memory semantics. Retain
@@ -379,6 +386,11 @@ checksum/source/size/file count, invokes `commitVersionUpload`, and:
 - returns the new result with `replayed: false`; or
 - deletes the just-promoted duplicate directory and returns the original result
   with `replayed: true`.
+
+Revalidate the redacted principal synchronously immediately before the
+repository call for the JSON test adapter; production SQLite repeats the state
+check under the write lock. This closes the revocation/expiry race across the
+long-running extraction boundary without retaining bearer plaintext.
 
 Use the redacted actor id `api-token:<publicId>` in the existing atomic
 `version.upload` history event. Do not add raw idempotency keys to metadata.

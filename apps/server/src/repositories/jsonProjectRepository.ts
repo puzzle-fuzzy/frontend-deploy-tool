@@ -10,7 +10,10 @@ import { dirname } from 'node:path';
 import type { Data } from '@deploykit/shared';
 import { paginateHistory } from '../domain/history';
 import { createEmptyData, migrate } from '../domain/schema';
-import type { ProjectRepository } from './projectRepository';
+import type {
+  CommitVersionUploadInput,
+  ProjectRepository,
+} from './projectRepository';
 
 /**
  * JSON-file backed repository. Reads migrate the stored data up to the current
@@ -22,6 +25,15 @@ import type { ProjectRepository } from './projectRepository';
 export function createJsonProjectRepository(
   dataFile: string
 ): ProjectRepository {
+  const idempotencyRecords = new Map<
+    string,
+    {
+      requestDigest: string;
+      version: { id: string; name: string };
+      expiresAt: string;
+    }
+  >();
+
   function writeData(data: Data): void {
     mkdirSync(dirname(dataFile), { recursive: true });
     const tempFile = `${dataFile}.tmp`;
@@ -66,6 +78,27 @@ export function createJsonProjectRepository(
       return result;
     },
 
+    commitVersionUpload(input, operation) {
+      pruneExpiredIdempotencyRecords(idempotencyRecords, input.committedAt);
+      const key = idempotencyRecordKey(input);
+      const existing = idempotencyRecords.get(key);
+      if (existing) {
+        return existing.requestDigest === input.requestDigest
+          ? { outcome: 'replayed' as const, version: { ...existing.version } }
+          : { outcome: 'conflict' as const };
+      }
+
+      const data = loadData();
+      operation(data);
+      writeData(data);
+      idempotencyRecords.set(key, {
+        requestDigest: input.requestDigest,
+        version: { ...input.version },
+        expiresAt: input.expiresAt,
+      });
+      return { outcome: 'created', version: { ...input.version } };
+    },
+
     listHistoryPage({ projectIds, limit, cursor }) {
       const history = loadData().history;
       const visibleHistory =
@@ -75,4 +108,17 @@ export function createJsonProjectRepository(
       return paginateHistory(visibleHistory, limit, cursor);
     },
   };
+}
+
+function idempotencyRecordKey(input: CommitVersionUploadInput): string {
+  return `${input.projectId}\0${input.tokenId}\0${input.idempotencyKey}`;
+}
+
+function pruneExpiredIdempotencyRecords(
+  records: Map<string, { expiresAt: string }>,
+  committedAt: string
+): void {
+  for (const [key, record] of records) {
+    if (record.expiresAt <= committedAt) records.delete(key);
+  }
 }

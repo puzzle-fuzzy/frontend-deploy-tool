@@ -67,6 +67,69 @@ test('rejects a multipart request before formData parsing when it is oversized',
   }
 });
 
+test('applies the same request limit to authenticated CI uploads', async () => {
+  const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ci-upload-limit-'));
+  try {
+    const app = createAuthApp({
+      dataFile: join(tempDir, 'data.json'),
+      storageDir: join(tempDir, 'storage'),
+      publicDir: join(tempDir, 'public'),
+      maxUploadRequestSize: 32,
+    });
+    const sessionToken = await adminToken(app);
+    const projectResponse = await app.request(
+      '/api/projects',
+      withBearer(
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: 'CI limit',
+            slug: 'ci-limit',
+            description: '',
+          }),
+        },
+        sessionToken
+      )
+    );
+    const project = (await projectResponse.json()) as { id: string };
+    const tokenResponse = await app.request(
+      `/api/projects/${project.id}/api-tokens`,
+      withBearer(
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name: 'CI limit token' }),
+        },
+        sessionToken
+      )
+    );
+    const credential = (await tokenResponse.json()) as {
+      plaintextToken: string;
+    };
+
+    const response = await app.request(
+      `/api/ci/projects/${project.id}/versions`,
+      withBearer(
+        {
+          method: 'POST',
+          headers: {
+            'Idempotency-Key': 'oversized-build',
+            'Content-Type': 'multipart/form-data; boundary=test',
+            'Content-Length': '33',
+          },
+          body: 'x'.repeat(33),
+        },
+        credential.plaintextToken
+      )
+    );
+    expect(response.status).toBe(413);
+    expect((await response.json()).error.code).toBe('UPLOAD_TOO_LARGE');
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test('limits concurrent uploads globally and per project', async () => {
   let unblock: (() => void) | undefined;
   let signalStarted: (() => void) | undefined;
@@ -113,4 +176,59 @@ test('limits concurrent uploads globally and per project', async () => {
   expect(second.status).toBe(429);
   expect((await second.json()).error.code).toBe('UPLOAD_BUSY');
   expect((await first).status).toBe(200);
+});
+
+test('admits exactly one redacted upload principal type', async () => {
+  const gate = createUploadGate({
+    maxConcurrentUploads: 1,
+    maxConcurrentUploadsPerUser: 1,
+    maxConcurrentUploadsPerProject: 1,
+  });
+  const app = new Hono<AppEnv>()
+    .use('*', async (c, next) => {
+      const identity = c.req.header('X-Test-Identity');
+      c.set('user', identity === 'user' || identity === 'both' ? user : null);
+      c.set(
+        'apiToken',
+        identity === 'token' || identity === 'both'
+          ? {
+              tokenId: 'token-1',
+              projectId: 'project-1',
+              prefix: 'dpk_v1.token-1',
+              scopes: ['preview:upload'],
+              actorId: 'api-token:token-1',
+            }
+          : null
+      );
+      await next();
+    })
+    .post('/api/projects/:id/versions', gate, (c) => c.json({ ok: true }))
+    .onError((error, c) => {
+      if (error instanceof ApiError) {
+        return c.json(
+          { error: { code: error.code, message: error.message } },
+          error.status
+        );
+      }
+      throw error;
+    });
+
+  for (const identity of ['user', 'token']) {
+    expect(
+      (
+        await app.request('/api/projects/project-1/versions', {
+          method: 'POST',
+          headers: { 'X-Test-Identity': identity },
+        })
+      ).status
+    ).toBe(200);
+  }
+  for (const identity of ['none', 'both']) {
+    const response = await app.request('/api/projects/project-1/versions', {
+      method: 'POST',
+      headers: { 'X-Test-Identity': identity },
+    });
+    expect(response.status).toBe(401);
+    expect((await response.json()).error.code).toBe('UNAUTHORIZED');
+  }
 });

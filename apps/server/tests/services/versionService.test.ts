@@ -16,6 +16,7 @@ import type { AppConfig } from '../../src/config';
 import { ApiError, ErrorCode } from '../../src/errors';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
 import { checksumDirectory } from '../../src/services/artifactService';
+import type { ApiTokenPrincipal } from '../../src/services/contracts';
 import { createVersionService } from '../../src/services/versionService';
 
 function version(id: string): Version {
@@ -230,6 +231,108 @@ describe('createVersionService', () => {
       expect(existsSync(projectRoot) ? readdirSync(projectRoot) : []).toEqual(
         []
       );
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('removes the duplicate artifact when a CI upload replays', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.activeVersionId = null;
+    demoProject.versions = [version('original')];
+    writeArtifact(storageDir, demoProject.versions[0]);
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+      commitVersionUpload: () => ({
+        outcome: 'replayed',
+        version: { id: 'original', name: 'original' },
+      }),
+    };
+
+    try {
+      const result = await createVersionService(repo, config(storageDir), {
+        apiTokenService: { revalidatePrincipal: () => {} },
+      }).uploadCiVersion(
+        'p1',
+        {
+          versionDesc: 'same build',
+          file: null,
+          folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+        },
+        apiTokenPrincipal(),
+        'build-1'
+      );
+
+      expect(result).toEqual({
+        version: { id: 'original', name: 'original' },
+        replayed: true,
+      });
+      expect(readdirSync(join(storageDir, 'p1'))).toEqual(['original']);
+      expect(data.projects[0].versions).toHaveLength(1);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
+  test('removes a promoted CI artifact when the atomic commit fails', async () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.activeVersionId = null;
+    demoProject.versions = [];
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => data,
+      save: () => {},
+      mutate: (operation) => operation(data),
+      commitVersionUpload: () => {
+        throw new Error('injected atomic commit failure');
+      },
+    };
+
+    try {
+      await expect(
+        createVersionService(repo, config(storageDir), {
+          apiTokenService: { revalidatePrincipal: () => {} },
+        }).uploadCiVersion(
+          'p1',
+          {
+            versionDesc: 'failed CI build',
+            file: null,
+            folderFiles: [new File(['<html>ready</html>'], 'index.html')],
+          },
+          apiTokenPrincipal(),
+          'build-failed'
+        )
+      ).rejects.toThrow('injected atomic commit failure');
+      expect(
+        existsSync(join(storageDir, 'p1'))
+          ? readdirSync(join(storageDir, 'p1'))
+          : []
+      ).toEqual([]);
+      expect(data.projects[0].versions).toHaveLength(0);
+      expect(data.history).toHaveLength(0);
     } finally {
       rmSync(storageDir, { recursive: true, force: true });
     }
@@ -638,3 +741,13 @@ describe('createVersionService', () => {
     }
   });
 });
+
+function apiTokenPrincipal(): ApiTokenPrincipal {
+  return {
+    tokenId: 'token-1',
+    projectId: 'p1',
+    prefix: 'dpk_v1.token-1',
+    scopes: ['preview:upload'],
+    actorId: 'api-token:token-1',
+  };
+}

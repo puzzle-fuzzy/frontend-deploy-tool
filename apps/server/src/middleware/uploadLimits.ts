@@ -23,12 +23,18 @@ export function createUploadGate(
   options: UploadGateOptions
 ): MiddlewareHandler<AppEnv> {
   let activeUploads = 0;
-  const activeByUser = new Map<string, number>();
+  const activeByPrincipal = new Map<string, number>();
   const activeByProject = new Map<string, number>();
 
   return async (c, next) => {
-    const actor = c.get('user');
-    if (!actor) {
+    const user = c.get('user');
+    const apiToken = c.get('apiToken');
+    let principalKey: string;
+    if (user && !apiToken) {
+      principalKey = `user:${user.id}`;
+    } else if (apiToken && !user) {
+      principalKey = `api-token:${apiToken.tokenId}`;
+    } else {
       throw new ApiError(
         ErrorCode.UNAUTHORIZED,
         'Authentication required',
@@ -36,12 +42,12 @@ export function createUploadGate(
       );
     }
     const projectId = parseIdParam(c.req.param('id'));
-    const userCount = activeByUser.get(actor.id) ?? 0;
+    const principalCount = activeByPrincipal.get(principalKey) ?? 0;
     const projectCount = activeByProject.get(projectId) ?? 0;
 
     if (
       activeUploads >= options.maxConcurrentUploads ||
-      userCount >= options.maxConcurrentUploadsPerUser ||
+      principalCount >= options.maxConcurrentUploadsPerUser ||
       projectCount >= options.maxConcurrentUploadsPerProject
     ) {
       throw new ApiError(
@@ -52,13 +58,13 @@ export function createUploadGate(
     }
 
     activeUploads += 1;
-    activeByUser.set(actor.id, userCount + 1);
+    activeByPrincipal.set(principalKey, principalCount + 1);
     activeByProject.set(projectId, projectCount + 1);
     try {
       await next();
     } finally {
       activeUploads -= 1;
-      decrement(activeByUser, actor.id);
+      decrement(activeByPrincipal, principalKey);
       decrement(activeByProject, projectId);
     }
   };

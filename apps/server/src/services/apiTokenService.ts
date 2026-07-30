@@ -306,6 +306,71 @@ export function createApiTokenService({
         actorId: `api-token:${token.id}`,
       };
     },
+
+    revalidatePrincipal(
+      principal: ApiTokenPrincipal,
+      projectId: string,
+      requiredScope: ApiTokenScope
+    ): void {
+      const token = repository.findById(principal.tokenId);
+      if (
+        !token ||
+        principal.projectId !== projectId ||
+        token.projectId !== projectId ||
+        token.prefix !== principal.prefix ||
+        principal.actorId !== `api-token:${token.id}`
+      ) {
+        throw invalidToken();
+      }
+
+      let projectName: string;
+      try {
+        projectName = getProjectName(token.projectId);
+      } catch {
+        throw invalidToken();
+      }
+      const authenticatedAt = now();
+      if (token.revokedAt !== null) {
+        recordAuthenticationFailure(
+          token,
+          projectName,
+          'revoked',
+          authenticatedAt
+        );
+        throw new ApiError(
+          ErrorCode.API_TOKEN_REVOKED,
+          'API token is revoked',
+          401
+        );
+      }
+      const expiresAt = Date.parse(token.expiresAt);
+      if (!Number.isFinite(expiresAt) || expiresAt <= authenticatedAt) {
+        recordAuthenticationFailure(
+          token,
+          projectName,
+          'expired',
+          authenticatedAt
+        );
+        throw new ApiError(
+          ErrorCode.API_TOKEN_EXPIRED,
+          'API token is expired',
+          401
+        );
+      }
+      if (!token.scopes.includes(requiredScope)) {
+        recordAuthenticationFailure(
+          token,
+          projectName,
+          'scope_missing',
+          authenticatedAt
+        );
+        throw new ApiError(
+          ErrorCode.API_TOKEN_SCOPE_REQUIRED,
+          'API token scope is required',
+          403
+        );
+      }
+    },
   };
 }
 

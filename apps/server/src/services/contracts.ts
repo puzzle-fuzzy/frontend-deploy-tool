@@ -35,6 +35,10 @@ import type { ReleaseCommand } from '../domain/version';
 export type AppEnv = {
   Variables: {
     user: SafeUser | null;
+    /** Redacted automation identity populated only on the dedicated CI API. */
+    apiToken: ApiTokenPrincipal | null;
+    /** Validated CI idempotency key; never written to logs or history. */
+    ciIdempotencyKey: string | null;
     /** Durable session id for the authenticated request. */
     sessionId: string | null;
     /** Correlation id populated by Hono's request-id middleware. */
@@ -98,6 +102,15 @@ export interface ApiTokenService {
     projectId: string,
     requiredScope: ApiTokenScope
   ): ApiTokenPrincipal;
+  /**
+   * Re-reads current token state after long-running artifact processing.
+   * Durable commits still repeat this check inside their SQLite transaction.
+   */
+  revalidatePrincipal(
+    principal: ApiTokenPrincipal,
+    projectId: string,
+    requiredScope: ApiTokenScope
+  ): void;
 }
 
 export interface ProjectService {
@@ -155,6 +168,15 @@ export interface VersionService {
     input: UploadVersionInput,
     actorId: string
   ): Promise<{ version: { id: string; name: string } }>;
+  uploadCiVersion(
+    projectId: string,
+    input: UploadVersionInput,
+    principal: ApiTokenPrincipal,
+    idempotencyKey: string
+  ): Promise<{
+    version: { id: string; name: string };
+    replayed: boolean;
+  }>;
   publishVersion(
     projectId: string,
     versionId: string,

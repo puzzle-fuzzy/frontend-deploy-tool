@@ -34,6 +34,7 @@ import {
 } from './repositories/sessionRepository';
 import { createSqliteArtifactAuditJobRepository } from './repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
+import { createCiVersionRoutes } from './routes/ciVersions';
 import { createDeployRoutes } from './routes/deploy';
 import { createApiTokenService } from './services/apiTokenService';
 import {
@@ -234,6 +235,7 @@ function composeApp(
   });
   const versionService = createVersionService(repo, config, {
     artifactRecovery,
+    apiTokenService,
   });
   const artifactAuditService = createArtifactAuditService(
     repo,
@@ -310,6 +312,11 @@ function composeApp(
     cancelArtifactAuditJob,
     artifactAuditPollIntervalMs: config.artifactAuditPollIntervalMs ?? 1_000,
   });
+  const ciApp = createCiVersionRoutes({
+    apiTokenService,
+    versionService,
+    uploadRouteLimits,
+  });
 
   const app = new Hono<AppEnv>()
     .use('*', requestId())
@@ -329,6 +336,9 @@ function composeApp(
         managementBaseURL: config.managementBaseURL,
       })
     )
+    .route('/api/ci', ciApp)
+    .all('/api/ci', (c) => c.notFound())
+    .all('/api/ci/*', (c) => c.notFound())
     .route('/', apiApp)
     .get('/health/live', (c) => c.body(null, 204))
     .get('/health/ready', (c) => {

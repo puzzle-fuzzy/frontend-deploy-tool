@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type {
+  ApiTokenScope,
   ArtifactAuditJob,
   ArtifactAuditReport,
   Data,
@@ -12,7 +13,10 @@ import type {
   User,
   Version,
 } from '@deploykit/shared';
-import { artifactAuditReportSchema } from '@deploykit/shared';
+import {
+  apiTokenScopeSchema,
+  artifactAuditReportSchema,
+} from '@deploykit/shared';
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -29,6 +33,8 @@ import {
 } from './artifactAuditJobMapper';
 import { createJsonProjectRepository } from './jsonProjectRepository';
 import type {
+  CommitVersionUploadInput,
+  CommitVersionUploadResult,
   HistoryPageRequest,
   ProjectRepository,
 } from './projectRepository';
@@ -187,6 +193,108 @@ export function createSqliteProjectRepository({
       });
     },
 
+    commitVersionUpload(input, operation) {
+      return withDatabase((database) => {
+        const commit = database.transaction(
+          (
+            nextInput: CommitVersionUploadInput,
+            nextOperation: (data: Data) => void
+          ): CommitVersionUploadResult => {
+            database
+              .query(
+                `DELETE FROM ci_idempotency_records
+                 WHERE expires_at <= ?`
+              )
+              .run(nextInput.committedAt);
+
+            const tokenState = readCiTokenState(database, nextInput.tokenId);
+            if (!tokenState) {
+              return { outcome: 'token-inactive', reason: 'missing' };
+            }
+            if (tokenState.projectId !== nextInput.projectId) {
+              return {
+                outcome: 'token-inactive',
+                reason: 'project_mismatch',
+              };
+            }
+            if (tokenState.revokedAt !== null) {
+              return { outcome: 'token-inactive', reason: 'revoked' };
+            }
+            const tokenExpiresAt = Date.parse(tokenState.expiresAt);
+            const committedAt = Date.parse(nextInput.committedAt);
+            if (
+              !Number.isFinite(tokenExpiresAt) ||
+              !Number.isFinite(committedAt) ||
+              tokenExpiresAt <= committedAt
+            ) {
+              return { outcome: 'token-inactive', reason: 'expired' };
+            }
+            if (!tokenState.scopes.includes(nextInput.requiredScope)) {
+              return { outcome: 'token-inactive', reason: 'scope_missing' };
+            }
+
+            const existing = database
+              .query<
+                {
+                  request_digest: string;
+                  version_id: string;
+                  version_name: string;
+                },
+                [string, string, string]
+              >(
+                `SELECT request_digest, version_id, version_name
+                 FROM ci_idempotency_records
+                 WHERE project_id = ? AND token_id = ?
+                   AND idempotency_key = ?`
+              )
+              .get(
+                nextInput.projectId,
+                nextInput.tokenId,
+                nextInput.idempotencyKey
+              );
+            if (existing) {
+              return existing.request_digest === nextInput.requestDigest
+                ? {
+                    outcome: 'replayed',
+                    version: {
+                      id: existing.version_id,
+                      name: existing.version_name,
+                    },
+                  }
+                : { outcome: 'conflict' };
+            }
+
+            const data = loadRelationalData(database);
+            const before = structuredClone(data);
+            nextOperation(data);
+            persistDomainDiff(database, before, data);
+            database
+              .query(
+                `INSERT INTO ci_idempotency_records (
+                   project_id, token_id, idempotency_key, request_digest,
+                   version_id, version_name, created_at, expires_at
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+              )
+              .run(
+                nextInput.projectId,
+                nextInput.tokenId,
+                nextInput.idempotencyKey,
+                nextInput.requestDigest,
+                nextInput.version.id,
+                nextInput.version.name,
+                nextInput.committedAt,
+                nextInput.expiresAt
+              );
+            return {
+              outcome: 'created',
+              version: { ...nextInput.version },
+            };
+          }
+        );
+        return commit.immediate(input, operation);
+      });
+    },
+
     listHistoryPage(
       request
     ): ReturnType<NonNullable<ProjectRepository['listHistoryPage']>> {
@@ -194,6 +302,50 @@ export function createSqliteProjectRepository({
         listSqliteHistoryPage(database, request)
       );
     },
+  };
+}
+
+interface CiTokenState {
+  projectId: string;
+  scopes: ApiTokenScope[];
+  expiresAt: string;
+  revokedAt: string | null;
+}
+
+function readCiTokenState(
+  database: Database,
+  tokenId: string
+): CiTokenState | null {
+  const row = database
+    .query<
+      {
+        project_id: string;
+        scopes_json: string;
+        expires_at: string;
+        revoked_at: string | null;
+      },
+      [string]
+    >(
+      `SELECT project_id, scopes_json, expires_at, revoked_at
+       FROM project_api_tokens
+       WHERE id = ?`
+    )
+    .get(tokenId);
+  if (!row) return null;
+
+  let scopes: ApiTokenScope[];
+  try {
+    const parsed = JSON.parse(row.scopes_json);
+    if (!Array.isArray(parsed)) return null;
+    scopes = parsed.map((scope) => apiTokenScopeSchema.parse(scope));
+  } catch {
+    scopes = [];
+  }
+  return {
+    projectId: row.project_id,
+    scopes,
+    expiresAt: row.expires_at,
+    revokedAt: row.revoked_at,
   };
 }
 
