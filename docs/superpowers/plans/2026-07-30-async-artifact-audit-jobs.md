@@ -252,13 +252,13 @@ interface ArtifactAuditExecutor {
 }
 ```
 
-- [ ] **Step 1: Write executor protocol tests**
+- [x] **Step 1: Write executor protocol tests**
 
 Cover valid output, non-zero exit, invalid/oversized JSON, stderr sanitization,
 timeout, and abort. Use a fixture runner injection for failure cases and one
 real subprocess test for the production entrypoint.
 
-- [ ] **Step 2: Run the executor test and observe missing adapter**
+- [x] **Step 2: Run the executor test and observe missing adapter**
 
 Run:
 
@@ -268,14 +268,14 @@ bun test apps/server/tests/services/artifactAuditExecutor.test.ts
 
 Expected: failure because the executor module is absent.
 
-- [ ] **Step 3: Implement the child entrypoint**
+- [x] **Step 3: Implement the child entrypoint**
 
 Read exactly one JSON request from stdin, validate it, call
 `auditArtifactDirectory`, validate the result schema, write exactly one JSON
 object to stdout, and send diagnostics only to stderr. Exit non-zero on any
 uncaught error.
 
-- [ ] **Step 4: Implement the parent adapter**
+- [x] **Step 4: Implement the parent adapter**
 
 Use:
 
@@ -296,11 +296,11 @@ Require exit code zero, cap diagnostic text, parse and validate stdout, and
 convert infrastructure errors to stable retryable failures without exposing
 absolute paths.
 
-- [ ] **Step 5: Run executor and engine tests**
+- [x] **Step 5: Run executor and engine tests**
 
 Expected: executor and existing engine tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/server/src/services/artifactAuditExecutor.ts \
