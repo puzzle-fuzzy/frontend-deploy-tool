@@ -1,0 +1,22 @@
+{
+  "formatVersion": 1,
+  "createdAt": "2026-07-01T00:00:00.000Z",
+  "schemaVersion": 5,
+  "databaseFile": "deploykit-v5.sqlite",
+  "storageDirectory": "storage",
+  "metadataCounts": {
+    "users": 0,
+    "projects": 1,
+    "versions": 0,
+    "artifactAudits": 0,
+    "artifactAuditJobs": 0,
+    "auditEvents": 0,
+    "releases": 0,
+    "sessions": 0
+  },
+  "artifactCounts": {
+    "files": 0,
+    "bytes": 0,
+    "deployableVersions": 0
+  }
+}
