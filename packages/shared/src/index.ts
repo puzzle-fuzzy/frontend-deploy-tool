@@ -5,6 +5,8 @@ export type {
   ArtifactAuditExtension,
   ArtifactAuditFile,
   ArtifactAuditJob,
+  ArtifactAuditJobListQuery,
+  ArtifactAuditJobPage,
   ArtifactAuditJobStatus,
   ArtifactAuditPolicy,
   ArtifactAuditReport,

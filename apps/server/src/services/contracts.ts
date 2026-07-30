@@ -1,5 +1,6 @@
 import type {
   ArtifactAuditJob,
+  ArtifactAuditJobPage,
   ArtifactAuditPolicy,
   ArtifactAuditReport,
   CreateProjectInput,
@@ -139,6 +140,11 @@ export interface ArtifactAuditJobApiService {
     actorId: string
   ): { job: ArtifactAuditJob; reused: boolean };
   get(projectId: string, versionId: string, jobId: string): ArtifactAuditJob;
+  list(
+    projectId: string,
+    versionId: string,
+    query?: { limit?: string; cursor?: string; status?: string }
+  ): ArtifactAuditJobPage;
   cancel(
     projectId: string,
     versionId: string,

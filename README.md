@@ -162,6 +162,10 @@ deploykit/
 | `ARTIFACT_AUDIT_TIMEOUT_MS` | `60000` | 单个隔离审计子进程的硬超时 |
 | `ARTIFACT_AUDIT_LEASE_MS` | `90000` | 任务租约；必须大于审计超时 |
 | `ARTIFACT_AUDIT_MAX_ATTEMPTS` | `3` | 可重试失败的最大执行次数（上限 10） |
+| `ARTIFACT_AUDIT_MAX_ACTIVE_JOBS` | `100` | 全局排队/运行中审计任务上限 |
+| `ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER` | `25` | 单请求者排队/运行中审计任务上限，不得超过全局上限 |
+| `ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT` | `10` | 单项目排队/运行中审计任务上限，不得超过全局上限 |
+| `ARTIFACT_AUDIT_JOB_RETENTION_HOURS` | `168` | 终态任务传输记录可被显式清理前的保留时长 |
 
 前端（[apps/web/.env.example](apps/web/.env.example)）：
 
@@ -226,6 +230,7 @@ deploykit/
 | POST | `/api/projects/:id/versions/:vid/audit` | 运行静态产物审计（developer 项目成员/admin） | — |
 | GET | `/api/projects/:id/versions/:vid/audit` | 获取该版本当前审计报告（可读取该项目的用户/admin） | — |
 | POST | `/api/projects/:id/versions/:vid/audit-jobs` | 创建或复用活动审计任务，返回 `202`（developer 项目成员/admin） | — |
+| GET | `/api/projects/:id/versions/:vid/audit-jobs` | 按创建时间倒序分页列出任务，可用 `status` 筛选（可读取该项目的用户/admin） | 查询：`limit`、`cursor`、`status` |
 | GET | `/api/projects/:id/versions/:vid/audit-jobs/:jobId` | 轮询持久化任务状态（可读取该项目的用户/admin） | — |
 | DELETE | `/api/projects/:id/versions/:vid/audit-jobs/:jobId` | 取消排队/运行中的任务（developer 项目成员/admin） | — |
 
@@ -302,6 +307,8 @@ bun run ops -- backup [目标目录]
 bun run ops -- verify <备份目录>
 bun run ops -- gc --dry-run
 bun run ops -- gc
+bun run ops -- audit-jobs-prune --dry-run
+bun run ops -- audit-jobs-prune
 bun run ops -- inspect [projectId versionId]
 bun run ops -- restore <备份目录> --force
 ```
@@ -316,6 +323,8 @@ bun run ops -- restore <备份目录> --force
   版本缺失或被篡改，它会下线该版本但不会自动选择替代版本。
 - `gc --dry-run` 只报告过期项；不带 `--dry-run` 才会删除过期 staging、已提交
   trash 和 orphan。未提交 trash 不会自动删除。
+- `audit-jobs-prune --dry-run` 只报告达到任务保留期的终态传输记录；不带
+  `--dry-run` 时每次最多删除 1000 条。详细报告、历史和发布台账不受影响。
 - `restore` 是破坏性运维，必须先停止 DeployKit 服务并显式传入 `--force`。
   安装备份前，当前数据库、journal/WAL/SHM 和产物会保存到数据库同目录的
   `.deploykit-rollback/{operationId}/`；安装失败会尽力恢复每个资源并保留已经

@@ -46,6 +46,10 @@ describe('loadConfig', () => {
       artifactAuditTimeoutMs: 60_000,
       artifactAuditLeaseMs: 90_000,
       artifactAuditMaxAttempts: 3,
+      artifactAuditMaxActiveJobs: 100,
+      artifactAuditMaxActiveJobsPerRequester: 25,
+      artifactAuditMaxActiveJobsPerProject: 10,
+      artifactAuditJobRetentionHours: 168,
     });
   });
 
@@ -98,6 +102,10 @@ describe('loadConfig', () => {
       artifactAuditTimeoutMs: 60_000,
       artifactAuditLeaseMs: 90_000,
       artifactAuditMaxAttempts: 3,
+      artifactAuditMaxActiveJobs: 100,
+      artifactAuditMaxActiveJobsPerRequester: 25,
+      artifactAuditMaxActiveJobsPerProject: 10,
+      artifactAuditJobRetentionHours: 168,
     });
   });
 
@@ -286,6 +294,15 @@ describe('loadConfig', () => {
       loadConfig({ appDir, env: { ARTIFACT_AUDIT_MAX_ATTEMPTS: '11' } })
     ).toThrow('Invalid ARTIFACT_AUDIT_MAX_ATTEMPTS');
     expect(() =>
+      loadConfig({ appDir, env: { ARTIFACT_AUDIT_MAX_ACTIVE_JOBS: '0' } })
+    ).toThrow('Invalid ARTIFACT_AUDIT_MAX_ACTIVE_JOBS');
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: { ARTIFACT_AUDIT_JOB_RETENTION_HOURS: '-1' },
+      })
+    ).toThrow('Invalid ARTIFACT_AUDIT_JOB_RETENTION_HOURS');
+    expect(() =>
       loadConfig({
         appDir,
         env: {
@@ -320,6 +337,10 @@ describe('loadConfig', () => {
         ARTIFACT_AUDIT_TIMEOUT_MS: '70000',
         ARTIFACT_AUDIT_LEASE_MS: '100000',
         ARTIFACT_AUDIT_MAX_ATTEMPTS: '5',
+        ARTIFACT_AUDIT_MAX_ACTIVE_JOBS: '12',
+        ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER: '6',
+        ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT: '3',
+        ARTIFACT_AUDIT_JOB_RETENTION_HOURS: '72',
       },
     });
 
@@ -341,6 +362,40 @@ describe('loadConfig', () => {
     expect(config.artifactAuditTimeoutMs).toBe(70_000);
     expect(config.artifactAuditLeaseMs).toBe(100_000);
     expect(config.artifactAuditMaxAttempts).toBe(5);
+    expect(config.artifactAuditMaxActiveJobs).toBe(12);
+    expect(config.artifactAuditMaxActiveJobsPerRequester).toBe(6);
+    expect(config.artifactAuditMaxActiveJobsPerProject).toBe(3);
+    expect(config.artifactAuditJobRetentionHours).toBe(72);
+  });
+
+  test('rejects queue sub-limits above global for loaded and manual config', () => {
+    expect(() =>
+      loadConfig({
+        appDir,
+        env: {
+          ARTIFACT_AUDIT_MAX_ACTIVE_JOBS: '2',
+          ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER: '3',
+        },
+      })
+    ).toThrow(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER must not exceed ARTIFACT_AUDIT_MAX_ACTIVE_JOBS'
+    );
+    expect(() =>
+      validateAppConfig({
+        dataFile: join(appDir, 'data.json'),
+        storageDir: join(appDir, 'storage'),
+        publicDir: join(appDir, 'public'),
+        adminEmail: 'admin@test.local',
+        adminPassword: '',
+        secureCookies: false,
+        registrationEnabled: true,
+        artifactAuditMaxActiveJobs: 2,
+        artifactAuditMaxActiveJobsPerRequester: 1,
+        artifactAuditMaxActiveJobsPerProject: 3,
+      })
+    ).toThrow(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT must not exceed ARTIFACT_AUDIT_MAX_ACTIVE_JOBS'
+    );
   });
 
   test('normalizes configured origins and derives secure cookies from management', () => {

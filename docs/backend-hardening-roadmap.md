@@ -141,6 +141,12 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
   端点保持兼容。
 - 任务按 checksum、引擎和策略快照去重，领取使用有期限租约和心跳；崩溃或
   过期后指数退避重试，最大尝试次数受配置约束。
+- 审计任务状态机由独立 SQLite 仓库按行更新；每次轮询同时恢复过期租约并至多
+  领取一项，空队列不产生业务写入。全局/请求者/项目 admission limit 在同一
+  `BEGIN IMMEDIATE` 中校验，集合 API 使用稳定 keyset 游标。
+- 终态任务传输记录按配置保留，并由
+  `bun run ops -- audit-jobs-prune [--dry-run]` 分批清理；报告、历史和发布台账
+  长期保留。
 - 扫描运行在超时和输出受限的 Bun 子进程中；取消、租约丢失、策略变化或产物
   变化都会阻止迟到结果写入。
 - Worker 停机与 HTTP drain 并行启动，二者结束后才 checkpoint SQLite。
@@ -148,11 +154,11 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 完成门槛：审计器失败不会损坏上传；任务能跨重启恢复且并发 Worker 不能重复
 完成；用户能看到可解释的检查结果；阻止发布必须由项目策略显式开启。
 
-验证证据：全仓 `bun run verify` 通过（server 292、client 40、desktop 23，
+历史验证证据：全仓 `bun run verify` 通过（server 292、client 40、desktop 23，
 secret scanner 2）；精确覆盖关系型 v3 -> v4 与文档 v7 -> v8 的迁移前备份。
 生产双域真实进程完成“注册 → 上传/审计 v1 → blocking 发布 → 上传 v2 →
-SIGTERM → 同库重启恢复任务 → 发布 v2 → 手动回退 v1”。最终 SQLite schema v4、
-`integrity_check=ok`、外键违规 0、成功任务 2、报告 2、发布台账 3；管理源产物和
+SIGTERM → 同库重启恢复任务 → 发布 v2 → 手动回退 v1”。该次验证最终 SQLite
+schema v4；`integrity_check=ok`、外键违规 0、成功任务 2、报告 2、发布台账 3；管理源产物和
 部署源 API 均返回 404，任务指标活动数归零且不包含任何项目/版本/任务 ID。
 
 ## 动态调整规则

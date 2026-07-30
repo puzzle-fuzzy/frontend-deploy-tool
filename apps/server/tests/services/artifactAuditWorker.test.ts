@@ -11,11 +11,11 @@ describe('createArtifactAuditWorker', () => {
     const job = jobFixture();
     const result = auditResultFixture();
     const service = serviceFixture({
-      claim: () => {
+      recoverAndClaim: () => {
         calls.push('claim');
         return { job, artifactDir: '/tmp/artifact' };
       },
-      complete: (_jobId, _workerId, received) => {
+      complete: (_job, _workerId, received) => {
         calls.push(`complete:${received.artifactChecksum}`);
         return { ...job, status: 'succeeded' };
       },
@@ -52,7 +52,7 @@ describe('createArtifactAuditWorker', () => {
     const failures: unknown[] = [];
     const failure = new Error('audit crashed');
     const service = serviceFixture({
-      claim: () => ({ job, artifactDir: '/tmp/artifact' }),
+      recoverAndClaim: () => ({ job, artifactDir: '/tmp/artifact' }),
       fail: (_jobId, _workerId, error) => {
         failures.push(error);
         return { ...job, status: 'queued' };
@@ -79,7 +79,7 @@ describe('createArtifactAuditWorker', () => {
     let heartbeat: (() => void) | undefined;
     let failedWith: unknown;
     const service = serviceFixture({
-      claim: () => ({ job, artifactDir: '/tmp/artifact' }),
+      recoverAndClaim: () => ({ job, artifactDir: '/tmp/artifact' }),
       heartbeat: () => null,
       fail: (_jobId, _workerId, error) => {
         failedWith = error;
@@ -119,7 +119,7 @@ describe('createArtifactAuditWorker', () => {
     const job = jobFixture();
     const calls: string[] = [];
     const service = serviceFixture({
-      claim: () => ({ job, artifactDir: '/tmp/artifact' }),
+      recoverAndClaim: () => ({ job, artifactDir: '/tmp/artifact' }),
       fail: () => {
         calls.push('failed');
         return { ...job, status: 'queued' };
@@ -155,15 +155,11 @@ describe('createArtifactAuditWorker', () => {
     expect(await worker.runOnce()).toBe(false);
   });
 
-  test('sweeps expired leases and schedules polling exactly once', async () => {
+  test('recovers leases through each claim and schedules polling exactly once', async () => {
     const calls: string[] = [];
     let poll: (() => void) | undefined;
     const service = serviceFixture({
-      sweepExpired: () => {
-        calls.push('sweep');
-        return 2;
-      },
-      claim: () => {
+      recoverAndClaim: () => {
         calls.push('claim');
         return null;
       },
@@ -182,6 +178,7 @@ describe('createArtifactAuditWorker', () => {
         return 'poll';
       },
       cancelInterval: () => calls.push('clear'),
+      logger: (message) => calls.push(`log:${message}`),
     });
 
     worker.start();
@@ -191,10 +188,10 @@ describe('createArtifactAuditWorker', () => {
     await Promise.resolve();
     await worker.stop();
 
-    expect(calls.filter((call) => call === 'sweep')).toHaveLength(1);
     expect(calls.filter((call) => call === 'schedule')).toHaveLength(1);
     expect(calls.filter((call) => call === 'claim')).toHaveLength(2);
     expect(calls.filter((call) => call === 'clear')).toHaveLength(1);
+    expect(calls.filter((call) => call.startsWith('log:'))).toEqual([]);
   });
 });
 
@@ -205,13 +202,19 @@ function serviceFixture(
   const defaults: ArtifactAuditJobService = {
     enqueue: () => ({ job, reused: false }),
     get: () => job,
+    list: () => ({ items: [], nextCursor: null }),
     cancel: () => ({ ...job, status: 'canceled' }),
-    claim: () => null,
+    recoverAndClaim: () => null,
     heartbeat: () => job,
     complete: () => ({ ...job, status: 'succeeded' }),
     fail: () => ({ ...job, status: 'failed' }),
-    sweepExpired: () => 0,
-    countActive: () => ({ queued: 0, running: 0 }),
+    health: () => ({
+      queued: 0,
+      running: 0,
+      oldestQueuedAt: null,
+      oldestQueuedAgeSeconds: 0,
+      terminal: { succeeded: 0, failed: 0, canceled: 0 },
+    }),
   };
   return { ...defaults, ...overrides };
 }

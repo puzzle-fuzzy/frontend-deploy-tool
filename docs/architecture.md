@@ -140,8 +140,10 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 
 产物审计保留同步兼容接口
 `POST/GET /api/projects/:id/versions/:versionId/audit`，并增加
-`POST/GET/DELETE .../audit-jobs[/jobId]`。异步 POST 返回 `202 { job, reused }`，
-GET 轮询持久化状态，DELETE 先持久化取消再中止本机子进程。活动任务按 checksum、
+`POST/GET/DELETE .../audit-jobs[/jobId]`。异步 POST 返回 `202 { job, reused }`
+及相对 `Location`/整数 `Retry-After`；集合 GET 使用绑定项目、版本、状态筛选和
+锚点任务 ID 的严格 Base64URL keyset 游标，单项 GET 轮询持久化状态，DELETE
+先持久化取消再中止本机子进程。活动任务按 checksum、
 引擎版本与策略快照去重；执行采用租约/心跳，崩溃或过期后有限重试。项目 owner 通过
 `PATCH /api/projects/:id/audit-policy` 在 `advisory` 与 `blocking` 间切换并
 配置体积预算。详细报告每个版本保留一份，运行历史写入追加式 `audit_events`。
@@ -175,8 +177,11 @@ apps/server/
   聚合写用例通过同步 `mutate` + `IMMEDIATE` 事务执行行级 upsert/delete，防止
   并发覆盖。审计事件只追加不截断，游标先解析到数据库自增序列，再按可见项目
   直接查询；发布、回滚与兼容 activate 会在同一事务写入独立 `releases` 台账。
-  `artifact_audit_jobs` 使用状态/领取顺序与租约索引；关系型 schema v3 升级到
-  v4 前创建 `.pre-relational-v4.bak`，文档 schema v7 升级到 v8 同样保留备份。
+  `artifact_audit_jobs` 由独立仓库按行维护 enqueue、领取/租约恢复、心跳、
+  完成、失败/重试、取消、分页、健康状态与批量清理；空轮询不重写聚合数据。
+  schema v5 在 v4 基础上增加活动任务部分唯一索引，以及领取、分页、过期租约和
+  终态保留索引；升级前创建 `.pre-relational-v5.bak`，重复活动任务会使迁移
+  fail closed。文档 schema v7 升级到 v8 同样保留备份。
 - 旧 `deploykit_state` 单行数据库会先通过 `VACUUM INTO` 创建
   `.pre-relational-v1.bak`，再在同一事务中导入关系表；旧 `data.json` 仅在空
   SQLite 首次初始化时导入，并保留 `.sqlite-migration.bak`。迁移标记保证重复

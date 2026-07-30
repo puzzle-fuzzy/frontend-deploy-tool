@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 4;
+export const RELATIONAL_SCHEMA_VERSION = 5;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -131,11 +131,35 @@ const RELATIONAL_SCHEMA_SQL = `
       status,
       next_run_at,
       priority DESC,
-      created_at
+      created_at ASC,
+      id ASC
     );
 
   CREATE INDEX IF NOT EXISTS artifact_audit_jobs_version_created_idx
-    ON artifact_audit_jobs(project_id, version_id, created_at DESC);
+    ON artifact_audit_jobs(project_id, version_id, created_at DESC, id DESC);
+
+  CREATE UNIQUE INDEX IF NOT EXISTS
+    artifact_audit_jobs_active_version_unique_idx
+    ON artifact_audit_jobs(project_id, version_id)
+    WHERE status IN ('queued', 'running');
+
+  CREATE INDEX IF NOT EXISTS artifact_audit_jobs_version_status_created_idx
+    ON artifact_audit_jobs(
+      project_id,
+      version_id,
+      status,
+      created_at DESC,
+      id DESC
+    );
+
+  CREATE INDEX IF NOT EXISTS artifact_audit_jobs_expired_lease_idx
+    ON artifact_audit_jobs(locked_until, id)
+    WHERE status = 'running';
+
+  CREATE INDEX IF NOT EXISTS artifact_audit_jobs_terminal_retention_idx
+    ON artifact_audit_jobs(completed_at, id)
+    WHERE status IN ('succeeded', 'failed', 'canceled')
+      AND completed_at IS NOT NULL;
 
   CREATE TABLE IF NOT EXISTS project_members (
     project_id TEXT NOT NULL,
@@ -351,6 +375,56 @@ export function upgradeRelationalSchema(
       .query(
         `INSERT INTO schema_migrations (version, applied_at)
          VALUES (4, ?)`
+      )
+      .run(new Date().toISOString());
+  }
+  if (fromVersion < 5) {
+    database.exec(`
+      CREATE UNIQUE INDEX artifact_audit_jobs_active_version_unique_idx
+        ON artifact_audit_jobs(project_id, version_id)
+        WHERE status IN ('queued', 'running');
+
+      DROP INDEX artifact_audit_jobs_claim_idx;
+      CREATE INDEX artifact_audit_jobs_claim_idx
+        ON artifact_audit_jobs(
+          status,
+          next_run_at,
+          priority DESC,
+          created_at ASC,
+          id ASC
+        );
+
+      DROP INDEX artifact_audit_jobs_version_created_idx;
+      CREATE INDEX artifact_audit_jobs_version_created_idx
+        ON artifact_audit_jobs(
+          project_id,
+          version_id,
+          created_at DESC,
+          id DESC
+        );
+
+      CREATE INDEX artifact_audit_jobs_version_status_created_idx
+        ON artifact_audit_jobs(
+          project_id,
+          version_id,
+          status,
+          created_at DESC,
+          id DESC
+        );
+
+      CREATE INDEX artifact_audit_jobs_expired_lease_idx
+        ON artifact_audit_jobs(locked_until, id)
+        WHERE status = 'running';
+
+      CREATE INDEX artifact_audit_jobs_terminal_retention_idx
+        ON artifact_audit_jobs(completed_at, id)
+        WHERE status IN ('succeeded', 'failed', 'canceled')
+          AND completed_at IS NOT NULL;
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (5, ?)`
       )
       .run(new Date().toISOString());
   }

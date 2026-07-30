@@ -14,6 +14,7 @@ export function createArtifactAuditRoutes(deps: {
   artifactAuditJobService: ArtifactAuditJobApiService;
   projectService: ProjectService;
   cancelArtifactAuditJob?: (jobId: string) => void;
+  artifactAuditPollIntervalMs?: number;
 }) {
   const { artifactAuditJobService, artifactAuditService, projectService } =
     deps;
@@ -57,12 +58,49 @@ export function createArtifactAuditRoutes(deps: {
         const projectId = parseIdParam(c.req.param('id'));
         const versionId = parseIdParam(c.req.param('versionId'));
         const actorId = c.get('user')?.id ?? 'system';
-        return c.json(
-          artifactAuditJobService.enqueue(projectId, versionId, actorId),
-          202
+        const result = artifactAuditJobService.enqueue(
+          projectId,
+          versionId,
+          actorId
         );
+        c.header(
+          'Location',
+          `/api/projects/${projectId}/versions/${versionId}/audit-jobs/${result.job.id}`
+        );
+        c.header(
+          'Retry-After',
+          String(
+            Math.max(
+              1,
+              Math.ceil((deps.artifactAuditPollIntervalMs ?? 1_000) / 1_000)
+            )
+          )
+        );
+        return c.json(result, 202);
       }
     )
+    .get('/api/projects/:id/versions/:versionId/audit-jobs', (c) => {
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      const actor = c.get('user');
+      if (!actor) {
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      }
+      // Scope authorization precedes opaque cursor parsing to avoid exposing
+      // whether a project/version or cursor anchor exists.
+      projectService.getProjectForActor(projectId, actor);
+      return c.json(
+        artifactAuditJobService.list(projectId, versionId, {
+          limit: c.req.query('limit'),
+          cursor: c.req.query('cursor'),
+          status: c.req.query('status'),
+        })
+      );
+    })
     .get('/api/projects/:id/versions/:versionId/audit-jobs/:jobId', (c) => {
       const projectId = parseIdParam(c.req.param('id'));
       const versionId = parseIdParam(c.req.param('versionId'));

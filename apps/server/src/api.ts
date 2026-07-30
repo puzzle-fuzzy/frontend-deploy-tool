@@ -86,6 +86,8 @@ export interface ApiDeps {
   };
   /** Aborts the local subprocess after a durable job cancellation. */
   cancelArtifactAuditJob?: (jobId: string) => void;
+  /** Poll interval used to derive the audit-job POST Retry-After hint. */
+  artifactAuditPollIntervalMs?: number;
 }
 
 /**
@@ -311,6 +313,7 @@ export function createApiApp(deps: ApiDeps) {
         artifactAuditService: deps.artifactAuditService,
         projectService: deps.projectService,
         cancelArtifactAuditJob: deps.cancelArtifactAuditJob,
+        artifactAuditPollIntervalMs: deps.artifactAuditPollIntervalMs,
       })
     )
     .route('/', createMemberRoutes({ projectService: deps.projectService }))

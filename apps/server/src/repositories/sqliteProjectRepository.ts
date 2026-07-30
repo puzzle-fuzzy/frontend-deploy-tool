@@ -12,10 +12,7 @@ import type {
   User,
   Version,
 } from '@deploykit/shared';
-import {
-  artifactAuditJobSchema,
-  artifactAuditReportSchema,
-} from '@deploykit/shared';
+import { artifactAuditReportSchema } from '@deploykit/shared';
 import {
   decodeHistoryCursor,
   encodeHistoryCursor,
@@ -26,6 +23,10 @@ import {
   createEmptyData,
   migrate,
 } from '../domain/schema';
+import {
+  type ArtifactAuditJobRow,
+  rowToArtifactAuditJob,
+} from './artifactAuditJobMapper';
 import { createJsonProjectRepository } from './jsonProjectRepository';
 import type {
   HistoryPageRequest,
@@ -125,30 +126,6 @@ interface ArtifactAuditRow {
   policy_json: string;
   summary_json: string;
   checks_json: string;
-}
-
-interface ArtifactAuditJobRow {
-  id: string;
-  project_id: string;
-  version_id: string;
-  requested_by: string;
-  status: ArtifactAuditJob['status'];
-  priority: number;
-  attempts: number;
-  max_attempts: number;
-  next_run_at: string;
-  locked_by: string | null;
-  locked_until: string | null;
-  artifact_checksum: string;
-  engine_version: number;
-  policy_json: string;
-  report_id: string | null;
-  error_code: string | null;
-  error_message: string | null;
-  created_at: string;
-  updated_at: string;
-  started_at: string | null;
-  completed_at: string | null;
 }
 
 export interface SqliteProjectRepositoryOptions {
@@ -477,32 +454,6 @@ function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
     policy: JSON.parse(row.policy_json) as ArtifactAuditReport['policy'],
     summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
     checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
-  });
-}
-
-function rowToArtifactAuditJob(row: ArtifactAuditJobRow): ArtifactAuditJob {
-  return artifactAuditJobSchema.parse({
-    id: row.id,
-    projectId: row.project_id,
-    versionId: row.version_id,
-    requestedBy: row.requested_by,
-    status: row.status,
-    priority: row.priority,
-    attempts: row.attempts,
-    maxAttempts: row.max_attempts,
-    nextRunAt: row.next_run_at,
-    lockedBy: row.locked_by,
-    lockedUntil: row.locked_until,
-    artifactChecksum: row.artifact_checksum,
-    engineVersion: row.engine_version,
-    policy: JSON.parse(row.policy_json) as ArtifactAuditJob['policy'],
-    reportId: row.report_id,
-    errorCode: row.error_code,
-    errorMessage: row.error_message,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    startedAt: row.started_at,
-    completedAt: row.completed_at,
   });
 }
 

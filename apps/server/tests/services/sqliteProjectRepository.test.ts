@@ -102,7 +102,7 @@ test('creates the normalized relational schema', () => {
   ]);
 });
 
-test('upgrades the deployed relational v3 schema to v4 with a backup', () => {
+test('upgrades the deployed relational v3 schema to v5 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -132,13 +132,13 @@ test('upgrades the deployed relational v3 schema to v4 with a backup', () => {
   verify.close();
 
   expect(loaded.artifactAuditJobs).toEqual([]);
-  expect(migration?.version).toBe(4);
+  expect(migration?.version).toBe(5);
   expect(jobColumns).toContain('locked_until');
   expect(jobColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
 });
 
-test('upgrades relational v1 through v4 with policy, audit, jobs, integrity, and backup', () => {
+test('upgrades relational v1 through v5 with policy, audit, jobs, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -205,11 +205,11 @@ test('upgrades relational v1 through v4 with policy, audit, jobs, integrity, and
   expect(columns).toContain('integrity_checked_at');
   expect(projectColumns).toContain('audit_enforcement');
   expect(projectColumns).toContain('audit_max_total_bytes');
-  expect(migration?.version).toBe(4);
-  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
+  expect(migration?.version).toBe(5);
+  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
 });
 
-test('upgrades the deployed relational v2 schema to v4 with a backup', () => {
+test('upgrades the deployed relational v2 schema to v5 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -254,10 +254,10 @@ test('upgrades the deployed relational v2 schema to v4 with a backup', () => {
   verify.close();
 
   expect(loaded.projects).toEqual([]);
-  expect(migration?.version).toBe(4);
+  expect(migration?.version).toBe(5);
   expect(auditColumns).toContain('engine_version');
   expect(auditColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v4.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v5.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {

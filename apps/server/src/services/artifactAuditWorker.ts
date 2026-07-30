@@ -94,7 +94,7 @@ export function createArtifactAuditWorker({
         },
         controller.signal
       );
-      jobService.complete(job.id, workerId, result);
+      jobService.complete(job, workerId, result);
     } catch (error) {
       try {
         jobService.fail(job.id, workerId, error);
@@ -116,11 +116,6 @@ export function createArtifactAuditWorker({
     start() {
       if (started || stopping) return;
       started = true;
-      try {
-        jobService.sweepExpired();
-      } catch (error) {
-        logger('Artifact audit lease sweep failed', error);
-      }
       void worker.runOnce();
       pollHandle = scheduleInterval(() => {
         void worker.runOnce();
@@ -132,7 +127,7 @@ export function createArtifactAuditWorker({
       if (stopping || activePromise) return false;
       let claimed: ClaimedArtifactAuditJob | null;
       try {
-        claimed = jobService.claim(workerId, leaseMs);
+        claimed = jobService.recoverAndClaim(workerId, leaseMs);
       } catch (error) {
         logger('Artifact audit claim failed', error);
         return false;

@@ -66,6 +66,14 @@ export interface AppConfig {
   artifactAuditLeaseMs?: number;
   /** Maximum attempts before an artifact audit job becomes terminal. */
   artifactAuditMaxAttempts?: number;
+  /** Maximum queued/running audit jobs across the installation. */
+  artifactAuditMaxActiveJobs?: number;
+  /** Maximum queued/running audit jobs requested by one user. */
+  artifactAuditMaxActiveJobsPerRequester?: number;
+  /** Maximum queued/running audit jobs belonging to one project. */
+  artifactAuditMaxActiveJobsPerProject?: number;
+  /** Retain terminal audit-job transport rows for this many hours. */
+  artifactAuditJobRetentionHours?: number;
 }
 
 export interface ServerConfig extends AppConfig {
@@ -221,6 +229,26 @@ export function loadConfig({
       3,
       10
     ),
+    artifactAuditMaxActiveJobs: parsePositiveInteger(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS',
+      env.ARTIFACT_AUDIT_MAX_ACTIVE_JOBS,
+      100
+    ),
+    artifactAuditMaxActiveJobsPerRequester: parsePositiveInteger(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER',
+      env.ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER,
+      25
+    ),
+    artifactAuditMaxActiveJobsPerProject: parsePositiveInteger(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT',
+      env.ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT,
+      10
+    ),
+    artifactAuditJobRetentionHours: parsePositiveInteger(
+      'ARTIFACT_AUDIT_JOB_RETENTION_HOURS',
+      env.ARTIFACT_AUDIT_JOB_RETENTION_HOURS,
+      168
+    ),
   };
   validateAppConfig(config);
   return config;
@@ -243,6 +271,37 @@ export function validateAppConfig(config: AppConfig): void {
   }
   const artifactAuditTimeoutMs = config.artifactAuditTimeoutMs ?? 60_000;
   const artifactAuditLeaseMs = config.artifactAuditLeaseMs ?? 90_000;
+  validateManualPositiveInteger(
+    'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS',
+    config.artifactAuditMaxActiveJobs
+  );
+  validateManualPositiveInteger(
+    'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER',
+    config.artifactAuditMaxActiveJobsPerRequester
+  );
+  validateManualPositiveInteger(
+    'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT',
+    config.artifactAuditMaxActiveJobsPerProject
+  );
+  validateManualPositiveInteger(
+    'ARTIFACT_AUDIT_JOB_RETENTION_HOURS',
+    config.artifactAuditJobRetentionHours
+  );
+  const maxActiveJobs = config.artifactAuditMaxActiveJobs ?? 100;
+  const maxActiveJobsPerRequester =
+    config.artifactAuditMaxActiveJobsPerRequester ?? 25;
+  const maxActiveJobsPerProject =
+    config.artifactAuditMaxActiveJobsPerProject ?? 10;
+  if (maxActiveJobsPerRequester > maxActiveJobs) {
+    throw new Error(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_REQUESTER must not exceed ARTIFACT_AUDIT_MAX_ACTIVE_JOBS'
+    );
+  }
+  if (maxActiveJobsPerProject > maxActiveJobs) {
+    throw new Error(
+      'ARTIFACT_AUDIT_MAX_ACTIVE_JOBS_PER_PROJECT must not exceed ARTIFACT_AUDIT_MAX_ACTIVE_JOBS'
+    );
+  }
   if (artifactAuditLeaseMs <= artifactAuditTimeoutMs) {
     throw new Error(
       'ARTIFACT_AUDIT_LEASE_MS must be greater than ARTIFACT_AUDIT_TIMEOUT_MS'
@@ -332,6 +391,15 @@ function parsePositiveInteger(
     );
   }
   return parsed;
+}
+
+function validateManualPositiveInteger(
+  name: string,
+  value: number | undefined
+): void {
+  if (value !== undefined && (!Number.isSafeInteger(value) || value < 1)) {
+    throw new Error(`${name} must be a positive integer`);
+  }
 }
 
 function emptyToUndefined(value: string | undefined): string | undefined {

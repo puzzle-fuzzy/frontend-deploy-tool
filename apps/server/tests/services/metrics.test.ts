@@ -7,6 +7,12 @@ describe('metrics registry', () => {
       artifactStorageBytes: () => 4096,
       sqliteStorageBytes: () => 8192,
       artifactAuditJobsActive: () => ({ queued: 2, running: 1 }),
+      artifactAuditQueueHealth: () => ({
+        queued: 2,
+        running: 1,
+        oldestQueuedAgeSeconds: 12,
+        terminal: { succeeded: 4, failed: 3, canceled: 2 },
+      }),
     });
 
     metrics.observeRequest({
@@ -29,6 +35,12 @@ describe('metrics registry', () => {
       'retried',
     ] as const) {
       metrics.recordArtifactAuditJob(outcome);
+    }
+    for (const outcome of ['retried', 'failed'] as const) {
+      metrics.recordArtifactAuditLeaseRecovery(outcome);
+    }
+    for (const scope of ['global', 'requester', 'project'] as const) {
+      metrics.recordArtifactAuditAdmissionRejection(scope);
     }
 
     const output = metrics.render();
@@ -56,6 +68,33 @@ describe('metrics registry', () => {
     expect(output).toContain(
       'deploykit_artifact_audit_jobs_active{status="running"} 1'
     );
+    expect(output).toContain(
+      'deploykit_artifact_audit_oldest_queued_age_seconds 12'
+    );
+    for (const status of ['succeeded', 'failed', 'canceled']) {
+      expect(output).toContain(
+        `deploykit_artifact_audit_jobs_terminal{status="${status}"}`
+      );
+    }
+    for (const outcome of ['retried', 'failed']) {
+      expect(output).toContain(
+        `deploykit_artifact_audit_lease_recoveries_total{outcome="${outcome}"} 1`
+      );
+    }
+    for (const scope of ['global', 'requester', 'project']) {
+      expect(output).toContain(
+        `deploykit_artifact_audit_admission_rejections_total{scope="${scope}"} 1`
+      );
+    }
+    for (const forbiddenLabel of [
+      'project_id=',
+      'version_id=',
+      'requester=',
+      'job_id=',
+      'error=',
+    ]) {
+      expect(output).not.toContain(forbiddenLabel);
+    }
     expect(output).toContain('deploykit_artifact_storage_bytes 4096');
     expect(output).toContain('deploykit_sqlite_storage_bytes 8192');
     expect(output).toContain(

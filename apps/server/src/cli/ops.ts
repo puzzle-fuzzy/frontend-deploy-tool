@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { loadConfig } from '../config';
+import { createSqliteArtifactAuditJobRepository } from '../repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../repositories/sqliteProjectRepository';
 import { createArtifactIntegrityService } from '../services/artifactIntegrityService';
 import { createBackupService } from '../services/backupService';
@@ -66,6 +67,31 @@ switch (command) {
     });
     break;
   }
+  case 'audit-jobs-prune': {
+    const dryRun = args.includes('--dry-run');
+    const cutoff = new Date(
+      Date.now() -
+        (config.artifactAuditJobRetentionHours ?? 168) * 60 * 60 * 1000
+    ).toISOString();
+    createSqliteProjectRepository({
+      databaseFile: config.databaseFile,
+      legacyDataFile: config.dataFile,
+    }).load();
+    const repository = createSqliteArtifactAuditJobRepository({
+      databaseFile: config.databaseFile,
+    });
+    output({
+      command,
+      dryRun,
+      cutoff,
+      report: repository.pruneTerminal({
+        cutoff,
+        batchSize: 1_000,
+        dryRun,
+      }),
+    });
+    break;
+  }
   case 'inspect': {
     const repository = createSqliteProjectRepository({
       databaseFile: config.databaseFile,
@@ -106,6 +132,7 @@ switch (command) {
   bun run ops -- verify <backup-path>
   bun run ops -- restore <backup-path> --force
   bun run ops -- gc [--dry-run]
+  bun run ops -- audit-jobs-prune [--dry-run]
   bun run ops -- inspect [projectId versionId]
 
 Stop the DeployKit server before restore. Backup and verify are non-destructive.`);

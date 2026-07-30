@@ -21,11 +21,13 @@ import {
 } from './middleware/session';
 import { createTrustBoundary } from './middleware/trustBoundary';
 import { createUploadGate } from './middleware/uploadLimits';
+import { createAggregateArtifactAuditJobRepository } from './repositories/aggregateArtifactAuditJobRepository';
 import { createJsonProjectRepository } from './repositories/jsonProjectRepository';
 import {
   createMemorySessionRepository,
   createSqliteSessionRepository,
 } from './repositories/sessionRepository';
+import { createSqliteArtifactAuditJobRepository } from './repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from './repositories/sqliteProjectRepository';
 import { createDeployRoutes } from './routes/deploy';
 import {
@@ -138,14 +140,32 @@ function composeApp(
       `[deploykit] Storage reconciliation: ${JSON.stringify(reconciliation)}`
     );
   }
+  const artifactAuditJobRepository = config.databaseFile
+    ? createSqliteArtifactAuditJobRepository({
+        databaseFile: config.databaseFile,
+      })
+    : createAggregateArtifactAuditJobRepository(repo);
   let recordArtifactAuditJob: MetricsRegistry['recordArtifactAuditJob'] =
     () => {};
+  let recordArtifactAuditLeaseRecovery: MetricsRegistry['recordArtifactAuditLeaseRecovery'] =
+    () => {};
+  let recordArtifactAuditAdmissionRejection: MetricsRegistry['recordArtifactAuditAdmissionRejection'] =
+    () => {};
   const artifactAuditJobService = createArtifactAuditJobService(
-    repo,
+    artifactAuditJobRepository,
     config.storageDir,
     {
       maxAttempts: config.artifactAuditMaxAttempts ?? 3,
+      maxActiveJobs: config.artifactAuditMaxActiveJobs ?? 100,
+      maxActiveJobsPerRequester:
+        config.artifactAuditMaxActiveJobsPerRequester ?? 25,
+      maxActiveJobsPerProject:
+        config.artifactAuditMaxActiveJobsPerProject ?? 10,
       recordOutcome: (outcome) => recordArtifactAuditJob(outcome),
+      recordLeaseRecovery: (outcome) =>
+        recordArtifactAuditLeaseRecovery(outcome),
+      recordAdmissionRejection: (scope) =>
+        recordArtifactAuditAdmissionRejection(scope),
     }
   );
   const metrics =
@@ -168,9 +188,17 @@ function composeApp(
               0
             )
           : 0,
-      artifactAuditJobsActive: () => artifactAuditJobService.countActive(),
+      artifactAuditJobsActive: () => {
+        const health = artifactAuditJobService.health();
+        return { queued: health.queued, running: health.running };
+      },
+      artifactAuditQueueHealth: () => artifactAuditJobService.health(),
     });
   recordArtifactAuditJob = (outcome) => metrics.recordArtifactAuditJob(outcome);
+  recordArtifactAuditLeaseRecovery = (outcome) =>
+    metrics.recordArtifactAuditLeaseRecovery(outcome);
+  recordArtifactAuditAdmissionRejection = (scope) =>
+    metrics.recordArtifactAuditAdmissionRejection(scope);
   const artifactRecovery = createArtifactRecoveryService(config.storageDir);
   const projectService = createProjectService(repo, { artifactRecovery });
   const versionService = createVersionService(repo, config, {
@@ -258,6 +286,7 @@ function composeApp(
     registrationEnabled: config.registrationEnabled,
     uploadRouteLimits,
     cancelArtifactAuditJob,
+    artifactAuditPollIntervalMs: config.artifactAuditPollIntervalMs ?? 1_000,
   });
 
   const app = new Hono<AppEnv>()

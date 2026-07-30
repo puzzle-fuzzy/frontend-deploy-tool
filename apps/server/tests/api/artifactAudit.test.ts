@@ -9,6 +9,7 @@ import type {
   Project,
 } from '@deploykit/shared';
 import { createDeployKitRuntime } from '../../src/app';
+import { createSqliteArtifactAuditJobRepository } from '../../src/repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import {
   ADMIN_EMAIL,
@@ -36,6 +37,10 @@ beforeEach(async () => {
     sessionSecret: 'test-session-secret',
     secureCookies: false,
     registrationEnabled: true,
+    artifactAuditMaxActiveJobs: 1,
+    artifactAuditMaxActiveJobsPerRequester: 1,
+    artifactAuditMaxActiveJobsPerProject: 1,
+    artifactAuditPollIntervalMs: 2_501,
   });
   app = runtime.app;
   token = await adminToken(app);
@@ -120,6 +125,10 @@ describe('artifact audit API', () => {
         status: 'queued',
       },
     });
+    expect(enqueued.headers.get('Location')).toBe(
+      `${endpoint}/${first.job.id}`
+    );
+    expect(enqueued.headers.get('Retry-After')).toBe('3');
 
     const duplicate = await app.request(
       endpoint,
@@ -130,6 +139,24 @@ describe('artifact audit API', () => {
       reused: true,
       job: { id: first.job.id },
     });
+
+    const listed = await app.request(
+      `${endpoint}?status=queued&limit=1`,
+      withBearer(undefined, token)
+    );
+    expect(listed.status).toBe(200);
+    expect(await listed.json()).toMatchObject({
+      items: [{ id: first.job.id, status: 'queued' }],
+      nextCursor: null,
+    });
+    const invalidCursor = await app.request(
+      `${endpoint}?status=queued&cursor=not-a-cursor`,
+      withBearer(undefined, token)
+    );
+    expect(invalidCursor.status).toBe(400);
+    expect((await invalidCursor.json()).error.code).toBe(
+      'INVALID_AUDIT_JOB_CURSOR'
+    );
 
     const queued = await app.request(
       `${endpoint}/${first.job.id}`,
@@ -163,6 +190,63 @@ describe('artifact audit API', () => {
       projectId: project.id,
       versionId,
     });
+
+    const second = await app.request(
+      endpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(second.status).toBe(202);
+    expect(await runtime.artifactAuditWorker.runOnce()).toBe(true);
+    const third = await app.request(
+      endpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    const thirdJob = ((await third.json()) as { job: ArtifactAuditJob }).job;
+    const cursorPage = (await (
+      await app.request(`${endpoint}?limit=1`, withBearer(undefined, token))
+    ).json()) as {
+      items: ArtifactAuditJob[];
+      nextCursor: string | null;
+    };
+    if (!cursorPage.nextCursor) {
+      throw new Error('audit-job cursor fixture is incomplete');
+    }
+    const filterMismatch = await app.request(
+      `${endpoint}?status=failed&cursor=${encodeURIComponent(
+        cursorPage.nextCursor
+      )}`,
+      withBearer(undefined, token)
+    );
+    expect(filterMismatch.status).toBe(400);
+    expect((await filterMismatch.json()).error.code).toBe(
+      'INVALID_AUDIT_JOB_CURSOR'
+    );
+
+    expect(
+      (
+        await app.request(
+          `${endpoint}/${thirdJob.id}`,
+          withBearer({ method: 'DELETE' }, token)
+        )
+      ).status
+    ).toBe(200);
+    expect(
+      createSqliteArtifactAuditJobRepository({
+        databaseFile: join(tempDir, 'deploykit.sqlite'),
+      }).pruneTerminal({
+        cutoff: '9999-12-31T23:59:59.999Z',
+        batchSize: 1_000,
+        dryRun: false,
+      }).removed
+    ).toBe(3);
+    const prunedAnchor = await app.request(
+      `${endpoint}?cursor=${encodeURIComponent(cursorPage.nextCursor)}`,
+      withBearer(undefined, token)
+    );
+    expect(prunedAnchor.status).toBe(400);
+    expect((await prunedAnchor.json()).error.code).toBe(
+      'INVALID_AUDIT_JOB_CURSOR'
+    );
   });
 
   test('cancels queued jobs and validates every job path identifier', async () => {
@@ -194,6 +278,33 @@ describe('artifact audit API', () => {
     );
     expect(malformed.status).toBe(400);
     expect((await malformed.json()).error.code).toBe('INVALID_PARAMS');
+  });
+
+  test('returns stable queue-full errors without canceling existing work', async () => {
+    const first = await createUploadedVersion('queue-full-first');
+    const second = await createUploadedVersion('queue-full-second');
+    const firstEndpoint = `/api/projects/${first.project.id}/versions/${first.versionId}/audit-jobs`;
+    const secondEndpoint = `/api/projects/${second.project.id}/versions/${second.versionId}/audit-jobs`;
+    const accepted = await app.request(
+      firstEndpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(accepted.status).toBe(202);
+    const firstJob = (await accepted.json()) as { job: ArtifactAuditJob };
+
+    const rejected = await app.request(
+      secondEndpoint,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(rejected.status).toBe(429);
+    expect((await rejected.json()).error.code).toBe('AUDIT_QUEUE_FULL');
+
+    const unchanged = await app.request(
+      `${firstEndpoint}/${firstJob.job.id}`,
+      withBearer(undefined, token)
+    );
+    expect(unchanged.status).toBe(200);
+    expect((await unchanged.json()).status).toBe('queued');
   });
 
   test('validates owner policy updates and records the policy event', async () => {
@@ -358,6 +469,7 @@ describe('artifact audit API', () => {
     );
     const { job } = (await queued.json()) as { job: ArtifactAuditJob };
     for (const [path, method] of [
+      [`/api/projects/${project.id}/versions/${versionId}/audit-jobs`, 'GET'],
       [
         `/api/projects/${project.id}/versions/${versionId}/audit-jobs/${job.id}`,
         'GET',
@@ -417,6 +529,11 @@ describe('artifact audit API', () => {
       withBearer(undefined, outsiderToken)
     );
     expect(viewerRead.status).toBe(200);
+    const viewerList = await app.request(
+      `/api/projects/${project.id}/versions/${versionId}/audit-jobs`,
+      withBearer(undefined, outsiderToken)
+    );
+    expect(viewerList.status).toBe(200);
     for (const method of ['POST', 'DELETE']) {
       const path =
         method === 'POST'

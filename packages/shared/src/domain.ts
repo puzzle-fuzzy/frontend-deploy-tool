@@ -290,6 +290,15 @@ export type ArtifactAuditJobStatus = z.infer<
   typeof artifactAuditJobStatusSchema
 >;
 export type ArtifactAuditJob = z.infer<typeof artifactAuditJobSchema>;
+export interface ArtifactAuditJobListQuery {
+  limit?: number;
+  cursor?: string;
+  status?: ArtifactAuditJobStatus;
+}
+export interface ArtifactAuditJobPage {
+  items: ArtifactAuditJob[];
+  nextCursor: string | null;
+}
 export type Role = z.infer<typeof roleSchema>;
 export type User = z.infer<typeof userSchema>;
 export type SafeUser = z.infer<typeof safeUserSchema>;

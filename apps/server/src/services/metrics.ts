@@ -11,6 +11,16 @@ export interface MetricsGaugeProviders {
   artifactStorageBytes: () => number;
   sqliteStorageBytes: () => number;
   artifactAuditJobsActive?: () => { queued: number; running: number };
+  artifactAuditQueueHealth?: () => {
+    queued: number;
+    running: number;
+    oldestQueuedAgeSeconds: number;
+    terminal: {
+      succeeded: number;
+      failed: number;
+      canceled: number;
+    };
+  };
 }
 
 export type ArtifactAuditJobMetricOutcome =
@@ -18,6 +28,11 @@ export type ArtifactAuditJobMetricOutcome =
   | 'failed'
   | 'canceled'
   | 'retried';
+export type ArtifactAuditLeaseRecoveryOutcome = 'retried' | 'failed';
+export type ArtifactAuditAdmissionRejectionScope =
+  | 'global'
+  | 'requester'
+  | 'project';
 
 const LATENCY_BUCKETS = [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10];
 const VERSION_UPLOAD_ROUTE = /^\/api\/projects\/:[^/]+\/versions$/;
@@ -45,6 +60,14 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
   const artifactAuditCounts = new Map<ArtifactAuditStatus, number>();
   const artifactAuditJobCounts = new Map<
     ArtifactAuditJobMetricOutcome,
+    number
+  >();
+  const artifactAuditLeaseRecoveryCounts = new Map<
+    ArtifactAuditLeaseRecoveryOutcome,
+    number
+  >();
+  const artifactAuditAdmissionRejectionCounts = new Map<
+    ArtifactAuditAdmissionRejectionScope,
     number
   >();
   let failureCount = 0;
@@ -88,6 +111,18 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
 
     recordArtifactAuditJob(outcome: ArtifactAuditJobMetricOutcome): void {
       increment(artifactAuditJobCounts, outcome);
+    },
+
+    recordArtifactAuditLeaseRecovery(
+      outcome: ArtifactAuditLeaseRecoveryOutcome
+    ): void {
+      increment(artifactAuditLeaseRecoveryCounts, outcome);
+    },
+
+    recordArtifactAuditAdmissionRejection(
+      scope: ArtifactAuditAdmissionRejectionScope
+    ): void {
+      increment(artifactAuditAdmissionRejectionCounts, scope);
     },
 
     render(): string {
@@ -186,19 +221,57 @@ export function createMetricsRegistry(providers: MetricsGaugeProviders) {
           `deploykit_artifact_audit_jobs_total${labels({ outcome })} ${count}`
         );
       }
-      const activeAuditJobs = readActiveAuditJobs(
-        providers.artifactAuditJobsActive
-      );
+      const queueHealth = readAuditQueueHealth(providers);
       lines.push(
         '# HELP deploykit_artifact_audit_jobs_active Active durable artifact audit jobs by status.',
         '# TYPE deploykit_artifact_audit_jobs_active gauge',
         `deploykit_artifact_audit_jobs_active${labels({
           status: 'queued',
-        })} ${activeAuditJobs.queued}`,
+        })} ${queueHealth.queued}`,
         `deploykit_artifact_audit_jobs_active${labels({
           status: 'running',
-        })} ${activeAuditJobs.running}`
+        })} ${queueHealth.running}`,
+        '# HELP deploykit_artifact_audit_oldest_queued_age_seconds Age of the oldest queued artifact audit job.',
+        '# TYPE deploykit_artifact_audit_oldest_queued_age_seconds gauge',
+        `deploykit_artifact_audit_oldest_queued_age_seconds ${formatNumber(
+          queueHealth.oldestQueuedAgeSeconds
+        )}`,
+        '# HELP deploykit_artifact_audit_jobs_terminal Retained terminal artifact audit jobs by status.',
+        '# TYPE deploykit_artifact_audit_jobs_terminal gauge',
+        `deploykit_artifact_audit_jobs_terminal${labels({
+          status: 'succeeded',
+        })} ${queueHealth.terminal.succeeded}`,
+        `deploykit_artifact_audit_jobs_terminal${labels({
+          status: 'failed',
+        })} ${queueHealth.terminal.failed}`,
+        `deploykit_artifact_audit_jobs_terminal${labels({
+          status: 'canceled',
+        })} ${queueHealth.terminal.canceled}`,
+        '# HELP deploykit_artifact_audit_lease_recoveries_total Expired audit leases recovered by outcome.',
+        '# TYPE deploykit_artifact_audit_lease_recoveries_total counter'
       );
+      for (const [outcome, count] of [
+        ...artifactAuditLeaseRecoveryCounts.entries(),
+      ].sort()) {
+        lines.push(
+          `deploykit_artifact_audit_lease_recoveries_total${labels({
+            outcome,
+          })} ${count}`
+        );
+      }
+      lines.push(
+        '# HELP deploykit_artifact_audit_admission_rejections_total Audit queue admission rejections by fixed scope.',
+        '# TYPE deploykit_artifact_audit_admission_rejections_total counter'
+      );
+      for (const [scope, count] of [
+        ...artifactAuditAdmissionRejectionCounts.entries(),
+      ].sort()) {
+        lines.push(
+          `deploykit_artifact_audit_admission_rejections_total${labels({
+            scope,
+          })} ${count}`
+        );
+      }
 
       lines.push(
         '# HELP deploykit_artifact_storage_bytes Artifact bytes recorded in deployment metadata.',
@@ -280,6 +353,50 @@ function readActiveAuditJobs(
   } catch {
     return { queued: 0, running: 0 };
   }
+}
+
+function readAuditQueueHealth(providers: MetricsGaugeProviders): {
+  queued: number;
+  running: number;
+  oldestQueuedAgeSeconds: number;
+  terminal: { succeeded: number; failed: number; canceled: number };
+} {
+  try {
+    const value = providers.artifactAuditQueueHealth?.();
+    if (value) {
+      return {
+        queued: normalizeCount(value.queued),
+        running: normalizeCount(value.running),
+        oldestQueuedAgeSeconds: normalizeGauge(value.oldestQueuedAgeSeconds),
+        terminal: {
+          succeeded: normalizeCount(value.terminal.succeeded),
+          failed: normalizeCount(value.terminal.failed),
+          canceled: normalizeCount(value.terminal.canceled),
+        },
+      };
+    }
+  } catch {
+    return emptyAuditQueueHealth();
+  }
+  const active = readActiveAuditJobs(providers.artifactAuditJobsActive);
+  return {
+    ...active,
+    oldestQueuedAgeSeconds: 0,
+    terminal: { succeeded: 0, failed: 0, canceled: 0 },
+  };
+}
+
+function emptyAuditQueueHealth() {
+  return {
+    queued: 0,
+    running: 0,
+    oldestQueuedAgeSeconds: 0,
+    terminal: { succeeded: 0, failed: 0, canceled: 0 },
+  };
+}
+
+function normalizeGauge(value: number | undefined): number {
+  return Number.isFinite(value) && (value ?? -1) >= 0 ? (value ?? 0) : 0;
 }
 
 function normalizeCount(value: number | undefined): number {

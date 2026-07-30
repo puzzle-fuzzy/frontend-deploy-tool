@@ -296,21 +296,31 @@ recoverInterruptedArtifactOperations(
 - Create: `apps/server/src/repositories/artifactAuditJobRepository.ts`
 - Create: `apps/server/src/repositories/sqliteArtifactAuditJobRepository.ts`
 - Create: `apps/server/src/repositories/aggregateArtifactAuditJobRepository.ts`
+- Create: `apps/server/src/repositories/artifactAuditJobMapper.ts`
+- Create: `apps/server/src/domain/artifactAuditJobTransitions.ts`
+- Modify: `apps/server/src/repositories/sqliteSchema.ts`
 - Modify: `apps/server/src/repositories/sqliteProjectRepository.ts`
 - Modify: `apps/server/src/services/artifactAuditJobService.ts`
 - Modify: `apps/server/src/services/artifactAuditWorker.ts`
 - Modify: `apps/server/src/services/contracts.ts`
+- Modify: `apps/server/src/services/metrics.ts`
+- Modify: `apps/server/src/routes/artifactAudits.ts`
 - Modify: `apps/server/src/config.ts`
 - Modify: `apps/server/src/app.ts`
 - Modify: `apps/server/src/cli/ops.ts`
 - Modify: `apps/server/.env.example`
 - Modify: `packages/shared/src/domain.ts`
 - Modify: `packages/shared/src/errors.ts`
+- Modify: `packages/shared/src/index.ts`
 - Modify: `apps/server/tests/services/artifactAuditJobService.test.ts`
 - Modify: `apps/server/tests/services/artifactAuditWorker.test.ts`
 - Create: `apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts`
 - Modify: `apps/server/tests/api/artifactAudit.test.ts`
 - Modify: `apps/server/tests/services/metrics.test.ts`
+- Modify: `apps/server/tests/services/config.test.ts`
+- Modify: `apps/server/tests/services/schemaMigration.test.ts`
+- Modify: `apps/server/tests/services/schemas.test.ts`
+- Modify: `apps/server/tests/services/sqliteProjectRepository.test.ts`
 - Modify: `docs/architecture.md`
 - Modify: `docs/backend-hardening-roadmap.md`
 - Modify: `README.md`
@@ -319,53 +329,99 @@ recoverInterruptedArtifactOperations(
 
 ```ts
 interface ArtifactAuditJobRepository {
-  recoverAndClaim(input: ClaimInput): ClaimResult;
+  enqueue(input: EnqueueInput): EnqueueResult;
+  get(input: ScopedJobKey): ScopedJobResult;
+  list(input: ListInput): ListResult;
+  cancel(input: CancelInput): CancelResult;
+  recoverAndClaim(input: RecoverAndClaimInput): RecoverAndClaimResult;
   heartbeat(input: HeartbeatInput): ArtifactAuditJob | null;
-  list(input: ArtifactAuditJobListInput): ArtifactAuditJobPage;
-  countActive(): { queued: number; running: number };
-  pruneTerminal(input: PruneInput): { matched: number; removed: number };
+  complete(input: CompleteInput): LeaseTransitionResult;
+  fail(input: FailOrRetryInput): LeaseTransitionResult;
+  health(input: { now: string }): ArtifactAuditQueueHealth;
+  pruneTerminal(input: PruneTerminalInput): PruneTerminalResult;
 }
-
-type ArtifactAuditJobPage = {
-  items: ArtifactAuditJob[];
-  nextCursor: string | null;
-};
 ```
 
+- The dedicated repository owns the complete queue state machine, including
+  enqueue, get/list, cancel, lease recovery/claim, heartbeat, completion,
+  fail/retry, health and prune. Leaving enqueue, cancel, complete, fail or
+  health on `ProjectRepository.mutate` would retain the aggregate rewrite path,
+  permit nested transaction ownership and make the queue's admission/lease
+  invariants impossible to enforce atomically.
+- Each top-level repository action owns exactly one connection/transaction.
+  Never call `ProjectRepository` inside an audit-job transaction or call the
+  audit-job repository inside `ProjectRepository.mutate`.
+- Enqueue uses one `BEGIN IMMEDIATE`: revalidate project/version snapshot,
+  deduplicate before limits, project replacement occupancy, and atomically
+  cancel/insert only on acceptance. Rejection has no partial writes.
 - `recoverAndClaim` uses one `BEGIN IMMEDIATE` transaction to transition
-  expired `running` rows and claim at most one eligible `queued` row.
-- No eligible job means no domain-table upsert and no full `Data` hydration.
+  expired `running` rows and claim at most one eligible `queued` row per poll.
+  No transition or claim means no update, upsert, full `Data` hydration or
+  business WAL frame. Live workers recover expired work without a startup-only
+  sweep.
+- Heartbeat, cancel, complete and fail are lease guarded. Late workers cannot
+  persist a transition, report or history after lease loss/cancellation.
+- Completion hashes outside the transaction, then atomically validates the
+  current lease and project/version checksum/policy/engine snapshot, upserts
+  the report, appends one history event and marks the job succeeded in one
+  `BEGIN IMMEDIATE`.
 - Enqueue checks deduplication before applying global, requester and project
   active-job limits; rejection returns stable `429 AUDIT_QUEUE_FULL`.
+- SQLite schema v5 is an explicit backed-up v4-to-v5 migration with a partial
+  unique active-job index plus claim, list, filtered-list, expired-lease and
+  terminal-retention indexes. Legacy duplicate active jobs fail closed; the
+  repository constructor never installs indexes opportunistically.
 - Terminal rows have a configurable retention period and batch-bounded prune.
-  Reports and audit events survive pruning.
-- The collection GET supports an opaque ID cursor, bounded page size and
-  optional stable status filter, so clients can reconnect after refresh.
+  Reports, history and releases survive pruning.
+- The collection GET orders by `created_at DESC, id DESC` and supports a strict
+  Base64URL keyset cursor bound to project/version, anchor job and optional
+  status. Invalid, tampered, cross-scope, filter-mismatched or pruned-anchor
+  cursors return stable `400 INVALID_AUDIT_JOB_CURSOR`.
+- JSON fixtures use an aggregate adapter with the same transition semantics;
+  empty claim performs a read-only precheck and preserves the JSON mtime.
+- Queue metrics use only fixed labels: lease recovery `retried|failed`,
+  admission rejection `global|requester|project`, and terminal job status.
 
-- [ ] **Step 1: Add failing concurrent claim, takeover and idle-write tests**
+- [x] **Step 1: Add failing SQLite v5, concurrency, takeover and idle tests**
 
-  Use two repository/worker instances against one SQLite file. Prove only one
-  owner claims a job, a surviving worker reclaims an expired lease without
-  restart, and repeated empty polls do not update domain rows or enlarge the
-  WAL materially.
+  Cover explicit v4-to-v5 backup/index migration and duplicate-active
+  fail-closed behavior. Use independent connections/processes with a real
+  barrier to prove one claim, live expired-lease takeover and same-snapshot
+  enqueue uniqueness. Repeated idle polling must change no domain row and add
+  no business WAL frames.
 
-- [ ] **Step 2: Add failing admission, pagination and retention tests**
+- [x] **Step 2: Implement SQLite v5 and the complete repository port**
 
-  Cover duplicate reuse at capacity, global/requester/project rejection,
-  status-filtered opaque pagination, invalid cursor, terminal dry-run prune and
-  real prune preserving reports/history.
+  Extract cycle-free row mapping and pure transition/payload rules shared by
+  the SQLite and aggregate adapters. Implement every queue action with row SQL;
+  SQLite errors never fall back to aggregate persistence.
 
-- [ ] **Step 3: Implement the dedicated SQLite store and aggregate fallback**
+- [x] **Step 3: Add failing admission, lease and atomic completion tests**
 
-  Keep JSON fixtures working through the low-throughput aggregate adapter.
-  Production SQLite uses indexed SQL transitions and row mapping. Completion
-  remains an atomic job/report/history commit, but idle polling, heartbeat,
-  failure/retry and maintenance must not rewrite unrelated aggregates.
+  Cover duplicate reuse before all limits, global/requester/project rejection,
+  replacement at capacity, no-write rejection, cancel followed by late
+  heartbeat/complete/fail, retry/max-attempt/non-retryable failure, and a
+  temporary failing history trigger that rolls completion back without changing
+  job, report or history. Cover JSON atomic completion and idle mtime.
 
-- [ ] **Step 4: Wire configuration, HTTP list and operational prune**
+- [x] **Step 4: Rewire service and worker without nested transactions**
+
+  Hash and execute outside repository transactions. Remove the startup-only
+  recovery sweep and make every poll call `recoverAndClaim`. Preserve stable
+  errors and existing GET-by-ID/DELETE behavior through repository result
+  unions.
+
+- [x] **Step 5: Add failing pagination, retention, API and config tests**
+
+  Cover equal-timestamp/new-head keyset pagination, status-bound invalid
+  cursor, dry-run/cutoff/batch prune preserving report/history/release rows,
+  config defaults/overrides/invalid values/manual limit relations, POST
+  headers, collection GET and operational prune.
+
+- [x] **Step 6: Wire configuration, HTTP collection and operational prune**
 
   Add strict positive configuration for global/requester/project active limits
-  and terminal retention. Add:
+  and terminal retention; requester/project limits may not exceed global. Add:
 
   ```text
   GET /api/projects/:id/versions/:versionId/audit-jobs
@@ -373,34 +429,46 @@ type ArtifactAuditJobPage = {
   ```
 
   Preserve existing POST/GET-by-ID/DELETE contracts. Return `Location` and a
-  conservative `Retry-After` hint from POST.
+  conservative `Retry-After = ceil(pollIntervalMs / 1000)` hint from POST.
 
-- [ ] **Step 5: Add queue health metrics**
+- [x] **Step 7: Add queue health metrics**
 
   Add low-cardinality gauges/counters for oldest queued age, expired lease
   recovery, admission rejection and terminal counts. Do not use project,
   version, user, job or error text as labels.
 
-- [ ] **Step 6: Run focused repository, worker, API and metrics tests**
+- [x] **Step 8: Run focused repository, worker, API, migration and metrics tests**
 
   ```bash
   bun test apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts \
     apps/server/tests/services/artifactAuditJobService.test.ts \
     apps/server/tests/services/artifactAuditWorker.test.ts \
     apps/server/tests/api/artifactAudit.test.ts \
-    apps/server/tests/services/metrics.test.ts
+    apps/server/tests/services/metrics.test.ts \
+    apps/server/tests/services/config.test.ts \
+    apps/server/tests/services/schemaMigration.test.ts \
+    apps/server/tests/services/schemas.test.ts \
+    apps/server/tests/services/sqliteProjectRepository.test.ts
+  bun --filter @deploykit/shared typecheck
+  git diff --check
   ```
 
-  Expected: all pass; expired work is reclaimed live and idle polling stays on
-  the dedicated job path.
+  Expected: all pass; expired work is reclaimed live, idle polling stays on the
+  dedicated job path, v5 migration is explicit, and shared list contracts
+  remain Bun-free.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 9: Run server/full gates, document and commit**
+
+  Run the complete server tests plus `bun run check`, `bun run typecheck` and
+  `bun run test`. Update architecture, hardening roadmap, README and the Task 3
+  implementation report. Perform a per-file self-review before committing.
 
   ```bash
   git add apps/server/src apps/server/tests apps/server/.env.example \
     packages/shared/src README.md docs/architecture.md \
     docs/backend-hardening-roadmap.md \
-    docs/superpowers/plans/2026-07-30-production-invariant-remediation.md
+    docs/superpowers/plans/2026-07-30-production-invariant-remediation.md \
+    .superpowers/sdd/task-3-report.md
   git commit -m "refactor: isolate durable audit queue persistence"
   ```
 

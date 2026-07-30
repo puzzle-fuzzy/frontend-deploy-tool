@@ -2,22 +2,11 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
   ArtifactAuditJob,
-  ArtifactAuditReport,
-  Data,
-  Project,
-  Version,
+  ArtifactAuditJobPage,
+  ArtifactAuditJobStatus,
 } from '@deploykit/shared';
-import {
-  artifactAuditRetryDelayMs,
-  compareArtifactAuditClaimOrder,
-  hasSameArtifactAuditPolicy,
-  hasSameArtifactAuditSnapshot,
-  isActiveArtifactAuditJob,
-  isArtifactAuditLeaseOwned,
-} from '../domain/artifactAuditJob';
-import { appendHistoryEvent } from '../domain/history';
 import { ApiError, ErrorCode } from '../errors';
-import type { ProjectRepository } from '../repositories/projectRepository';
+import type { ArtifactAuditJobRepository } from '../repositories/artifactAuditJobRepository';
 import { createId as defaultCreateId } from '../utils/id';
 import {
   ARTIFACT_AUDIT_ENGINE_VERSION,
@@ -30,6 +19,8 @@ export type ArtifactAuditJobOutcome =
   | 'failed'
   | 'canceled'
   | 'retried';
+
+export type ArtifactAuditAdmissionScope = 'global' | 'requester' | 'project';
 
 export interface ClaimedArtifactAuditJob {
   job: ArtifactAuditJob;
@@ -44,26 +35,33 @@ export interface ArtifactAuditJobService {
     options?: { priority?: number }
   ): { job: ArtifactAuditJob; reused: boolean };
   get(projectId: string, versionId: string, jobId: string): ArtifactAuditJob;
+  list(
+    projectId: string,
+    versionId: string,
+    query?: { limit?: string; cursor?: string; status?: string }
+  ): ArtifactAuditJobPage;
   cancel(
     projectId: string,
     versionId: string,
     jobId: string,
     actorId: string
   ): ArtifactAuditJob;
-  claim(workerId: string, leaseMs: number): ClaimedArtifactAuditJob | null;
+  recoverAndClaim(
+    workerId: string,
+    leaseMs: number
+  ): ClaimedArtifactAuditJob | null;
   heartbeat(
     jobId: string,
     workerId: string,
     leaseMs: number
   ): ArtifactAuditJob | null;
   complete(
-    jobId: string,
+    job: ArtifactAuditJob,
     workerId: string,
     result: ArtifactAuditResult
   ): ArtifactAuditJob;
   fail(jobId: string, workerId: string, error: unknown): ArtifactAuditJob;
-  sweepExpired(): number;
-  countActive(): { queued: number; running: number };
+  health(): ReturnType<ArtifactAuditJobRepository['health']>;
 }
 
 interface ArtifactAuditJobServiceDependencies {
@@ -71,11 +69,16 @@ interface ArtifactAuditJobServiceDependencies {
   createId?: () => string;
   maxAttempts?: number;
   retryBaseDelayMs?: number;
+  maxActiveJobs?: number;
+  maxActiveJobsPerRequester?: number;
+  maxActiveJobsPerProject?: number;
   recordOutcome?: (outcome: ArtifactAuditJobOutcome) => void;
+  recordLeaseRecovery?: (outcome: 'retried' | 'failed') => void;
+  recordAdmissionRejection?: (scope: ArtifactAuditAdmissionScope) => void;
 }
 
 export function createArtifactAuditJobService(
-  repo: ProjectRepository,
+  repository: ArtifactAuditJobRepository,
   storageDir: string,
   dependencies: ArtifactAuditJobServiceDependencies = {}
 ): ArtifactAuditJobService {
@@ -83,11 +86,28 @@ export function createArtifactAuditJobService(
   const createId = dependencies.createId ?? defaultCreateId;
   const maxAttempts = dependencies.maxAttempts ?? 3;
   const retryBaseDelayMs = dependencies.retryBaseDelayMs ?? 2_000;
+  const limits = {
+    global: dependencies.maxActiveJobs ?? 100,
+    requester: dependencies.maxActiveJobsPerRequester ?? 25,
+    project: dependencies.maxActiveJobsPerProject ?? 10,
+  };
   if (!Number.isInteger(maxAttempts) || maxAttempts < 1 || maxAttempts > 10) {
     throw new Error('Artifact audit max attempts must be between 1 and 10');
   }
   if (!Number.isSafeInteger(retryBaseDelayMs) || retryBaseDelayMs < 1) {
     throw new Error('Artifact audit retry delay must be a positive integer');
+  }
+  for (const [scope, value] of Object.entries(limits)) {
+    if (!Number.isSafeInteger(value) || value < 1) {
+      throw new Error(
+        `Artifact audit ${scope} active limit must be a positive integer`
+      );
+    }
+  }
+  if (limits.requester > limits.global || limits.project > limits.global) {
+    throw new Error(
+      'Artifact audit requester and project limits must not exceed the global limit'
+    );
   }
 
   return {
@@ -100,490 +120,209 @@ export function createArtifactAuditJobService(
           400
         );
       }
-      const timestamp = now().toISOString();
-      const result = repo.mutate((data) => {
-        const { project, version } = requireProjectVersion(
-          data,
-          projectId,
-          versionId
-        );
-        const artifactDir = join(storageDir, projectId, versionId);
-        if (!existsSync(artifactDir)) {
-          throw new ApiError(
-            ErrorCode.AUDIT_FAILED,
-            'Artifact files are missing',
-            409
-          );
-        }
-        const snapshot = {
-          artifactChecksum: version.checksum,
-          engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
-          policy: structuredClone(project.auditPolicy),
-        };
-        const activeJobs = data.artifactAuditJobs.filter(
-          (job) =>
-            job.projectId === projectId &&
-            job.versionId === versionId &&
-            isActiveArtifactAuditJob(job)
-        );
-        const duplicate = activeJobs.find((job) =>
-          hasSameArtifactAuditSnapshot(job, snapshot)
-        );
-        if (duplicate) {
-          return { job: duplicate, reused: true, canceled: 0 };
-        }
-
-        for (const active of activeJobs) {
-          cancelJob(
-            active,
-            timestamp,
-            ErrorCode.AUDIT_REQUIRED,
-            'Artifact or audit policy changed before the job started'
-          );
-        }
-        const job: ArtifactAuditJob = {
-          id: createId(),
-          projectId,
-          versionId,
-          requestedBy: actorId,
-          status: 'queued',
-          priority,
-          attempts: 0,
-          maxAttempts,
-          nextRunAt: timestamp,
-          lockedBy: null,
-          lockedUntil: null,
-          ...snapshot,
-          reportId: null,
-          errorCode: null,
-          errorMessage: null,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          startedAt: null,
-          completedAt: null,
-        };
-        data.artifactAuditJobs.push(job);
-        return {
-          job,
-          reused: false,
-          canceled: activeJobs.length,
-        };
+      const result = repository.enqueue({
+        projectId,
+        versionId,
+        requestedBy: actorId,
+        priority,
+        maxAttempts,
+        now: now().toISOString(),
+        jobId: createId(),
+        engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
+        artifactPresent: existsSync(join(storageDir, projectId, versionId)),
+        limits,
       });
-      for (let index = 0; index < result.canceled; index += 1) {
+      if (result.kind === 'project-not-found') throwProjectNotFound();
+      if (result.kind === 'version-not-found') throwVersionNotFound();
+      if (result.kind === 'artifact-missing') {
+        throw new ApiError(
+          ErrorCode.AUDIT_FAILED,
+          'Artifact files are missing',
+          409
+        );
+      }
+      if (result.kind === 'rejected') {
+        dependencies.recordAdmissionRejection?.(result.scope);
+        throw new ApiError(
+          ErrorCode.AUDIT_QUEUE_FULL,
+          `Artifact audit queue ${result.scope} capacity is exhausted`,
+          429
+        );
+      }
+      if (result.kind === 'reused') {
+        return { job: result.job, reused: true };
+      }
+      for (let index = 0; index < result.replacedJobCount; index += 1) {
         dependencies.recordOutcome?.('canceled');
       }
-      return { job: result.job, reused: result.reused };
+      return { job: result.job, reused: false };
     },
 
     get(projectId, versionId, jobId) {
-      const data = repo.load();
-      requireProjectVersion(data, projectId, versionId);
-      const job = data.artifactAuditJobs.find(
-        (candidate) =>
-          candidate.id === jobId &&
-          candidate.projectId === projectId &&
-          candidate.versionId === versionId
-      );
-      if (!job) {
+      const result = repository.get({ projectId, versionId, jobId });
+      return requireScopedJob(result);
+    },
+
+    list(projectId, versionId, query = {}) {
+      const status = parseListStatus(query.status);
+      const result = repository.list({
+        projectId,
+        versionId,
+        limit: parseListLimit(query.limit),
+        ...(query.cursor ? { cursor: query.cursor } : {}),
+        ...(status ? { status } : {}),
+      });
+      if (result.kind === 'project-not-found') throwProjectNotFound();
+      if (result.kind === 'version-not-found') throwVersionNotFound();
+      if (result.kind === 'invalid-cursor') {
         throw new ApiError(
-          ErrorCode.AUDIT_JOB_NOT_FOUND,
-          'Artifact audit job not found',
-          404
+          ErrorCode.INVALID_AUDIT_JOB_CURSOR,
+          'Invalid artifact audit job cursor',
+          400
         );
       }
-      return job;
+      return result.page;
     },
 
     cancel(projectId, versionId, jobId, _actorId) {
-      const timestamp = now().toISOString();
-      const { job, changed } = repo.mutate((data) => {
-        requireProjectVersion(data, projectId, versionId);
-        const current = data.artifactAuditJobs.find(
-          (candidate) =>
-            candidate.id === jobId &&
-            candidate.projectId === projectId &&
-            candidate.versionId === versionId
-        );
-        if (!current) {
-          throw new ApiError(
-            ErrorCode.AUDIT_JOB_NOT_FOUND,
-            'Artifact audit job not found',
-            404
-          );
-        }
-        if (!isActiveArtifactAuditJob(current)) {
-          return { job: current, changed: false };
-        }
-        cancelJob(current, timestamp, null, null);
-        return { job: current, changed: true };
+      const result = repository.cancel({
+        projectId,
+        versionId,
+        jobId,
+        now: now().toISOString(),
       });
-      if (changed) dependencies.recordOutcome?.('canceled');
-      return job;
+      if (result.kind !== 'found') return requireScopedJob(result);
+      if (result.changed) dependencies.recordOutcome?.('canceled');
+      return result.job;
     },
 
-    claim(workerId, leaseMs) {
+    recoverAndClaim(workerId, leaseMs) {
       requireLeaseMs(leaseMs);
-      const currentTime = now();
-      const timestamp = currentTime.toISOString();
-      const result = repo.mutate((data) => {
-        let canceled = 0;
-        const candidates = data.artifactAuditJobs
-          .filter(
-            (job) =>
-              job.status === 'queued' &&
-              Date.parse(job.nextRunAt) <= currentTime.getTime()
-          )
-          .sort(compareArtifactAuditClaimOrder);
-        for (const job of candidates) {
-          const project = data.projects.find(
-            (candidate) => candidate.id === job.projectId
-          );
-          const version = project?.versions.find(
-            (candidate) => candidate.id === job.versionId
-          );
-          if (
-            !project ||
-            !version ||
-            !hasSameArtifactAuditSnapshot(job, {
-              artifactChecksum: version.checksum,
-              engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
-              policy: project.auditPolicy,
-            })
-          ) {
-            cancelJob(
-              job,
-              timestamp,
-              ErrorCode.AUDIT_REQUIRED,
-              'Artifact or audit policy changed before the job was claimed'
-            );
-            canceled += 1;
-            continue;
-          }
-          job.status = 'running';
-          job.attempts += 1;
-          job.lockedBy = workerId;
-          job.lockedUntil = new Date(
-            currentTime.getTime() + leaseMs
-          ).toISOString();
-          job.updatedAt = timestamp;
-          job.startedAt ??= timestamp;
-          job.errorCode = null;
-          job.errorMessage = null;
-          return {
-            claimed: {
-              job,
-              artifactDir: join(storageDir, job.projectId, job.versionId),
-            },
-            canceled,
-          };
-        }
-        return { claimed: null, canceled };
+      const result = repository.recoverAndClaim({
+        workerId,
+        leaseMs,
+        now: now().toISOString(),
+        engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
+        retryBaseDelayMs,
       });
-      for (let index = 0; index < result.canceled; index += 1) {
+      recordCount(result.recovered.retried, () => {
+        dependencies.recordOutcome?.('retried');
+        dependencies.recordLeaseRecovery?.('retried');
+      });
+      recordCount(result.recovered.failed, () => {
+        dependencies.recordOutcome?.('failed');
+        dependencies.recordLeaseRecovery?.('failed');
+      });
+      recordCount(result.stale, () => {
         dependencies.recordOutcome?.('canceled');
-      }
-      return result.claimed;
+      });
+      return result.job
+        ? {
+            job: result.job,
+            artifactDir: join(
+              storageDir,
+              result.job.projectId,
+              result.job.versionId
+            ),
+          }
+        : null;
     },
 
     heartbeat(jobId, workerId, leaseMs) {
       requireLeaseMs(leaseMs);
-      const currentTime = now();
-      return repo.mutate((data) => {
-        const job = data.artifactAuditJobs.find(
-          (candidate) => candidate.id === jobId
-        );
-        if (!job || !isArtifactAuditLeaseOwned(job, workerId, currentTime)) {
-          return null;
-        }
-        job.lockedUntil = new Date(
-          currentTime.getTime() + leaseMs
-        ).toISOString();
-        job.updatedAt = currentTime.toISOString();
-        return job;
+      return repository.heartbeat({
+        jobId,
+        workerId,
+        leaseMs,
+        now: now().toISOString(),
       });
     },
 
-    complete(jobId, workerId, result) {
-      const currentTime = now();
-      const snapshot = repo
-        .load()
-        .artifactAuditJobs.find((candidate) => candidate.id === jobId);
-      if (!snapshot) {
-        throw new ApiError(
-          ErrorCode.AUDIT_JOB_NOT_FOUND,
-          'Artifact audit job not found',
-          404
-        );
-      }
-      const artifactDir = join(
-        storageDir,
-        snapshot.projectId,
-        snapshot.versionId
-      );
-      const currentChecksum = existsSync(artifactDir)
+    complete(job, workerId, result) {
+      const artifactDir = join(storageDir, job.projectId, job.versionId);
+      const currentArtifactChecksum = existsSync(artifactDir)
         ? checksumDirectory(artifactDir)
         : '';
-      const completion = repo.mutate((data) => {
-        const job = requireOwnedJob(data, jobId, workerId, currentTime);
-        const project = data.projects.find(
-          (candidate) => candidate.id === job.projectId
-        );
-        const version = project?.versions.find(
-          (candidate) => candidate.id === job.versionId
-        );
-        if (
-          !project ||
-          !version ||
-          currentChecksum !== job.artifactChecksum ||
-          result.artifactChecksum !== job.artifactChecksum ||
-          version.checksum !== job.artifactChecksum ||
-          job.engineVersion !== ARTIFACT_AUDIT_ENGINE_VERSION ||
-          !hasSameArtifactAuditPolicy(project.auditPolicy, job.policy)
-        ) {
-          failJobTerminal(
-            job,
-            currentTime.toISOString(),
-            ErrorCode.AUDIT_REQUIRED,
-            'Artifact or audit policy changed while the job was running'
-          );
-          return { job, outcome: 'failed' as const };
-        }
-
-        const report = createReport(job, result, currentTime, createId);
-        const replacedReportIds = new Set(
-          data.artifactAudits
-            .filter((candidate) => candidate.versionId === job.versionId)
-            .map((candidate) => candidate.id)
-        );
-        for (const previousJob of data.artifactAuditJobs) {
-          if (
-            previousJob.id !== job.id &&
-            previousJob.reportId &&
-            replacedReportIds.has(previousJob.reportId)
-          ) {
-            previousJob.reportId = null;
-          }
-        }
-        data.artifactAudits = data.artifactAudits.filter(
-          (candidate) => candidate.versionId !== job.versionId
-        );
-        data.artifactAudits.push(report);
-        appendArtifactAuditHistory(data, project, version, job, report);
-        succeedJob(job, report.id, currentTime.toISOString());
-        return { job, outcome: 'succeeded' as const };
+      const transition = repository.complete({
+        jobId: job.id,
+        workerId,
+        now: now().toISOString(),
+        currentArtifactChecksum,
+        engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
+        reportId: createId(),
+        historyEventId: createId(),
+        result,
       });
-      dependencies.recordOutcome?.(completion.outcome);
-      return completion.job;
+      const completed = requireLeaseTransition(transition);
+      dependencies.recordOutcome?.(completed.outcome);
+      return completed.job;
     },
 
     fail(jobId, workerId, error) {
-      const currentTime = now();
-      const timestamp = currentTime.toISOString();
-      const retryable = isRetryableFailure(error);
-      const result = repo.mutate((data) => {
-        const job = requireOwnedJob(data, jobId, workerId, currentTime);
-        job.errorCode = ErrorCode.AUDIT_JOB_FAILED;
-        job.errorMessage = 'Artifact audit worker failed';
-        job.lockedBy = null;
-        job.lockedUntil = null;
-        job.updatedAt = timestamp;
-        if (retryable && job.attempts < job.maxAttempts) {
-          job.status = 'queued';
-          job.nextRunAt = new Date(
-            currentTime.getTime() +
-              artifactAuditRetryDelayMs(retryBaseDelayMs, job.attempts)
-          ).toISOString();
-          return { job, outcome: 'retried' as const };
-        }
-        job.status = 'failed';
-        job.completedAt = timestamp;
-        return { job, outcome: 'failed' as const };
+      const transition = repository.fail({
+        jobId,
+        workerId,
+        now: now().toISOString(),
+        retryable: isRetryableFailure(error),
+        retryBaseDelayMs,
       });
-      dependencies.recordOutcome?.(result.outcome);
-      return result.job;
+      const failed = requireLeaseTransition(transition);
+      dependencies.recordOutcome?.(failed.outcome);
+      return failed.job;
     },
 
-    sweepExpired() {
-      const currentTime = now();
-      const timestamp = currentTime.toISOString();
-      const outcomes = repo.mutate((data) => {
-        const nextOutcomes: ArtifactAuditJobOutcome[] = [];
-        for (const job of data.artifactAuditJobs) {
-          if (
-            job.status !== 'running' ||
-            !job.lockedUntil ||
-            Date.parse(job.lockedUntil) > currentTime.getTime()
-          ) {
-            continue;
-          }
-          job.lockedBy = null;
-          job.lockedUntil = null;
-          job.errorCode = ErrorCode.AUDIT_JOB_FAILED;
-          job.errorMessage = 'Artifact audit worker lease expired';
-          job.updatedAt = timestamp;
-          if (job.attempts < job.maxAttempts) {
-            job.status = 'queued';
-            job.nextRunAt = timestamp;
-            nextOutcomes.push('retried');
-          } else {
-            job.status = 'failed';
-            job.completedAt = timestamp;
-            nextOutcomes.push('failed');
-          }
-        }
-        return nextOutcomes;
-      });
-      for (const outcome of outcomes) dependencies.recordOutcome?.(outcome);
-      return outcomes.length;
-    },
-
-    countActive() {
-      const counts = { queued: 0, running: 0 };
-      for (const job of repo.load().artifactAuditJobs) {
-        if (job.status === 'queued') counts.queued += 1;
-        if (job.status === 'running') counts.running += 1;
-      }
-      return counts;
+    health() {
+      return repository.health({ now: now().toISOString() });
     },
   };
 }
 
-function requireProjectVersion(
-  data: Data,
-  projectId: string,
-  versionId: string
-): { project: Project; version: Version } {
-  const project = data.projects.find((candidate) => candidate.id === projectId);
-  if (!project) {
-    throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
-  }
-  const version = project.versions.find(
-    (candidate) => candidate.id === versionId
-  );
-  if (!version) {
-    throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
-  }
-  return { project, version };
-}
-
-function requireOwnedJob(
-  data: Data,
-  jobId: string,
-  workerId: string,
-  now: Date
+function requireScopedJob(
+  result: ReturnType<ArtifactAuditJobRepository['get']>
 ): ArtifactAuditJob {
-  const job = data.artifactAuditJobs.find(
-    (candidate) => candidate.id === jobId
-  );
-  if (!job) {
+  if (result.kind === 'project-not-found') throwProjectNotFound();
+  if (result.kind === 'version-not-found') throwVersionNotFound();
+  if (result.kind === 'job-not-found') {
     throw new ApiError(
       ErrorCode.AUDIT_JOB_NOT_FOUND,
       'Artifact audit job not found',
       404
     );
   }
-  if (!isArtifactAuditLeaseOwned(job, workerId, now)) {
+  return result.job;
+}
+
+function requireLeaseTransition(
+  result:
+    | ReturnType<ArtifactAuditJobRepository['complete']>
+    | ReturnType<ArtifactAuditJobRepository['fail']>
+): Extract<
+  ReturnType<ArtifactAuditJobRepository['complete']>,
+  { kind: 'transitioned' }
+> {
+  if (result.kind === 'job-not-found') {
+    throw new ApiError(
+      ErrorCode.AUDIT_JOB_NOT_FOUND,
+      'Artifact audit job not found',
+      404
+    );
+  }
+  if (result.kind === 'lease-lost') {
     throw new ApiError(
       ErrorCode.AUDIT_JOB_CONFLICT,
       'Artifact audit job lease is no longer owned by this worker',
       409
     );
   }
-  return job;
+  return result;
 }
 
-function createReport(
-  job: ArtifactAuditJob,
-  result: ArtifactAuditResult,
-  now: Date,
-  createId: () => string
-): ArtifactAuditReport {
-  return {
-    id: createId(),
-    projectId: job.projectId,
-    versionId: job.versionId,
-    artifactChecksum: result.artifactChecksum,
-    status: result.status,
-    score: result.score,
-    createdAt: now.toISOString(),
-    createdBy: job.requestedBy,
-    engineVersion: job.engineVersion,
-    policy: structuredClone(job.policy),
-    summary: result.summary,
-    checks: result.checks,
-  };
+function throwProjectNotFound(): never {
+  throw new ApiError(ErrorCode.PROJECT_NOT_FOUND, 'Project not found', 404);
 }
 
-function appendArtifactAuditHistory(
-  data: Data,
-  project: Project,
-  version: Version,
-  job: ArtifactAuditJob,
-  report: ArtifactAuditReport
-): void {
-  const warningCount = report.checks.filter(
-    (check) => !check.passed && check.severity === 'warning'
-  ).length;
-  const errorCount = report.checks.filter(
-    (check) => !check.passed && check.severity === 'error'
-  ).length;
-  appendHistoryEvent(data, 'version.audit', project, job.requestedBy, version, {
-    reportId: report.id,
-    status: report.status,
-    score: report.score,
-    warningCount,
-    errorCount,
-    totalBytes: report.summary.totalBytes,
-    fileCount: report.summary.fileCount,
-    artifactChecksum: report.artifactChecksum,
-    engineVersion: report.engineVersion,
-    jobId: job.id,
-  });
-}
-
-function succeedJob(
-  job: ArtifactAuditJob,
-  reportId: string,
-  timestamp: string
-): void {
-  job.status = 'succeeded';
-  job.reportId = reportId;
-  job.lockedBy = null;
-  job.lockedUntil = null;
-  job.errorCode = null;
-  job.errorMessage = null;
-  job.updatedAt = timestamp;
-  job.completedAt = timestamp;
-}
-
-function failJobTerminal(
-  job: ArtifactAuditJob,
-  timestamp: string,
-  errorCode: string,
-  errorMessage: string
-): void {
-  job.status = 'failed';
-  job.lockedBy = null;
-  job.lockedUntil = null;
-  job.errorCode = errorCode;
-  job.errorMessage = errorMessage;
-  job.updatedAt = timestamp;
-  job.completedAt = timestamp;
-}
-
-function cancelJob(
-  job: ArtifactAuditJob,
-  timestamp: string,
-  errorCode: string | null,
-  errorMessage: string | null
-): void {
-  job.status = 'canceled';
-  job.lockedBy = null;
-  job.lockedUntil = null;
-  job.errorCode = errorCode;
-  job.errorMessage = errorMessage;
-  job.updatedAt = timestamp;
-  job.completedAt = timestamp;
+function throwVersionNotFound(): never {
+  throw new ApiError(ErrorCode.VERSION_NOT_FOUND, 'Version not found', 404);
 }
 
 function requireLeaseMs(leaseMs: number): void {
@@ -593,13 +332,41 @@ function requireLeaseMs(leaseMs: number): void {
 }
 
 function isRetryableFailure(error: unknown): boolean {
-  if (
+  return !(
     error &&
     typeof error === 'object' &&
     'retryable' in error &&
     error.retryable === false
+  );
+}
+
+function recordCount(count: number, record: () => void): void {
+  for (let index = 0; index < count; index += 1) record();
+}
+
+function parseListLimit(value: string | undefined): number {
+  if (value === undefined || value.trim() === '') return 50;
+  const parsed = Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) return 50;
+  return Math.min(parsed, 200);
+}
+
+function parseListStatus(
+  value: string | undefined
+): ArtifactAuditJobStatus | undefined {
+  if (value === undefined || value.trim() === '') return undefined;
+  if (
+    value === 'queued' ||
+    value === 'running' ||
+    value === 'succeeded' ||
+    value === 'failed' ||
+    value === 'canceled'
   ) {
-    return false;
+    return value;
   }
-  return true;
+  throw new ApiError(
+    ErrorCode.INVALID_REQUEST,
+    'Invalid artifact audit job status',
+    400
+  );
 }
