@@ -92,6 +92,60 @@ describe('API token repositories', () => {
     expect(tokenCount).toBe(0);
   });
 
+  test('SQLite rotation and revocation roll back with their security events', () => {
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    createSqliteProjectRepository({ databaseFile }).save(createData());
+    const repository = createSqliteApiTokenRepository(databaseFile);
+    const initial = createToken('token-1', 'a'.repeat(64));
+    const replacement = createToken('token-2', 'b'.repeat(64), {
+      createdAt: '2026-07-31T01:00:00.000Z',
+    });
+    repository.create({ token: initial, projectName: 'Signal Desk' });
+    installRejectEventTrigger(databaseFile);
+
+    expect(() =>
+      repository.rotate({
+        currentTokenId: initial.id,
+        replacement,
+        projectName: 'Signal Desk',
+        actorId: 'user-1',
+        rotatedAt: replacement.createdAt,
+        previousExpiresAt: '2026-07-31T01:15:00.000Z',
+        revokePrevious: false,
+      })
+    ).toThrow('injected security event failure');
+    expect(repository.list('project-1')).toEqual([
+      expect.objectContaining({
+        id: initial.id,
+        expiresAt: initial.expiresAt,
+        replacedByTokenId: null,
+      }),
+    ]);
+
+    removeRejectEventTrigger(databaseFile);
+    repository.rotate({
+      currentTokenId: initial.id,
+      replacement,
+      projectName: 'Signal Desk',
+      actorId: 'user-1',
+      rotatedAt: replacement.createdAt,
+      previousExpiresAt: '2026-07-31T01:15:00.000Z',
+      revokePrevious: false,
+    });
+    installRejectEventTrigger(databaseFile);
+
+    expect(() =>
+      repository.revoke({
+        projectId: 'project-1',
+        projectName: 'Signal Desk',
+        tokenId: replacement.id,
+        actorId: 'user-1',
+        revokedAt: '2026-07-31T01:05:00.000Z',
+      })
+    ).toThrow('injected security event failure');
+    expect(repository.findById(replacement.id)?.revokedAt).toBeNull();
+  });
+
   test('project deletion removes live tokens but retains security evidence', () => {
     const databaseFile = join(tempDir, 'deploykit.sqlite');
     const projectRepository = createSqliteProjectRepository({ databaseFile });
@@ -265,4 +319,22 @@ function createData(): Data {
     artifactAudits: [],
     artifactAuditJobs: [],
   };
+}
+
+function installRejectEventTrigger(databaseFile: string): void {
+  const database = new Database(databaseFile);
+  database.exec(`
+    CREATE TRIGGER reject_token_security_event
+    BEFORE INSERT ON api_token_security_events
+    BEGIN
+      SELECT RAISE(ABORT, 'injected security event failure');
+    END;
+  `);
+  database.close();
+}
+
+function removeRejectEventTrigger(databaseFile: string): void {
+  const database = new Database(databaseFile);
+  database.exec('DROP TRIGGER reject_token_security_event');
+  database.close();
 }
