@@ -4,6 +4,7 @@ import {
   existsSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -693,9 +694,11 @@ test('does not replace existing SQLite data with legacy JSON', () => {
   expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
 });
 
-test('invalid deploykit_state preflight leaves SQLite bytes and auxiliaries untouched', () => {
+test('invalid WAL deploykit_state preflight never creates source SHM or mutates source bytes', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
+  database.exec('PRAGMA journal_mode = WAL');
+  database.exec('PRAGMA wal_autocheckpoint = 0');
   database.exec(`
     CREATE TABLE deploykit_state (
       id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -721,17 +724,22 @@ test('invalid deploykit_state preflight leaves SQLite bytes and auxiliaries unto
       }),
       '2026-07-24T00:00:00.000Z'
     );
-  database.close();
-  const original = readFileSync(databaseFile);
+  rmSync(`${databaseFile}-shm`, { force: true });
+  const originalMain = readFileSync(databaseFile);
+  const originalWal = readFileSync(`${databaseFile}-wal`);
 
-  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
-    'Document schema v9 failed validation'
-  );
+  try {
+    expect(() =>
+      createSqliteProjectRepository({ databaseFile }).load()
+    ).toThrow('Document schema v9 failed validation');
 
-  expect(readFileSync(databaseFile)).toEqual(original);
-  expect(existsSync(`${databaseFile}.pre-relational-v1.bak`)).toBe(false);
-  expect(existsSync(`${databaseFile}-wal`)).toBe(false);
-  expect(existsSync(`${databaseFile}-shm`)).toBe(false);
+    expect(readFileSync(databaseFile)).toEqual(originalMain);
+    expect(readFileSync(`${databaseFile}-wal`)).toEqual(originalWal);
+    expect(existsSync(`${databaseFile}-shm`)).toBe(false);
+    expect(existsSync(`${databaseFile}.pre-relational-v1.bak`)).toBe(false);
+  } finally {
+    database.close();
+  }
 });
 
 test('invalid legacy JSON preflight creates no backup or SQLite target', () => {
@@ -755,6 +763,36 @@ test('invalid legacy JSON preflight creates no backup or SQLite target', () => {
 
   expect(readFileSync(legacyDataFile)).toEqual(original);
   expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
+  expect(existsSync(databaseFile)).toBe(false);
+  expect(existsSync(`${databaseFile}-wal`)).toBe(false);
+  expect(existsSync(`${databaseFile}-shm`)).toBe(false);
+});
+
+test('legacy JSON backup uses validated bytes and aborts on same-inode content drift', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const legacyDataFile = join(tempDir, 'data.json');
+  const original = Buffer.from(JSON.stringify(createData('Validated JSON')));
+  const replacement = Buffer.from(
+    JSON.stringify(createData('Changed After Validation'))
+  );
+  writeFileSync(legacyDataFile, original);
+
+  const repository = createSqliteProjectRepository(
+    { databaseFile, legacyDataFile },
+    {
+      afterLegacySourceValidated() {
+        writeFileSync(legacyDataFile, replacement);
+      },
+    }
+  );
+
+  expect(() => repository.load()).toThrow(
+    'Legacy migration source changed after validation'
+  );
+  expect(readFileSync(legacyDataFile)).toEqual(replacement);
+  expect(readFileSync(`${legacyDataFile}.sqlite-migration.bak`)).toEqual(
+    original
+  );
   expect(existsSync(databaseFile)).toBe(false);
   expect(existsSync(`${databaseFile}-wal`)).toBe(false);
   expect(existsSync(`${databaseFile}-shm`)).toBe(false);
@@ -787,11 +825,13 @@ test('migrates an older document payload once and keeps a database backup', () =
       '2026-07-24T00:00:00.000Z'
     );
   database.close();
+  writeFileSync(backupFile, 'stale backup');
 
   const repository = createSqliteProjectRepository({ databaseFile });
   expect(repository.load().schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   expect(existsSync(backupFile)).toBe(true);
   const firstBackup = readFileSync(backupFile);
+  expect(firstBackup.toString()).not.toBe('stale backup');
 
   const verifyDatabase = new Database(databaseFile);
   const migration = verifyDatabase
@@ -804,6 +844,63 @@ test('migrates an older document payload once and keeps a database backup', () =
 
   createSqliteProjectRepository({ databaseFile }).load();
   expect(readFileSync(backupFile)).toEqual(firstBackup);
+});
+
+test('legacy SQLite backup uses the validated snapshot and aborts on identity replacement', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const displacedDatabaseFile = `${databaseFile}.validated-source`;
+  const backupFile = `${databaseFile}.pre-relational-v1.bak`;
+  const payload = JSON.stringify({
+    projects: [],
+    users: [],
+    history: [],
+  });
+  const database = new Database(databaseFile, { create: true });
+  database.exec(`
+    CREATE TABLE deploykit_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      schema_version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  database
+    .query(
+      `INSERT INTO deploykit_state
+        (id, schema_version, payload, updated_at)
+       VALUES (1, 0, ?, ?)`
+    )
+    .run(payload, '2026-07-24T00:00:00.000Z');
+  database.close();
+  const original = readFileSync(databaseFile);
+  const replacement = Buffer.from('replacement database bytes');
+
+  const repository = createSqliteProjectRepository(
+    { databaseFile },
+    {
+      afterLegacySourceValidated() {
+        renameSync(databaseFile, displacedDatabaseFile);
+        writeFileSync(databaseFile, replacement);
+      },
+    }
+  );
+
+  expect(() => repository.load()).toThrow(
+    'Legacy migration source changed after validation'
+  );
+  expect(readFileSync(displacedDatabaseFile)).toEqual(original);
+  expect(readFileSync(databaseFile)).toEqual(replacement);
+  expect(existsSync(`${databaseFile}-wal`)).toBe(false);
+  expect(existsSync(`${databaseFile}-shm`)).toBe(false);
+
+  const backup = new Database(backupFile, { readonly: true });
+  const backedUpPayload = backup
+    .query<{ payload: string }, []>(
+      'SELECT payload FROM deploykit_state WHERE id = 1'
+    )
+    .get()?.payload;
+  backup.close();
+  expect(backedUpPayload).toBe(payload);
 });
 
 test('mutate returns the callback result and persists its changes', () => {

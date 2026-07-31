@@ -354,6 +354,15 @@ test('migrate accepts supported declared versions and rejects every version boun
   );
 });
 
+test('migrate rejects current documents whose parse would strip fields', () => {
+  expect(() =>
+    migrate({
+      ...createCurrentAuditData(),
+      unexpectedPersistedField: true,
+    })
+  ).toThrow('Document schema v9 failed validation');
+});
+
 test('repository backs up and persists a migrated v0 file on first load', () => {
   const dataFile = join(tempDir, 'data.json');
   writeFileSync(dataFile, JSON.stringify(v0Payload));
@@ -463,79 +472,103 @@ test('repository rejects an unknown document version without writing', () => {
   expect(existsSync(`${dataFile}.bak`)).toBe(false);
 });
 
-test('repository rejects a v8-shaped document mislabeled as v9 without writing', () => {
-  const dataFile = join(tempDir, 'data.json');
+test('repository independently rejects every v9 migration-defaulted field omission', () => {
   const current = createCurrentAuditData();
   const project = current.projects[0];
-  const {
-    members: _members,
-    auditPolicy: currentProjectPolicy,
-    ...projectWithoutCurrentFields
-  } = project;
-  const {
-    maxJavaScriptBytes: _projectJavaScript,
-    maxStylesheetBytes: _projectStylesheet,
-    maxFontBytes: _projectFont,
-    ...legacyProjectPolicy
-  } = currentProjectPolicy;
+  const { members: _members, ...projectWithoutMembers } = project;
+  const currentProjectPolicy = project.auditPolicy;
+  const { maxJavaScriptBytes: _projectJavaScript, ...policyWithoutJavaScript } =
+    currentProjectPolicy;
+  const { maxStylesheetBytes: _projectStylesheet, ...policyWithoutStylesheet } =
+    currentProjectPolicy;
+  const { maxFontBytes: _projectFont, ...policyWithoutFont } =
+    currentProjectPolicy;
   const report = current.artifactAudits[0];
-  const {
-    policy: currentReportPolicy,
-    context: _reportContext,
-    summary: currentSummary,
-    checks: currentChecks,
-    ...reportWithoutCurrentFields
-  } = report;
-  const {
-    maxJavaScriptBytes: _reportJavaScript,
-    maxStylesheetBytes: _reportStylesheet,
-    maxFontBytes: _reportFont,
-    ...legacyReportPolicy
-  } = currentReportPolicy;
-  const { assetBytes: _assetBytes, ...legacySummary } = currentSummary;
-  const [{ ruleVersion: _ruleVersion, ...legacyCheck }] = currentChecks;
+  const { context: _reportContext, ...reportWithoutContext } = report;
+  const { summary: currentSummary, ...reportWithoutSummary } = report;
+  const { assetBytes: _assetBytes, ...summaryWithoutAssetBytes } =
+    currentSummary;
+  const { checks: currentChecks, ...reportWithoutChecks } = report;
+  const [{ ruleVersion: _ruleVersion, ...checkWithoutRuleVersion }] =
+    currentChecks;
   const job = current.artifactAuditJobs[0];
-  const {
-    policy: currentJobPolicy,
-    context: _jobContext,
-    ...jobWithoutCurrentFields
-  } = job;
-  const {
-    maxJavaScriptBytes: _jobJavaScript,
-    maxStylesheetBytes: _jobStylesheet,
-    maxFontBytes: _jobFont,
-    ...legacyJobPolicy
-  } = currentJobPolicy;
-  const original = Buffer.from(
-    JSON.stringify({
-      ...current,
-      projects: [
-        {
-          ...projectWithoutCurrentFields,
-          auditPolicy: legacyProjectPolicy,
-        },
-      ],
-      artifactAudits: [
-        {
-          ...reportWithoutCurrentFields,
-          policy: legacyReportPolicy,
-          summary: legacySummary,
-          checks: [legacyCheck],
-        },
-      ],
-      artifactAuditJobs: [
-        {
-          ...jobWithoutCurrentFields,
-          policy: legacyJobPolicy,
-        },
-      ],
-    })
-  );
-  writeFileSync(dataFile, original);
+  const { context: _jobContext, ...jobWithoutContext } = job;
 
-  const repo = createJsonProjectRepository(dataFile);
+  const cases = [
+    {
+      name: 'project-members',
+      payload: { ...current, projects: [projectWithoutMembers] },
+    },
+    {
+      name: 'policy-javascript-budget',
+      payload: {
+        ...current,
+        projects: [{ ...project, auditPolicy: policyWithoutJavaScript }],
+      },
+    },
+    {
+      name: 'policy-stylesheet-budget',
+      payload: {
+        ...current,
+        projects: [{ ...project, auditPolicy: policyWithoutStylesheet }],
+      },
+    },
+    {
+      name: 'policy-font-budget',
+      payload: {
+        ...current,
+        projects: [{ ...project, auditPolicy: policyWithoutFont }],
+      },
+    },
+    {
+      name: 'check-rule-version',
+      payload: {
+        ...current,
+        artifactAudits: [
+          {
+            ...reportWithoutChecks,
+            checks: [checkWithoutRuleVersion],
+          },
+        ],
+      },
+    },
+    {
+      name: 'report-context',
+      payload: {
+        ...current,
+        artifactAudits: [reportWithoutContext],
+      },
+    },
+    {
+      name: 'job-context',
+      payload: {
+        ...current,
+        artifactAuditJobs: [jobWithoutContext],
+      },
+    },
+    {
+      name: 'summary-asset-bytes',
+      payload: {
+        ...current,
+        artifactAudits: [
+          {
+            ...reportWithoutSummary,
+            summary: summaryWithoutAssetBytes,
+          },
+        ],
+      },
+    },
+  ];
 
-  expect(() => repo.load()).toThrow('Document schema v9 failed validation');
-  expect(readFileSync(dataFile)).toEqual(original);
-  expect(existsSync(`${dataFile}.bak`)).toBe(false);
+  for (const testCase of cases) {
+    const dataFile = join(tempDir, `${testCase.name}.json`);
+    const original = Buffer.from(JSON.stringify(testCase.payload));
+    writeFileSync(dataFile, original);
+
+    const repo = createJsonProjectRepository(dataFile);
+
+    expect(() => repo.load()).toThrow('Document schema v9 failed validation');
+    expect(readFileSync(dataFile)).toEqual(original);
+    expect(existsSync(`${dataFile}.bak`)).toBe(false);
+  }
 });

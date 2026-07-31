@@ -1,12 +1,17 @@
 import { Database } from 'bun:sqlite';
+import type { BigIntStats } from 'node:fs';
 import {
-  copyFileSync,
   existsSync,
   lstatSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
 } from 'node:fs';
-import { dirname } from 'node:path';
+import { tmpdir } from 'node:os';
+import { basename, dirname, join } from 'node:path';
 import type {
   ApiTokenScope,
   ArtifactAuditJob,
@@ -57,11 +62,40 @@ interface LegacyStateRow {
   payload: string;
 }
 
+interface FileIdentity {
+  device: bigint;
+  inode: bigint;
+  size: bigint;
+  modifiedAt: bigint;
+  changedAt: bigint;
+}
+
+interface CapturedFile {
+  path: string;
+  bytes: Buffer;
+  identity: FileIdentity;
+}
+
+interface CapturedPath {
+  path: string;
+  file: CapturedFile | null;
+}
+
+interface CapturedSqliteSnapshot {
+  temporaryRoot: string;
+  temporaryDatabaseFile: string;
+  sourceFiles: CapturedPath[];
+}
+
 type DatabaseInitializationPreflight =
   | { kind: 'existing' }
   | { kind: 'empty'; data: Data }
-  | { kind: 'legacy-state'; data: Data }
-  | { kind: 'legacy-file'; data: Data; sourceFile: string };
+  | {
+      kind: 'legacy-state';
+      data: Data;
+      sourceSnapshot: CapturedSqliteSnapshot;
+    }
+  | { kind: 'legacy-file'; data: Data; sourceSnapshot: CapturedFile };
 
 const EXISTING_DATABASE_PREFLIGHT = { kind: 'existing' } as const;
 
@@ -171,6 +205,10 @@ export interface SqliteProjectRepositoryOptions {
   legacyDataFile?: string;
 }
 
+export interface SqliteProjectRepositoryDependencies {
+  afterLegacySourceValidated?: () => void;
+}
+
 /**
  * Relational SQLite metadata repository.
  *
@@ -179,32 +217,41 @@ export interface SqliteProjectRepositoryOptions {
  * IMMEDIATE transaction. Audit rows are append-only: the aggregate carries a
  * bounded compatibility window while SQL pagination can retain the full log.
  */
-export function createSqliteProjectRepository({
-  databaseFile,
-  legacyDataFile,
-}: SqliteProjectRepositoryOptions): ProjectRepository {
+export function createSqliteProjectRepository(
+  { databaseFile, legacyDataFile }: SqliteProjectRepositoryOptions,
+  dependencies: SqliteProjectRepositoryDependencies = {}
+): ProjectRepository {
   let initializationComplete = false;
 
   const withDatabase = <T>(work: (database: Database) => T): T => {
     const preflight = initializationComplete
       ? EXISTING_DATABASE_PREFLIGHT
       : preflightDatabaseInitialization(databaseFile, legacyDataFile);
-    if (preflight.kind === 'legacy-file') {
-      copyFileSync(
-        preflight.sourceFile,
-        `${preflight.sourceFile}.sqlite-migration.bak`
-      );
-    }
-
-    mkdirSync(dirname(databaseFile), { recursive: true });
-    const database = new Database(databaseFile, { create: true });
     try {
-      configureSqlite(database);
-      initializeDatabase(database, databaseFile, preflight);
-      initializationComplete = true;
-      return work(database);
+      if (
+        preflight.kind === 'legacy-file' ||
+        preflight.kind === 'legacy-state'
+      ) {
+        dependencies.afterLegacySourceValidated?.();
+        createPreRelationalBackup(preflight, databaseFile);
+        revalidateLegacySource(preflight);
+      }
+
+      // Runtime ownership is acquired before repository composition. Combined
+      // with this exact identity-and-content revalidation, that single-writer
+      // invariant closes the remaining revalidation-to-mutation window.
+      mkdirSync(dirname(databaseFile), { recursive: true });
+      const database = new Database(databaseFile, { create: true });
+      try {
+        configureSqlite(database);
+        initializeDatabase(database, databaseFile, preflight);
+        initializationComplete = true;
+        return work(database);
+      } finally {
+        database.close();
+      }
     } finally {
-      database.close();
+      cleanupPreflight(preflight);
     }
   };
 
@@ -402,8 +449,13 @@ function preflightDatabaseInitialization(
     return preflightLegacyFile(legacyDataFile);
   }
 
-  const database = new Database(databaseFile, { readonly: true });
+  const sourceSnapshot = captureSqliteSnapshot(databaseFile);
+  let database: Database | undefined;
+  let retainSourceSnapshot = false;
   try {
+    // The isolated copy is intentionally writable so SQLite can safely recover
+    // a copied hot rollback journal without ever touching the live source.
+    database = new Database(sourceSnapshot.temporaryDatabaseFile);
     const relationalVersion = getRelationalSchemaVersion(database);
     if (relationalVersion > 0 || hasAnyRelationalDomainTable(database)) {
       return EXISTING_DATABASE_PREFLIGHT;
@@ -417,13 +469,20 @@ function preflightDatabaseInitialization(
           .get()
       : null;
     if (legacyRow) {
+      const data = migrate(JSON.parse(legacyRow.payload)).data;
+      retainSourceSnapshot = true;
       return {
         kind: 'legacy-state',
-        data: migrate(JSON.parse(legacyRow.payload)).data,
+        data,
+        sourceSnapshot,
       };
     }
   } finally {
-    database.close();
+    try {
+      database?.close();
+    } finally {
+      if (!retainSourceSnapshot) cleanupSqliteSnapshot(sourceSnapshot);
+    }
   }
 
   return preflightLegacyFile(legacyDataFile);
@@ -435,11 +494,191 @@ function preflightLegacyFile(
   if (!legacyDataFile || !pathExists(legacyDataFile)) {
     return { kind: 'empty', data: createEmptyData() };
   }
+  const sourceSnapshot = captureFile(legacyDataFile);
   return {
     kind: 'legacy-file',
-    data: migrate(JSON.parse(readFileSync(legacyDataFile, 'utf-8'))).data,
-    sourceFile: legacyDataFile,
+    data: migrate(JSON.parse(sourceSnapshot.bytes.toString('utf8'))).data,
+    sourceSnapshot,
   };
+}
+
+function captureSqliteSnapshot(databaseFile: string): CapturedSqliteSnapshot {
+  const sourceFiles = [
+    { path: databaseFile, file: captureFile(databaseFile) },
+    {
+      path: `${databaseFile}-journal`,
+      file: captureOptionalFile(`${databaseFile}-journal`),
+    },
+    {
+      path: `${databaseFile}-wal`,
+      file: captureOptionalFile(`${databaseFile}-wal`),
+    },
+    {
+      path: `${databaseFile}-shm`,
+      file: captureOptionalFile(`${databaseFile}-shm`),
+    },
+  ];
+  const temporaryRoot = mkdtempSync(
+    join(tmpdir(), 'deploykit-migration-preflight-')
+  );
+  const temporaryDatabaseFile = join(temporaryRoot, basename(databaseFile));
+
+  try {
+    for (const capturedPath of sourceFiles) {
+      if (!capturedPath.file) continue;
+      const suffix = capturedPath.path.slice(databaseFile.length);
+      writeFileSync(
+        `${temporaryDatabaseFile}${suffix}`,
+        capturedPath.file.bytes
+      );
+    }
+  } catch (error) {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+    throw error;
+  }
+
+  return { temporaryRoot, temporaryDatabaseFile, sourceFiles };
+}
+
+function captureOptionalFile(path: string): CapturedFile | null {
+  try {
+    return captureFile(path);
+  } catch (error) {
+    if (isFileNotFoundError(error)) return null;
+    throw error;
+  }
+}
+
+function captureFile(path: string): CapturedFile {
+  const before = lstatSync(path, { bigint: true });
+  assertSafeMigrationSource(path, before);
+  const bytes = readFileSync(path);
+  const after = lstatSync(path, { bigint: true });
+  assertSafeMigrationSource(path, after);
+  const beforeIdentity = fileIdentity(before);
+  const afterIdentity = fileIdentity(after);
+
+  if (
+    !sameFileIdentity(beforeIdentity, afterIdentity) ||
+    BigInt(bytes.byteLength) !== afterIdentity.size
+  ) {
+    throw new Error(`Legacy migration source changed while reading: ${path}`);
+  }
+
+  return { path, bytes, identity: afterIdentity };
+}
+
+function assertSafeMigrationSource(path: string, stats: BigIntStats): void {
+  if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1n) {
+    throw new Error(
+      `Legacy migration source must be a single-link regular file: ${path}`
+    );
+  }
+}
+
+function fileIdentity(stats: BigIntStats): FileIdentity {
+  return {
+    device: stats.dev,
+    inode: stats.ino,
+    size: stats.size,
+    modifiedAt: stats.mtimeNs,
+    changedAt: stats.ctimeNs,
+  };
+}
+
+function sameFileIdentity(left: FileIdentity, right: FileIdentity): boolean {
+  return (
+    left.device === right.device &&
+    left.inode === right.inode &&
+    left.size === right.size &&
+    left.modifiedAt === right.modifiedAt &&
+    left.changedAt === right.changedAt
+  );
+}
+
+function createPreRelationalBackup(
+  preflight: Extract<
+    DatabaseInitializationPreflight,
+    { kind: 'legacy-file' | 'legacy-state' }
+  >,
+  databaseFile: string
+): void {
+  if (preflight.kind === 'legacy-file') {
+    writeFileSync(
+      `${preflight.sourceSnapshot.path}.sqlite-migration.bak`,
+      preflight.sourceSnapshot.bytes
+    );
+    return;
+  }
+
+  const backupFile = `${databaseFile}.pre-relational-v1.bak`;
+  const backupStagingRoot = mkdtempSync(
+    join(dirname(backupFile), '.deploykit-pre-relational-')
+  );
+  const stagedBackupFile = join(backupStagingRoot, 'backup.sqlite');
+  try {
+    let snapshotDatabase: Database | undefined;
+    try {
+      snapshotDatabase = new Database(
+        preflight.sourceSnapshot.temporaryDatabaseFile,
+        { readonly: true }
+      );
+      snapshotDatabase.query('VACUUM INTO ?').run(stagedBackupFile);
+    } finally {
+      snapshotDatabase?.close();
+    }
+    renameSync(stagedBackupFile, backupFile);
+  } finally {
+    rmSync(backupStagingRoot, { recursive: true, force: true });
+  }
+}
+
+function revalidateLegacySource(
+  preflight: Extract<
+    DatabaseInitializationPreflight,
+    { kind: 'legacy-file' | 'legacy-state' }
+  >
+): void {
+  if (preflight.kind === 'legacy-file') {
+    revalidateCapturedPath({
+      path: preflight.sourceSnapshot.path,
+      file: preflight.sourceSnapshot,
+    });
+    return;
+  }
+
+  for (const capturedPath of preflight.sourceSnapshot.sourceFiles) {
+    revalidateCapturedPath(capturedPath);
+  }
+}
+
+function revalidateCapturedPath(capturedPath: CapturedPath): void {
+  const current = captureOptionalFile(capturedPath.path);
+  const changed =
+    capturedPath.file === null
+      ? current !== null
+      : current === null ||
+        !sameFileIdentity(capturedPath.file.identity, current.identity) ||
+        !capturedPath.file.bytes.equals(current.bytes);
+  if (changed) {
+    throw new Error(
+      `Legacy migration source changed after validation: ${capturedPath.path}`
+    );
+  }
+}
+
+function cleanupPreflight(preflight: DatabaseInitializationPreflight): void {
+  if (preflight.kind === 'legacy-state') {
+    cleanupSqliteSnapshot(preflight.sourceSnapshot);
+  }
+}
+
+function cleanupSqliteSnapshot(snapshot: CapturedSqliteSnapshot): void {
+  rmSync(snapshot.temporaryRoot, { recursive: true, force: true });
+}
+
+function isFileNotFoundError(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 function hasAnyRelationalDomainTable(database: Database): boolean {
@@ -451,9 +690,7 @@ function pathExists(path: string): boolean {
     lstatSync(path);
     return true;
   } catch (error) {
-    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-      return false;
-    }
+    if (isFileNotFoundError(error)) return false;
     throw error;
   }
 }
@@ -478,10 +715,6 @@ function initializeDatabase(
     throw new Error(
       'Relational SQLite schema is incomplete; restore the pre-migration backup'
     );
-  }
-
-  if (preflight.kind === 'legacy-state') {
-    createDatabaseBackup(database, databaseFile);
   }
 
   if (preflight.kind === 'existing') {
