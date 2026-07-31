@@ -25,6 +25,10 @@ import {
 import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
 import {
+  inspectOpenDatabase,
+  type VersionIntegrityRow,
+} from './backupDatabaseInspection';
+import {
   assertSingleLinkRegularFile,
   BACKUP_DATABASE_SNAPSHOT_UNSAFE,
   BACKUP_SOURCE_UNSAFE,
@@ -49,14 +53,6 @@ import type {
 
 const BACKUP_MIGRATION_PREFLIGHT_FAILED = 'BACKUP_MIGRATION_PREFLIGHT_FAILED';
 const BACKUP_VALIDATION_CLEANUP_FAILED = 'BACKUP_VALIDATION_CLEANUP_FAILED';
-
-interface VersionIntegrityRow {
-  id: string;
-  project_id: string;
-  status: string;
-  checksum: string;
-  integrity_status: string;
-}
 
 export function verifyBackupAt(
   backupPath: string,
@@ -500,47 +496,6 @@ function inspectBackupDatabaseSnapshot(
     return `[${BACKUP_DATABASE_SNAPSHOT_UNSAFE}] Database snapshot must be a non-symbolic regular file`;
   }
   return undefined;
-}
-
-function inspectOpenDatabase(database: Database) {
-  const count = (table: string): number =>
-    database
-      .query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM ${table}`)
-      .get()?.count ?? 0;
-  const schemaVersion =
-    database
-      .query<{ version: number | null }, []>(
-        'SELECT MAX(version) AS version FROM schema_migrations'
-      )
-      .get()?.version ?? 0;
-  const versions = database
-    .query<VersionIntegrityRow, []>(
-      `SELECT id, project_id, status, checksum, integrity_status
-       FROM versions
-       ORDER BY project_id, sort_order`
-    )
-    .all();
-  return {
-    schemaVersion,
-    versions,
-    counts: {
-      users: count('users'),
-      projects: count('projects'),
-      versions: count('versions'),
-      artifactAudits: count('artifact_audits'),
-      artifactAuditJobs: count('artifact_audit_jobs'),
-      auditEvents: count('audit_events'),
-      releases: count('releases'),
-      sessions: count('sessions'),
-      ...(schemaVersion >= 6
-        ? {
-            apiTokens: count('project_api_tokens'),
-            apiTokenSecurityEvents: count('api_token_security_events'),
-            ciIdempotencyRecords: count('ci_idempotency_records'),
-          }
-        : {}),
-    },
-  };
 }
 
 function verifyVersionArtifacts(
