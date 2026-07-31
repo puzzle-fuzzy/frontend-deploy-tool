@@ -533,6 +533,16 @@ Subprocess termination uses a separate synchronous `killRequested` latch so
 overflow, abort, timeout, and reader/exit rejection races request at most one
 signal before all streams and exit settle.
 
+After all stdout, stderr, and exit promises settle, classification precedence
+is deterministic: a real caller abort remains an abort; otherwise confirmed
+stdout overflow remains `AUDIT_ENGINE_OUTPUT_INVALID` even when stderr reading
+or the exit promise also rejects or a timeout fires during cleanup; remaining
+timeout, stream, and exit failures are retryable infrastructure failures. The
+fake child process must not mutate the caller's `AbortController` as a side
+effect of `kill()`. Trigger abort and timeout independently, and cover overflow
+combined with stderr-reader rejection and exit rejection while still proving
+one kill and complete settlement.
+
 - [ ] **Step 2: Run the tests and confirm failure**
 
 Run:
