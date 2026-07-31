@@ -459,7 +459,7 @@ git add docs/architecture.md \
 git commit -m "docs: record backup primitive boundaries"
 ```
 
-- [ ] **Step 6: Fetch, push `main`, and wait for exact-SHA gates**
+- [x] **Step 6: Fetch, push `main`, and wait for exact-SHA gates**
 
 ```bash
 git fetch origin main
@@ -470,6 +470,14 @@ git push origin main
 Wait for both CI and CodeQL to succeed for the exact pushed SHA. Then confirm
 local `HEAD`, `origin/main`, and `git ls-remote origin refs/heads/main` agree,
 the tracked worktree is clean, and report the exact commit and workflow URLs.
+
+Delivery result: `5a518ff269d4038feeb35d3c53ee59dc92fa8f7e` was pushed to
+`main`; local, tracking, and remote refs agreed and the tracked worktree was
+clean. Exact-SHA [CI run
+30659225713](https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30659225713)
+and [CodeQL run
+30659226489](https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30659226489)
+both succeeded before this plan-closing documentation commit.
 
 ---
 
