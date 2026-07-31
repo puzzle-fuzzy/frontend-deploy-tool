@@ -369,13 +369,14 @@ bun x biome check \
   apps/server/src/services/backupSnapshot.ts \
   apps/server/src/services/backupVerification.ts \
   apps/server/tests/services/backupDatabaseInspection.test.ts
-rg -n "interface VersionIntegrityRow|function inspectOpenDatabase" \
+rg -n "interface VersionIntegrityRow|function inspectOpenDatabase|function inspectDatabase" \
   apps/server/src/services
 git diff --check
 ```
 
 Expected: the direct SQL-contract suite and all 107 focused tests pass; the two
-database entities have one production definition; there are no circular
+database functions and the row interface have one production definition;
+there are no circular
 imports or public exports.
 
 - [ ] **Step 5: Independent review and commit**
