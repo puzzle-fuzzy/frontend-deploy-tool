@@ -255,16 +255,28 @@ test('migrate leaves already-current data unchanged', () => {
   expect(data).toEqual(current);
 });
 
-test('migrate is null-safe on an empty or malformed payload', () => {
-  expect(migrate(null).data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
-  expect(migrate({}).data).toEqual({
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    projects: [],
-    users: [],
-    history: [],
-    artifactAudits: [],
-    artifactAuditJobs: [],
-  });
+test('migrate rejects decoded values outside the supported document schemas', () => {
+  expect(() => migrate(null)).toThrow('Document schema migration failed');
+  expect(() =>
+    migrate({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects: 'not-an-array',
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    })
+  ).toThrow('Document schema v9 failed validation');
+  expect(() =>
+    migrate({
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+      projects: [],
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    })
+  ).toThrow('Unsupported document schema version 10');
 });
 
 test('repository backs up and persists a migrated v0 file on first load', () => {
@@ -335,4 +347,43 @@ test('repository preserves v8 bytes when the migration backup cannot be copied',
   expect(() => repo.load()).toThrow();
   expect(readFileSync(dataFile)).toEqual(original);
   expect(JSON.parse(readFileSync(dataFile, 'utf-8')).schemaVersion).toBe(8);
+});
+
+test('repository rejects a schema-invalid current document without writing', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const original = Buffer.from(
+    JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects: 'not-an-array',
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    })
+  );
+  writeFileSync(dataFile, original);
+
+  const repo = createJsonProjectRepository(dataFile);
+
+  expect(() => repo.load()).toThrow('Document schema v9 failed validation');
+  expect(readFileSync(dataFile)).toEqual(original);
+  expect(existsSync(`${dataFile}.bak`)).toBe(false);
+});
+
+test('repository rejects an unknown document version without writing', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const current = migrate(v0Payload).data;
+  const original = Buffer.from(
+    JSON.stringify({
+      ...current,
+      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
+    })
+  );
+  writeFileSync(dataFile, original);
+
+  const repo = createJsonProjectRepository(dataFile);
+
+  expect(() => repo.load()).toThrow('Unsupported document schema version 10');
+  expect(readFileSync(dataFile)).toEqual(original);
+  expect(existsSync(`${dataFile}.bak`)).toBe(false);
 });

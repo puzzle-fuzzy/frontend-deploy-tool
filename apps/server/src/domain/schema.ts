@@ -3,6 +3,7 @@ import {
   artifactAuditPolicySchema,
   artifactAuditReportSchema,
   type Data,
+  dataSchema,
   historyEventSchema,
   integrityStatusSchema,
   type Project,
@@ -129,17 +130,40 @@ export function createEmptyData(): Data {
  * assertion-free. Backup and persistence are the caller's job.
  */
 export function migrate(raw: unknown): MigrationResult {
+  const declaredVersion =
+    typeof raw === 'object' &&
+    raw !== null &&
+    'schemaVersion' in raw &&
+    typeof raw.schemaVersion === 'number'
+      ? raw.schemaVersion
+      : undefined;
+
+  if (
+    declaredVersion !== undefined &&
+    (!Number.isInteger(declaredVersion) ||
+      declaredVersion < 0 ||
+      declaredVersion > CURRENT_SCHEMA_VERSION)
+  ) {
+    throw new Error(`Unsupported document schema version ${declaredVersion}`);
+  }
+
+  if (declaredVersion === CURRENT_SCHEMA_VERSION) {
+    const current = dataSchema.safeParse(raw);
+    if (!current.success) {
+      throw new Error(
+        `Document schema v${CURRENT_SCHEMA_VERSION} failed validation`
+      );
+    }
+    return { data: current.data, migrated: false };
+  }
+
   const parsed = legacyDataSchema.safeParse(raw);
   if (!parsed.success) {
-    if (
-      typeof raw === 'object' &&
-      raw !== null &&
-      'schemaVersion' in raw &&
-      raw.schemaVersion === 8
-    ) {
-      throw new Error('Document schema v8 migration failed validation');
-    }
-    return { data: createEmptyData(), migrated: false };
+    const schemaLabel =
+      declaredVersion === undefined
+        ? 'Document schema migration'
+        : `Document schema v${declaredVersion} migration`;
+    throw new Error(`${schemaLabel} failed validation`);
   }
 
   const input = parsed.data;
