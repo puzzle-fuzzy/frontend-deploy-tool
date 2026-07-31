@@ -608,44 +608,82 @@ type ArtifactAuditStaleReason =
   | 'rule_config_changed'
   | 'context_changed';
 
-interface ArtifactAuditAssessment {
-  report: ArtifactAuditReport | null;
-  freshness: 'missing' | 'stale' | 'current';
-  staleReasons: ArtifactAuditStaleReason[];
+type ArtifactAuditReleaseAssessment =
+  | { allowed: true; reason: 'advisory' | 'current_report' }
+  | { allowed: false; reason: 'audit_required' | 'audit_blocked' };
+
+interface ArtifactAuditAssessmentBase {
   currentEngineVersion: number;
-  release: {
-    allowed: boolean;
-    reason:
-      | 'advisory'
-      | 'current_report'
-      | 'audit_required'
-      | 'audit_blocked';
-  };
+  release: ArtifactAuditReleaseAssessment;
 }
+
+type ArtifactAuditAssessment =
+  | (ArtifactAuditAssessmentBase & {
+      report: null;
+      freshness: 'missing';
+      staleReasons: [];
+    })
+  | (ArtifactAuditAssessmentBase & {
+      report: ArtifactAuditReport;
+      freshness: 'stale';
+      staleReasons: [
+        ArtifactAuditStaleReason,
+        ...ArtifactAuditStaleReason[],
+      ];
+    })
+  | (ArtifactAuditAssessmentBase & {
+      report: ArtifactAuditReport;
+      freshness: 'current';
+      staleReasons: [];
+    });
 ```
 
 - Additive authenticated endpoint:
   `GET /api/projects/:id/versions/:versionId/audit-assessment`.
 - Existing `GET /audit`, sync `POST /audit`, and job APIs remain unchanged.
+- Freshness reason order is stable:
+  `checksum_changed`, `engine_changed`, `rule_config_changed`,
+  `context_changed`.
+- Missing means `report: null` and no stale reasons; stale means a report and
+  at least one stale reason; current means a report and no stale reasons.
+- Advisory mode always allows release with reason `advisory`. Blocking mode
+  maps missing or stale (including a stale failed report) to
+  `audit_required`, a current failed report to `audit_blocked`, and a current
+  passed or warning report to `current_report`.
 
 - [ ] **Step 1: Write the freshness matrix tests**
 
 Cover missing report, checksum change, engine v1, each budget change, routing
 context change, enforcement-only change, warning/passed/failed reports, and
-advisory/blocking mode. Enforcement-only change must remain current.
+advisory/blocking mode. Enforcement-only change must remain current. Add a
+multi-mismatch case that locks the canonical stale-reason order and a
+stale-plus-failed case that proves `audit_required` takes precedence over
+`audit_blocked`.
 
 - [ ] **Step 2: Implement one pure assessment function**
 
 `assertArtifactAuditAllowsRelease()` delegates to the assessment instead of
-reimplementing freshness comparisons. The assessment returns stable reason
-codes and never mutates data.
+reimplementing freshness comparisons. The pure function accepts already-loaded
+`Data`, `Project`, and `Version` (or equivalent immutable inputs), returns the
+discriminated contract above, and never reloads or mutates data; this preserves
+the release service's second assessment inside `repo.mutate()` as its
+compare-and-swap guard. Select a report by both project and version ID.
+Compare checksum, the engine token imported directly from
+`domain/artifactAuditRules.ts`, `hasSameArtifactAuditRuleConfig()` across all
+six scan fields while excluding enforcement, and the exact routing context.
 
 - [ ] **Step 3: Add and test the Hono route**
 
-Authorize project read before revealing report/version existence. Test 401,
-cross-project 404/scoping, missing, stale, current, and engine-v1 responses
-through `app.request()`. Add a compile-only `hc<ApiApp>` assertion that reaches
-the exact `audit-assessment` path and infers its response. The endpoint is
+Authorize project read before revealing version or report existence. Only
+after authorization, validate version membership and read the current detailed
+report table by both project and version ID; missing report is a successful
+assessment and must not reuse the throwing `getArtifactAudit()` path or derive
+state from job history. Test 401, authenticated non-member 403, authorized
+project A with project B's version/report as `VERSION_NOT_FOUND` 404, valid
+scoped missing as 200, stale, current, and engine-v1 responses through
+`app.request()`. Add a compile-only `hc<ApiApp>` assertion that reaches the
+exact `audit-assessment` path and proves its 200 `InferResponseType` equals
+`ArtifactAuditAssessment`, not merely that `$get` exists. The endpoint is
 intentionally not added to the transport-neutral `ApiClient` until a browser
 or desktop feature consumes it, but the exported Hono route contract must
 remain type-visible.
