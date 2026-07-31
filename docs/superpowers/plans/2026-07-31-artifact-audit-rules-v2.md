@@ -833,6 +833,15 @@ manual recovery. Cover database-stage and storage-stage parent replacement
 with external same-name sentinels and prove those external files/directories
 remain byte-for-byte untouched.
 
+Bindings remain phase-aware through installation and compensation. Revalidate
+the database stage and its trusted parent after the current state is moved and
+immediately before database installation; consume that binding only after the
+exact staged inode is installed. Repeat for storage after the database-installed
+hook. Before recovery reads any rollback resource, revalidate its rollback
+root/operation/directory binding; if it changed, record a secondary recovery
+failure and preserve evidence rather than following the replacement path.
+Cover late database/storage stage swaps and a post-move rollback-operation swap.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
