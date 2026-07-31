@@ -86,12 +86,21 @@ SQLite/本地存储。
 bun run test          # 根目录（或 cd apps/server && bun test）
 ```
 
-- `tests/api/` — `hono/testing` 契约测试：覆盖项目/设置/版本/部署/历史游标、Token 生命周期、session/CI 凭据隔离、CI 幂等重放/冲突、上传限制、安全头、健康探针、请求编号与失败清理。
+- `tests/api/` — `hono/testing` 契约测试：覆盖项目/设置/版本/部署/历史游标、Token 生命周期、session/CI 凭据隔离、CI 幂等重放/冲突、上传限制、安全头、健康探针、请求编号与失败清理。`ciProductionProcessSmoke.test.ts` 另起真实 production 子进程，覆盖 worker disabled/enabled 重启、精确 job 轮询、engine-v2 报告持久化、assessment 与 blocking 发布不变量，以及 v5 verify/restore/v7 startup。
 - `tests/services/` — 领域/服务/工具单元测试：slug、历史游标、版本不变量、`safePath`、SQLite 原子 mutation/CI commit、仅供测试的 JSON adapter、Token 撤销/轮换、`deployResolver`、`artifactService`、存储启动对账与配置门禁。
 
 应用组装与 `Bun.serve` 分离（`createApp(config)`），测试无需开端口，也不会
 获取 runtime ownership。需要验证真实启动互斥/恢复时使用
 `createDeployKitRuntime(config)` 或子进程入口。
+
+产物审计新客户端走 durable `audit-jobs`；同步 `POST /audit` 只用于兼容，仍是
+preview-only、进程内且受同一静态引擎边界限制，不参与后台 worker 的单任务
+lease。engine v2 使用稳定 rule ID/ruleVersion，报告 assessment 可能返回
+`checksum_changed`、`engine_changed`、`rule_config_changed` 或
+`context_changed`。只改 enforcement 不使 queued job/current report 过期。
+六项后端预算为 total bytes、single-file bytes、file count、JavaScript、
+stylesheet、font；管理 UI、rendered DOM/profile、内部链接目标和实际图片文件
+验证尚未交付。
 
 ### 前端（apps/web）
 
@@ -141,6 +150,15 @@ restore 仍需获取同一 runtime ownership；后端正在运行时必须先优
 必须与全部 runtime resources 无祖先重叠，且不会复用已有 operation/stage。
 rollback operation 可能包含完整数据库、产物与 live storage 内的备份副本；
 将其视为敏感数据，限制服务账号目录权限，并在验证恢复后由运维按保留策略清理。
+
+`verify` 对 v5/v6 关系型备份先复制到一次性根，执行生产 v7 migration，再走
+生产 `loadRelationalData` 及 project/report/job schema；current v7 直接走同一
+domain hydrator。源 manifest/数据库不在验证中写入，SQLite journal/WAL/SHM
+不会作为备份负载接受或安装。restore 在 ownership 内重新捕获 manifest、DB、
+storage 到绑定 stage，验证该精确 payload 并在 live move 前复核 fingerprint；
+验证/迁移临时根在成功和失败后都应消失，清理失败视为验证失败。无法证明身份、
+内容或 rename commit 状态的 rollback operation 是 quarantined evidence，必须
+人工检查，不能自动覆盖 live 或当作普通临时目录删除。
 
 ## CI 预览上传
 

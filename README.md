@@ -217,7 +217,7 @@ session bearer；项目 API Token 也不能访问普通管理接口。session �
 | POST | `/api/projects` | 创建项目（developer/admin） | `{ name, slug, description }` |
 | PATCH | `/api/projects/:id` | 更新项目信息（项目 owner/admin） | `{ name?, slug?, description? }` |
 | PATCH | `/api/projects/:id/settings` | 更新项目设置（项目 owner/admin） | `{ spaMode, routingType }` |
-| PATCH | `/api/projects/:id/audit-policy` | 更新产物审计及发布门禁策略（项目 owner/admin） | `{ enforcement, maxTotalBytes, maxFileBytes, maxFileCount }` |
+| PATCH | `/api/projects/:id/audit-policy` | 更新产物审计及发布门禁策略（项目 owner/admin） | `{ enforcement, maxTotalBytes, maxFileBytes, maxFileCount, maxJavaScriptBytes, maxStylesheetBytes, maxFontBytes }` |
 | DELETE | `/api/projects/:id` | 删除项目；产物先进入可恢复区（项目 owner/admin） | — |
 | GET | `/api/projects/:id/versions` | 获取项目（项目成员/admin） | — |
 | GET | `/api/projects/:id/users/search` | 搜索成员候选人（项目 owner/admin） | `?q=email` |
@@ -311,6 +311,7 @@ CI 路由只创建 `preview` 版本，绝不改变 `activeVersionId`。当前不
 | DELETE | `/api/projects/:id/versions/:vid` | 删除版本；产物先进入可恢复区，删除线上版本会下线项目，不自动选择替代版本 | — |
 | POST | `/api/projects/:id/versions/:vid/audit` | 运行静态产物审计（developer 项目成员/admin） | — |
 | GET | `/api/projects/:id/versions/:vid/audit` | 获取该版本当前审计报告（可读取该项目的用户/admin） | — |
+| GET | `/api/projects/:id/versions/:vid/audit-assessment` | 获取当前报告、新鲜度原因和发布判定（可读取该项目的用户/admin） | — |
 | POST | `/api/projects/:id/versions/:vid/audit-jobs` | 创建或复用活动审计任务，返回 `202`（developer 项目成员/admin） | — |
 | GET | `/api/projects/:id/versions/:vid/audit-jobs` | 按创建时间倒序分页列出任务，可用 `status` 筛选（可读取该项目的用户/admin） | 查询：`limit`、`cursor`、`status` |
 | GET | `/api/projects/:id/versions/:vid/audit-jobs/:jobId` | 轮询持久化任务状态（可读取该项目的用户/admin） | — |
@@ -337,18 +338,36 @@ description、canonical、robots、viewport、语言、H1、Open Graph、JSON-LD
 过期后会按指数退避重新排队，达到最大次数后才终止。实际扫描在独立 Bun
 子进程中运行，父进程限制执行时间和输出大小。`DELETE` 先持久化取消状态，再
 中止本机子进程，因此迟到结果不能覆盖已取消或已换策略的任务。原
-`POST /audit` 同步接口继续兼容现有客户端。
+`POST /audit` 同步接口继续兼容现有客户端：它只扫描已存在的 preview，在当前
+HTTP 进程内同步执行，受同一静态引擎的文件/HTML/输出边界约束，但不占用后台
+Worker 的单任务租约槽。同步或异步审计都不会发布或删除 preview；只有显式
+publish 请求可以改变生产指针。
 
-每个版本只保留当前详细报告，每次运行仍会追加 `version.audit` 历史摘要。报告
-同时绑定产物 checksum、审计引擎版本和当次体积预算；任一条件变化都会使旧报告
-过期。项目策略默认：
+当前规则集为 `deploykit-static` / engine v2。规则 ID（例如 `seo.title`、
+`assets.javascript_budget`）是持久化兼容标识；规则语义变化通过独立
+`ruleVersion` 演进，不复用 ID 表示另一条规则。每个版本只保留当前详细报告，
+被后续扫描取代的 job 仍保留终态传输记录，每次成功报告仍追加 `version.audit`
+历史摘要。job 执行失败表示扫描未产生报告；报告自身的 `status: failed` 则表示
+扫描成功完成但发现 error 级问题，两者不是同一状态。
+
+`GET .../audit-assessment` 返回当前报告、`currentEngineVersion`、发布判定和新鲜度。
+新鲜度为 `missing`、`current` 或 `stale`；过期原因可能是
+`checksum_changed`、`engine_changed`、`rule_config_changed`、
+`context_changed`。报告绑定产物 checksum、engine、扫描规则预算与
+`spaMode/routingType` 上下文；只把 `enforcement` 从 advisory 切到 blocking
+不会使已排队 job 或当前报告过期，也不会触发重扫。
+
+项目策略默认包含六项可配置扫描预算：
 
 ```json
 {
   "enforcement": "advisory",
   "maxTotalBytes": 52428800,
   "maxFileBytes": 10485760,
-  "maxFileCount": 1000
+  "maxFileCount": 1000,
+  "maxJavaScriptBytes": 10485760,
+  "maxStylesheetBytes": 2097152,
+  "maxFontBytes": 10485760
 }
 ```
 
@@ -356,6 +375,11 @@ description、canonical、robots、viewport、语言、H1、Open Graph、JSON-LD
 都具备当前报告。缺失或过期返回 `409 AUDIT_REQUIRED`，包含 error 级发现返回
 `409 AUDIT_BLOCKED`；SEO 优化项是 warning，不会单独阻断。上传始终先成功进入
 预览，不会因审计失败被删除或自动发布。
+
+engine v2 仍是离线静态检查：它不执行页面 JavaScript、不访问网络、不观察
+运行时渲染 DOM，也不验证服务器端路由。内部链接目标、实际图片文件有效性和
+按项目类型切换的审计 profile 仍属后续能力；现有检查只报告静态 HTML 与产物树
+中可直接证明的事实。
 
 ### 历史
 
@@ -399,7 +423,9 @@ bun run ops -- restore <备份目录> --force
   `STORAGE_DIR`，写入包含 schema、元数据计数和产物计数的 `manifest.json`；
   默认保存到 `apps/server/.voasx/backups/`。
 - `verify` 检查 SQLite `integrity_check`、外键、清单计数、符号链接、每个正常
-  版本的 `index.html` 和 checksum。已明确标记为损坏/缺失的 failed 版本作为
+  版本的 `index.html` 和 checksum。关系型 v5/v6 备份先在一次性副本上执行与
+  生产启动相同的迁移到 v7，再通过生产数据 hydrator/domain schema；当前 v7
+  直接走同一 domain validation。已明确标记为损坏/缺失的 failed 版本作为
   warning 报告，不会伪装成健康状态。
 - `inspect` 会显式重算版本 checksum 并写入完整性状态与审计历史；如果线上
   版本缺失或被篡改，它会下线该版本但不会自动选择替代版本。
@@ -408,6 +434,11 @@ bun run ops -- restore <备份目录> --force
 - `audit-jobs-prune --dry-run` 只报告达到任务保留期的终态传输记录；不带
   `--dry-run` 时每次最多删除 1000 条。详细报告、历史和发布台账不受影响。
 - `restore` 是破坏性运维，必须先停止 DeployKit 服务并显式传入 `--force`。
+  初始 verify 后，manifest、数据库和 storage 会重新捕获到 control-owned stage，
+  对该精确 staged payload 完整验证并在 live move 前再次核对 fingerprint；可变
+  备份源不会在验证后被直接复制上线。备份数据库及 stage 都拒绝
+  journal/WAL/SHM，验证临时根和 sidecar 在成功/失败后清理，清理失败会让验证
+  fail closed。
   安装备份前，当前数据库、journal/WAL/SHM 和产物会保存到数据库同目录的
   `.deploykit-rollback/{operationId}/`；安装失败会尽力恢复每个资源并保留已经
   原子发布的完整 rollback operation，初始 restore/finalize 错误仍是主错误，
@@ -415,7 +446,8 @@ bun run ops -- restore <备份目录> --force
   rollback 可能包含完整数据库、产物和位于 live storage 内的备份副本，属于
   敏感运维数据；部署账号必须限制父目录权限，运维人员验证恢复后负责按保留
   策略清理。未发布的跨卷临时副本、restore stage 和仅含不可信部分副本的
-  operation 会尽力清理。
+  operation 会尽力清理。任何无法证明身份/内容或 rename 是否已提交的 rollback
+  证据会保留为隔离的 recovery evidence，不能当作可信副本自动覆盖 live 数据。
 
 ## 测试
 

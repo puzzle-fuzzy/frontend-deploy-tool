@@ -86,6 +86,12 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
   failure。restore control layout 在 ownership acquisition 前与全部 runtime
   resources 校验；完整 rollback operation 作为敏感审计数据保留并由运维清理。
   活跃 ownership 存在时拒绝 restore，`--force` 不能绕过。
+- v5/v6 备份在一次性副本中复用生产 migration 到 v7 与 production relational
+  hydrator，current v7 直接执行 project/report/job domain validation；JSON
+  syntax/domain corruption、drifted migration target 和清理失败均 fail closed。
+  restore 在 ownership 内重新捕获并验证精确 staged payload，拒绝数据库与 stage
+  journal/WAL/SHM；身份、内容或 rename commit 状态无法证明的 operation 保留为
+  quarantined recovery evidence，不删除可能的唯一 rollback 副本。
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
 - 增加校验和巡检和明确的损坏状态。
@@ -172,6 +178,15 @@ dependency audit 为 0。真实 production 双域进程完成 blocking 审计、
 `integrity_check=ok`、外键违规 0、成功任务 3、当前报告 2、发布台账严格为 3。
 真实 SIGKILL 删除恢复、双 Bun 进程单一领取和活租约接管均有独立聚焦证据。
 
+2026-08-01 真实 production process 回归进一步证明：worker disabled 时 advisory
+只创建一个精确 job；仅切换 enforcement 到 blocking 不取消、不新增也不重扫，
+worker-enabled 重启完成同一 engine-v2 job，第二次重启后 job/current report/
+assessment 仍持久。current warning 可显式发布；missing、stale、failed 三类发布
+拒绝都保持 active pointer、preview status、artifact bytes 与 job/report counts
+不变。取消、assessment、扫描和策略更新均不发布或删除 preview；engine-v1 报告
+仍可读取但以 `engine_changed` 判 stale。同步 failed report 表示扫描成功产生了
+阻断发现，不等同于 job execution failure。
+
 ### 阶段 6：项目 API Token 与 CI 上传
 
 状态：已于 2026-07-31 完成首版。项目 owner/全局 admin 可管理最小权限
@@ -216,11 +231,12 @@ SQLite 原子提交和共享上传限制均有 API/服务测试；Biome、类型
 
 - 在管理面板展示现有 audit job 的排队/运行/终态、可解释检查项、策略快照、
   重试和取消入口。
-- 在现有静态引擎上深化 SEO 规则与体积检测，包括 HTML 元数据完整性、内部链接
-  与图片问题、JS/CSS/字体和单文件/总体积预算；继续禁止执行上传 JavaScript
-  或访问外网。
-- 为规则版本、结果兼容和旧报告过期建立明确契约，复用 checksum、engine version
-  和 policy snapshot 去重。
+- 在现有静态引擎上深化 SEO 规则与体积检测，包括内部链接目标与实际图片文件；
+  后端已有 total/single-file/file-count/JS/CSS/font 六项预算，下一步是管理 UI
+  配置与解释。继续禁止执行上传 JavaScript 或访问外网。
+- 延续已交付的稳定 rule ID + `ruleVersion`、engine-v2 compatibility 和
+  checksum/rule-config/context freshness 契约；管理 UI 需要解释 assessment，
+  rendered-DOM/profile 审计仍独立延期。
 - 保持 `advisory` 默认；只有 owner 显式启用 `blocking` 才阻止用户发布。检测
   失败不得删除 preview，也不得触发自动生产发布。
 

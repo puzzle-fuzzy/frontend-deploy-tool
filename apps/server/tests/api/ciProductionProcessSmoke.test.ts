@@ -57,11 +57,51 @@ interface AutomationState {
   activeVersionId: string | null;
   apiTokens: number;
   apiTokenSecurityEvents: number;
+  artifactAuditJobs: number;
+  artifactAudits: number;
   ciIdempotencyRecords: number;
   versions: number;
   schemaVersion: number;
   integrity: string;
   foreignKeyViolations: number;
+}
+
+interface ArtifactAuditPolicySnapshot {
+  enforcement: 'advisory' | 'blocking';
+  maxTotalBytes: number;
+  maxFileBytes: number;
+  maxFileCount: number;
+  maxJavaScriptBytes: number;
+  maxStylesheetBytes: number;
+  maxFontBytes: number;
+}
+
+interface ArtifactAuditJobSnapshot {
+  id: string;
+  projectId: string;
+  versionId: string;
+  status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled';
+  engineVersion: number;
+  policy: ArtifactAuditPolicySnapshot;
+  reportId: string | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+interface ArtifactAuditReportSnapshot {
+  id: string;
+  projectId: string;
+  versionId: string;
+  status: 'passed' | 'warning' | 'failed';
+  engineVersion: number;
+}
+
+interface ReleaseInvariantState {
+  activeVersionId: string | null;
+  versionStatus: string;
+  artifactFiles: Array<{ path: string; bytes: Buffer }>;
+  artifactAuditJobs: number;
+  artifactAudits: number;
 }
 
 afterEach(async () => {
@@ -302,13 +342,29 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     ])
   );
 
+  const auditProof = await proveArtifactAuditRecovery({
+    server,
+    environment,
+    managementOrigin,
+    sessionRequest,
+    projectId,
+    plaintextToken: replacement.plaintextToken,
+    warningVersionId: replacementOverlapBody.version.id,
+    databaseFile,
+    storageDir,
+  });
+  server = auditProof.server;
+  capturedLogs.push(...auditProof.logs);
+
   capturedLogs.push(await stopServer(server));
   const beforeBackup = inspectAutomationState(databaseFile, projectId);
   expect(beforeBackup).toMatchObject({
-    activeVersionId: null,
+    activeVersionId: replacementOverlapBody.version.id,
     apiTokens: 2,
-    ciIdempotencyRecords: 3,
-    versions: 3,
+    artifactAuditJobs: 2,
+    artifactAudits: 4,
+    ciIdempotencyRecords: 8,
+    versions: 8,
     schemaVersion: 7,
     integrity: 'ok',
     foreignKeyViolations: 0,
@@ -321,6 +377,8 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
       metadataCounts: {
         apiTokens: number;
         apiTokenSecurityEvents: number;
+        artifactAuditJobs: number;
+        artifactAudits: number;
         ciIdempotencyRecords: number;
       };
     };
@@ -330,6 +388,8 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     metadataCounts: {
       apiTokens: beforeBackup.apiTokens,
       apiTokenSecurityEvents: beforeBackup.apiTokenSecurityEvents,
+      artifactAuditJobs: beforeBackup.artifactAuditJobs,
+      artifactAudits: beforeBackup.artifactAudits,
       ciIdempotencyRecords: beforeBackup.ciIdempotencyRecords,
     },
   });
@@ -436,7 +496,7 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     issued.plaintextToken,
     replacement.plaintextToken,
   ]);
-}, 60_000);
+}, 180_000);
 
 interface ErrorEnvelope {
   error: {
@@ -542,6 +602,746 @@ function createSessionRequest(
     }
     return fetch(`${managementOrigin}${path}`, { ...init, headers });
   };
+}
+
+async function proveArtifactAuditRecovery({
+  server,
+  environment,
+  managementOrigin,
+  sessionRequest,
+  projectId,
+  plaintextToken,
+  warningVersionId,
+  databaseFile,
+  storageDir,
+}: {
+  server: SpawnedServer;
+  environment: Record<string, string | undefined>;
+  managementOrigin: string;
+  sessionRequest: (path: string, init?: RequestInit) => Promise<Response>;
+  projectId: string;
+  plaintextToken: string;
+  warningVersionId: string;
+  databaseFile: string;
+  storageDir: string;
+}): Promise<{ server: SpawnedServer; logs: StoppedServerLogs[] }> {
+  const logs: StoppedServerLogs[] = [];
+  const advisoryPolicy: ArtifactAuditPolicySnapshot = {
+    enforcement: 'advisory',
+    maxTotalBytes: 2_000_000,
+    maxFileBytes: 1_000_000,
+    maxFileCount: 100,
+    maxJavaScriptBytes: 900_000,
+    maxStylesheetBytes: 300_000,
+    maxFontBytes: 700_000,
+  };
+  const blockingPolicy: ArtifactAuditPolicySnapshot = {
+    ...advisoryPolicy,
+    enforcement: 'blocking',
+  };
+  const workerEnvironment = {
+    ...environment,
+    ARTIFACT_AUDIT_WORKER_ENABLED: 'true',
+    ARTIFACT_AUDIT_POLL_INTERVAL_MS: '50',
+  };
+  const disabledWorkerEnvironment = {
+    ...environment,
+    ARTIFACT_AUDIT_WORKER_ENABLED: 'false',
+    ARTIFACT_AUDIT_POLL_INTERVAL_MS: '50',
+  };
+
+  await updateAuditPolicy(sessionRequest, projectId, advisoryPolicy);
+  const warningBeforeAudit = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    warningVersionId
+  );
+  expect(warningBeforeAudit).toMatchObject({
+    activeVersionId: null,
+    versionStatus: 'preview',
+    artifactAuditJobs: 0,
+    artifactAudits: 0,
+  });
+
+  const jobEndpoint = `/api/projects/${projectId}/versions/${warningVersionId}/audit-jobs`;
+  const enqueuedBody = await expectJson(
+    await sessionRequest(jobEndpoint, { method: 'POST' }),
+    202,
+    'enqueue advisory artifact audit job'
+  );
+  expect(enqueuedBody.reused).toBe(false);
+  const enqueuedJob = requireAuditJob(enqueuedBody.job, 'enqueued audit job');
+  expect(enqueuedJob).toMatchObject({
+    projectId,
+    versionId: warningVersionId,
+    status: 'queued',
+    engineVersion: 2,
+    policy: advisoryPolicy,
+    reportId: null,
+  });
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      warningVersionId
+    )
+  ).toEqual({
+    ...warningBeforeAudit,
+    artifactAuditJobs: 1,
+  });
+
+  await updateAuditPolicy(sessionRequest, projectId, blockingPolicy);
+  const queuedAfterToggle = requireAuditJob(
+    await expectJson(
+      await sessionRequest(`${jobEndpoint}/${enqueuedJob.id}`),
+      200,
+      'read queued audit job after enforcement-only update'
+    ),
+    'queued audit job after enforcement-only update'
+  );
+  expect(queuedAfterToggle).toEqual(enqueuedJob);
+  const jobsAfterToggle = await expectJson(
+    await sessionRequest(`${jobEndpoint}?limit=10`),
+    200,
+    'list audit jobs after enforcement-only update'
+  );
+  expect(jobsAfterToggle).toMatchObject({
+    items: [{ id: enqueuedJob.id, status: 'queued' }],
+    nextCursor: null,
+  });
+  expect((jobsAfterToggle.items as unknown[]).length).toBe(1);
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      warningVersionId
+    )
+  ).toEqual({
+    ...warningBeforeAudit,
+    artifactAuditJobs: 1,
+  });
+
+  logs.push(await stopServer(server));
+  server = await startServer(workerEnvironment, managementOrigin);
+  const completedJob = await pollAuditJob(
+    sessionRequest,
+    jobEndpoint,
+    enqueuedJob.id,
+    30_000
+  );
+  const completedReportId = requireString(
+    completedJob.reportId,
+    'completed audit report id'
+  );
+  expect(completedJob).toMatchObject({
+    id: enqueuedJob.id,
+    projectId,
+    versionId: warningVersionId,
+    status: 'succeeded',
+    engineVersion: 2,
+    errorCode: null,
+    errorMessage: null,
+  });
+  expect(completedJob.reportId).toBe(completedReportId);
+
+  logs.push(await stopServer(server));
+  server = await startServer(workerEnvironment, managementOrigin);
+  const persistedJob = requireAuditJob(
+    await expectJson(
+      await sessionRequest(`${jobEndpoint}/${enqueuedJob.id}`),
+      200,
+      'read persisted audit job after second restart'
+    ),
+    'persisted audit job after second restart'
+  );
+  expect(persistedJob).toEqual(completedJob);
+  const persistedReport = requireAuditReport(
+    await expectJson(
+      await sessionRequest(
+        `/api/projects/${projectId}/versions/${warningVersionId}/audit`
+      ),
+      200,
+      'read persisted audit report after second restart'
+    ),
+    'persisted audit report after second restart'
+  );
+  expect(persistedReport).toMatchObject({
+    id: completedReportId,
+    projectId,
+    versionId: warningVersionId,
+    status: 'warning',
+    engineVersion: 2,
+  });
+  const persistedAssessment = await expectJson(
+    await sessionRequest(
+      `/api/projects/${projectId}/versions/${warningVersionId}/audit-assessment`
+    ),
+    200,
+    'read persisted audit assessment after second restart'
+  );
+  expect(persistedAssessment).toMatchObject({
+    freshness: 'current',
+    staleReasons: [],
+    currentEngineVersion: 2,
+    release: { allowed: true, reason: 'current_report' },
+    report: { id: completedReportId, status: 'warning', engineVersion: 2 },
+  });
+  const warningBeforePublish = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    warningVersionId
+  );
+  expect(warningBeforePublish).toEqual({
+    ...warningBeforeAudit,
+    artifactAuditJobs: 1,
+    artifactAudits: 1,
+  });
+  await expectJson(
+    await publishVersion(
+      sessionRequest,
+      projectId,
+      warningVersionId,
+      warningBeforePublish.activeVersionId
+    ),
+    200,
+    'publish current warning report under blocking policy'
+  );
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      warningVersionId
+    )
+  ).toEqual({
+    ...warningBeforePublish,
+    activeVersionId: warningVersionId,
+    versionStatus: 'production',
+  });
+
+  const missingVersionId = await uploadAuditFixture(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    'production-smoke-audit-missing',
+    'missing'
+  );
+  const missingBeforeAssessment = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    missingVersionId
+  );
+  const missingAssessment = await expectJson(
+    await sessionRequest(
+      `/api/projects/${projectId}/versions/${missingVersionId}/audit-assessment`
+    ),
+    200,
+    'assess missing audit report'
+  );
+  expect(missingAssessment).toMatchObject({
+    report: null,
+    freshness: 'missing',
+    staleReasons: [],
+    release: { allowed: false, reason: 'audit_required' },
+  });
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      missingVersionId
+    )
+  ).toEqual(missingBeforeAssessment);
+  await expectAuditReleaseRejected(
+    sessionRequest,
+    projectId,
+    missingVersionId,
+    missingBeforeAssessment,
+    databaseFile,
+    storageDir,
+    'AUDIT_REQUIRED'
+  );
+
+  logs.push(await stopServer(server));
+  server = await startServer(disabledWorkerEnvironment, managementOrigin);
+  const canceledVersionId = await uploadAuditFixture(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    'production-smoke-audit-canceled',
+    'canceled'
+  );
+  const canceledBeforeEnqueue = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    canceledVersionId
+  );
+  const canceledEndpoint = `/api/projects/${projectId}/versions/${canceledVersionId}/audit-jobs`;
+  const cancelCandidate = requireAuditJob(
+    (
+      await expectJson(
+        await sessionRequest(canceledEndpoint, { method: 'POST' }),
+        202,
+        'enqueue cancelable audit job'
+      )
+    ).job,
+    'cancelable audit job'
+  );
+  const canceledJob = requireAuditJob(
+    await expectJson(
+      await sessionRequest(`${canceledEndpoint}/${cancelCandidate.id}`, {
+        method: 'DELETE',
+      }),
+      200,
+      'cancel queued audit job'
+    ),
+    'canceled audit job'
+  );
+  expect(canceledJob).toMatchObject({
+    id: cancelCandidate.id,
+    projectId,
+    versionId: canceledVersionId,
+    status: 'canceled',
+    reportId: null,
+  });
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      canceledVersionId
+    )
+  ).toEqual({
+    ...canceledBeforeEnqueue,
+    artifactAuditJobs: canceledBeforeEnqueue.artifactAuditJobs + 1,
+  });
+
+  logs.push(await stopServer(server));
+  server = await startServer(workerEnvironment, managementOrigin);
+  const staleVersionId = await uploadAuditFixture(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    'production-smoke-audit-stale',
+    'stale'
+  );
+  const staleBeforeAudit = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    staleVersionId
+  );
+  expect(staleBeforeAudit).toMatchObject({
+    activeVersionId: warningVersionId,
+    versionStatus: 'preview',
+  });
+  const staleReport = requireAuditReport(
+    await expectJson(
+      await sessionRequest(
+        `/api/projects/${projectId}/versions/${staleVersionId}/audit`,
+        { method: 'POST' }
+      ),
+      201,
+      'run synchronous stale-candidate audit'
+    ),
+    'stale-candidate audit report'
+  );
+  expect(staleReport).toMatchObject({
+    projectId,
+    versionId: staleVersionId,
+    status: 'warning',
+    engineVersion: 2,
+  });
+  const stalePolicy = {
+    ...blockingPolicy,
+    maxFontBytes: blockingPolicy.maxFontBytes - 1,
+  };
+  await updateAuditPolicy(sessionRequest, projectId, stalePolicy);
+  const staleBeforePublish = {
+    ...staleBeforeAudit,
+    artifactAudits: staleBeforeAudit.artifactAudits + 1,
+  };
+  expect(
+    inspectReleaseInvariant(databaseFile, storageDir, projectId, staleVersionId)
+  ).toEqual(staleBeforePublish);
+  const staleAssessment = await expectJson(
+    await sessionRequest(
+      `/api/projects/${projectId}/versions/${staleVersionId}/audit-assessment`
+    ),
+    200,
+    'assess rule-config-stale audit report'
+  );
+  expect(staleAssessment).toMatchObject({
+    freshness: 'stale',
+    staleReasons: ['rule_config_changed'],
+    release: { allowed: false, reason: 'audit_required' },
+    report: { id: staleReport.id, engineVersion: 2 },
+  });
+  await expectAuditReleaseRejected(
+    sessionRequest,
+    projectId,
+    staleVersionId,
+    staleBeforePublish,
+    databaseFile,
+    storageDir,
+    'AUDIT_REQUIRED'
+  );
+
+  const failedPolicy: ArtifactAuditPolicySnapshot = {
+    enforcement: 'blocking',
+    maxTotalBytes: 1,
+    maxFileBytes: 1,
+    maxFileCount: 1,
+    maxJavaScriptBytes: 1,
+    maxStylesheetBytes: 1,
+    maxFontBytes: 1,
+  };
+  await updateAuditPolicy(sessionRequest, projectId, failedPolicy);
+  const failedVersionId = await uploadAuditFixture(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    'production-smoke-audit-failed',
+    'failed'
+  );
+  const failedBeforeAudit = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    failedVersionId
+  );
+  expect(failedBeforeAudit).toMatchObject({
+    activeVersionId: warningVersionId,
+    versionStatus: 'preview',
+  });
+  const failedReport = requireAuditReport(
+    await expectJson(
+      await sessionRequest(
+        `/api/projects/${projectId}/versions/${failedVersionId}/audit`,
+        { method: 'POST' }
+      ),
+      201,
+      'run synchronous audit with failed findings'
+    ),
+    'failed-findings audit report'
+  );
+  expect(failedReport).toMatchObject({
+    projectId,
+    versionId: failedVersionId,
+    status: 'failed',
+    engineVersion: 2,
+  });
+  const failedBeforePublish = {
+    ...failedBeforeAudit,
+    artifactAudits: failedBeforeAudit.artifactAudits + 1,
+  };
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      failedVersionId
+    )
+  ).toEqual(failedBeforePublish);
+  await expectAuditReleaseRejected(
+    sessionRequest,
+    projectId,
+    failedVersionId,
+    failedBeforePublish,
+    databaseFile,
+    storageDir,
+    'AUDIT_BLOCKED'
+  );
+
+  await updateAuditPolicy(sessionRequest, projectId, blockingPolicy);
+  const historicVersionId = await uploadAuditFixture(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    'production-smoke-audit-engine-v1',
+    'engine-v1'
+  );
+  const historicBeforeAudit = inspectReleaseInvariant(
+    databaseFile,
+    storageDir,
+    projectId,
+    historicVersionId
+  );
+  expect(historicBeforeAudit).toMatchObject({
+    activeVersionId: warningVersionId,
+    versionStatus: 'preview',
+  });
+  const historicReport = requireAuditReport(
+    await expectJson(
+      await sessionRequest(
+        `/api/projects/${projectId}/versions/${historicVersionId}/audit`,
+        { method: 'POST' }
+      ),
+      201,
+      'persist historic-engine audit fixture'
+    ),
+    'historic-engine audit fixture'
+  );
+  expect(historicReport.engineVersion).toBe(2);
+  logs.push(await stopServer(server));
+  downgradeAuditReportEngine(databaseFile, historicReport.id);
+  server = await startServer(workerEnvironment, managementOrigin);
+  const historicBeforeReads = {
+    ...historicBeforeAudit,
+    artifactAudits: historicBeforeAudit.artifactAudits + 1,
+  };
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      historicVersionId
+    )
+  ).toEqual(historicBeforeReads);
+  const historicRead = requireAuditReport(
+    await expectJson(
+      await sessionRequest(
+        `/api/projects/${projectId}/versions/${historicVersionId}/audit`
+      ),
+      200,
+      'read engine-v1 audit report'
+    ),
+    'engine-v1 audit report'
+  );
+  expect(historicRead).toMatchObject({
+    id: historicReport.id,
+    projectId,
+    versionId: historicVersionId,
+    status: 'warning',
+    engineVersion: 1,
+  });
+  const historicAssessment = await expectJson(
+    await sessionRequest(
+      `/api/projects/${projectId}/versions/${historicVersionId}/audit-assessment`
+    ),
+    200,
+    'assess engine-v1 audit report'
+  );
+  expect(historicAssessment).toMatchObject({
+    freshness: 'stale',
+    staleReasons: ['engine_changed'],
+    currentEngineVersion: 2,
+    release: { allowed: false, reason: 'audit_required' },
+    report: { id: historicReport.id, engineVersion: 1 },
+  });
+  expect(
+    inspectReleaseInvariant(
+      databaseFile,
+      storageDir,
+      projectId,
+      historicVersionId
+    )
+  ).toEqual(historicBeforeReads);
+
+  return { server, logs };
+}
+
+async function updateAuditPolicy(
+  sessionRequest: (path: string, init?: RequestInit) => Promise<Response>,
+  projectId: string,
+  policy: ArtifactAuditPolicySnapshot
+): Promise<void> {
+  const updated = await expectJson(
+    await sessionRequest(`/api/projects/${projectId}/audit-policy`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(policy),
+    }),
+    200,
+    'update artifact audit policy'
+  );
+  expect(updated.auditPolicy).toEqual(policy);
+}
+
+async function uploadAuditFixture(
+  managementOrigin: string,
+  projectId: string,
+  plaintextToken: string,
+  idempotencyKey: string,
+  marker: string
+): Promise<string> {
+  const uploaded = await uploadZip(
+    managementOrigin,
+    projectId,
+    plaintextToken,
+    idempotencyKey,
+    `<!doctype html><html><head><title>${marker}</title></head><body>${marker}</body></html>`
+  );
+  expect(uploaded.response.status, `upload ${marker} audit fixture`).toBe(201);
+  return requireCiUploadResult(uploaded.body).version.id;
+}
+
+async function publishVersion(
+  sessionRequest: (path: string, init?: RequestInit) => Promise<Response>,
+  projectId: string,
+  versionId: string,
+  expectedActiveVersionId: string | null
+): Promise<Response> {
+  return await sessionRequest(
+    `/api/projects/${projectId}/versions/${versionId}/publish`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedActiveVersionId }),
+    }
+  );
+}
+
+async function expectAuditReleaseRejected(
+  sessionRequest: (path: string, init?: RequestInit) => Promise<Response>,
+  projectId: string,
+  versionId: string,
+  before: ReleaseInvariantState,
+  databaseFile: string,
+  storageDir: string,
+  expectedCode: 'AUDIT_REQUIRED' | 'AUDIT_BLOCKED'
+): Promise<void> {
+  const body = await expectJson(
+    await publishVersion(
+      sessionRequest,
+      projectId,
+      versionId,
+      before.activeVersionId
+    ),
+    409,
+    `reject ${expectedCode} release`
+  );
+  expect((body.error as Record<string, unknown> | undefined)?.code).toBe(
+    expectedCode
+  );
+  expect(
+    inspectReleaseInvariant(databaseFile, storageDir, projectId, versionId)
+  ).toEqual(before);
+}
+
+async function pollAuditJob(
+  sessionRequest: (path: string, init?: RequestInit) => Promise<Response>,
+  endpoint: string,
+  jobId: string,
+  timeoutMs: number
+): Promise<ArtifactAuditJobSnapshot> {
+  const deadline = Date.now() + timeoutMs;
+  let lastStatus = 'unread';
+  while (Date.now() < deadline) {
+    const job = requireAuditJob(
+      await expectJson(
+        await sessionRequest(`${endpoint}/${jobId}`),
+        200,
+        `poll exact audit job ${jobId}`
+      ),
+      `polled audit job ${jobId}`
+    );
+    expect(job.id).toBe(jobId);
+    lastStatus = job.status;
+    if (['succeeded', 'failed', 'canceled'].includes(job.status)) return job;
+    await Bun.sleep(50);
+  }
+  throw new Error(
+    `audit job ${jobId} did not complete within ${timeoutMs}ms (last status: ${lastStatus})`
+  );
+}
+
+function inspectReleaseInvariant(
+  databaseFile: string,
+  storageDir: string,
+  projectId: string,
+  versionId: string
+): ReleaseInvariantState {
+  const database = new Database(databaseFile, { readonly: true });
+  try {
+    database.exec('PRAGMA busy_timeout = 5000');
+    const project = database
+      .query<{ active_version_id: string | null }, [string]>(
+        'SELECT active_version_id FROM projects WHERE id = ?'
+      )
+      .get(projectId);
+    const version = database
+      .query<{ status: string }, [string, string]>(
+        'SELECT status FROM versions WHERE project_id = ? AND id = ?'
+      )
+      .get(projectId, versionId);
+    if (!project || !version) {
+      throw new Error(
+        `release invariant target ${projectId}/${versionId} missing`
+      );
+    }
+    const count = (table: string): number => {
+      const row = database
+        .query<{ count: number }, []>(`SELECT COUNT(*) AS count FROM ${table}`)
+        .get();
+      if (!row) throw new Error(`could not count ${table}`);
+      return row.count;
+    };
+    const artifactRoot = join(storageDir, projectId, versionId);
+    return {
+      activeVersionId: project.active_version_id,
+      versionStatus: version.status,
+      artifactFiles: collectRegularFiles(artifactRoot)
+        .sort()
+        .map((path) => ({
+          path: path.slice(artifactRoot.length + 1),
+          bytes: readFileSync(path),
+        })),
+      artifactAuditJobs: count('artifact_audit_jobs'),
+      artifactAudits: count('artifact_audits'),
+    };
+  } finally {
+    database.close();
+  }
+}
+
+function downgradeAuditReportEngine(
+  databaseFile: string,
+  reportId: string
+): void {
+  const database = new Database(databaseFile);
+  try {
+    const result = database
+      .query('UPDATE artifact_audits SET engine_version = 1 WHERE id = ?')
+      .run(reportId);
+    expect(result.changes).toBe(1);
+  } finally {
+    database.close();
+  }
+}
+
+function requireAuditJob(
+  value: unknown,
+  label: string
+): ArtifactAuditJobSnapshot {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${label} is missing`);
+  }
+  const job = value as ArtifactAuditJobSnapshot;
+  requireString(job.id, `${label} id`);
+  requireString(job.projectId, `${label} project id`);
+  requireString(job.versionId, `${label} version id`);
+  return job;
+}
+
+function requireAuditReport(
+  value: unknown,
+  label: string
+): ArtifactAuditReportSnapshot {
+  if (!value || typeof value !== 'object') {
+    throw new Error(`${label} is missing`);
+  }
+  const report = value as ArtifactAuditReportSnapshot;
+  requireString(report.id, `${label} id`);
+  requireString(report.projectId, `${label} project id`);
+  requireString(report.versionId, `${label} version id`);
+  return report;
 }
 
 async function createCredential(
@@ -685,6 +1485,8 @@ function inspectAutomationState(
       activeVersionId: project.active_version_id,
       apiTokens: count('project_api_tokens'),
       apiTokenSecurityEvents: count('api_token_security_events'),
+      artifactAuditJobs: count('artifact_audit_jobs'),
+      artifactAudits: count('artifact_audits'),
       ciIdempotencyRecords: count('ci_idempotency_records'),
       versions: count('versions'),
       schemaVersion: schemaVersion ?? 0,

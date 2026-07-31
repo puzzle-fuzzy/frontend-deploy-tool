@@ -176,7 +176,8 @@ session 管理面的请求/响应类型由 `ApiApp` 路由处理器的 `c.json(.
 错误或不属于当前可见项目的游标返回 `INVALID_HISTORY_CURSOR`。
 
 产物审计保留同步兼容接口
-`POST/GET /api/projects/:id/versions/:versionId/audit`，并增加
+`POST/GET /api/projects/:id/versions/:versionId/audit`，提供只读
+`GET .../audit-assessment`，并增加
 `POST/GET/DELETE .../audit-jobs[/jobId]`。异步 POST 返回 `202 { job, reused }`
 及相对 `Location`/整数 `Retry-After`；集合 GET 使用绑定项目、版本、状态筛选和
 锚点任务 ID 的严格 Base64URL keyset 游标。游标 payload 使用从同一 effective
@@ -185,10 +186,26 @@ session 管理面的请求/响应类型由 `ApiApp` 路由处理器的 `c.json(.
 DELETE 先持久化取消再中止本机子进程。活动任务按 checksum、
 引擎版本与策略快照去重；执行采用租约/心跳，崩溃或过期后有限重试。项目 owner 通过
 `PATCH /api/projects/:id/audit-policy` 在 `advisory` 与 `blocking` 间切换并
-配置体积预算。详细报告每个版本保留一份，运行历史写入追加式 `audit_events`。
-Worker 完成时在一个元数据事务内提交报告、历史和任务终态；过期租约、取消、
-换策略或 checksum 变化都会拒绝迟到结果。报告绑定 checksum、引擎版本和预算；
-静态检查不执行 JavaScript、不访问网络，且根 HTML 解析上限为 2MB。
+配置体积预算。Worker 完成时在一个元数据事务内提交报告、历史和任务终态；
+过期租约、取消、规则配置或 checksum 变化都会拒绝迟到结果。只切换
+enforcement 不改变规则配置：既有 queued job 保持同一 ID，current report 也
+保持 fresh。
+
+规则集 `deploykit-static` 当前 engine version 为 2。持久化检查使用稳定 rule ID，
+每项另带 `ruleVersion`；详细报告每个版本只保留 current 一份，被替代的 job 仍按
+保留策略保存终态，运行历史写入追加式 `audit_events`。assessment 把报告分为
+`missing/current/stale`，并返回 `checksum_changed`、`engine_changed`、
+`rule_config_changed`、`context_changed` 等原因及发布判定。报告/任务快照同时
+保存六项扫描预算（总字节、单文件、文件数、JavaScript、stylesheet、font）和
+`spaMode/routingType` context。成功生成的 `status: failed` 报告表示完成扫描后
+发现 error 级问题；job `status: failed` 表示执行未产生报告。
+
+同步 `POST /audit` 是 preview-only 的进程内兼容路径，使用相同静态引擎边界，
+但不进入后台 Worker 的单任务 lease。同步、异步、assessment、取消和策略更新都
+不改变 `activeVersionId` 或删除 preview；生产只由显式 publish/rollback/activate
+改变。静态检查不执行 JavaScript、不访问网络，根 HTML 解析上限为 2MB，也不
+观察 rendered DOM、验证服务端路由、内部链接目标或实际图片文件；profile 化
+规则仍留待后续。
 
 CI 上传契约是
 `POST /api/ci/projects/:id/versions`，multipart 字段与交互式上传相同，并额外
@@ -320,8 +337,11 @@ apps/server/
 `bun run ops -- backup` 使用 `VACUUM INTO` 生成一致 SQLite 快照，复制完整
 存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、元数据计数和
 产物计数。schema v6 清单强制记录 Token、安全事件和 CI 幂等记录三项计数；
-v5 备份仍可验证和恢复，并在恢复后的真实 runtime 启动时迁移到 v6。`verify`
-在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、版本入口和 checksum。
+v5/v6 备份仍可验证和恢复，并在恢复后的真实 runtime 启动时迁移到当前 v7。
+`verify` 在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、版本入口和
+checksum；历史 v5/v6 会在一次性副本上复用生产 migration 和 relational
+hydrator，当前 v7 直接通过同一 project/report/job domain validation。JSON
+语法正确但 domain 无效的策略、context、summary/check 也会 fail closed。
 
 恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
 ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
@@ -334,8 +354,11 @@ journal/WAL/SHM 与存储移动到 `.deploykit-rollback/{operationId}`，再原�
 新状态。rollback root、operation、stage、DB/storage target 和 auxiliary target
 会在获取 ownership 或创建目录前与全部 runtime resource 做双向祖先校验；
 固定 operation 或 stage 已存在也会拒绝，不能复用旧残留。备份源即使位于 live
-storage 内，也会在任何 live move 前把数据库和存储 payload 完整复制到上述已
-校验 stage。
+storage 内，也会在任何 live move 前把 manifest、数据库和存储 payload 重新
+捕获到 control-owned stage；restore 验证该精确 stage 并在 move 前再次核对
+framed fingerprint，不会从已验证后仍可变化的源路径直接安装。源数据库和 stage
+都拒绝 journal/WAL/SHM；migration/validation 临时根在成功与失败后删除，清理
+失败使验证无效。
 
 move 前会记录数据库、每个 auxiliary 与存储各自是否存在，并为每个资源分别记录
 rollback 是否已发布、source 是否已移除。跨卷 move 只复制到 rollback target
@@ -348,8 +371,10 @@ live target 同卷的全新 recovery sibling，完成后才替换 live target。
 清理和 ownership release；一个补偿错误不会跳过后续动作。初始错误对象、message
 与 code 保持权威，补偿/清理/release 失败通过 `restoreSecondaryFailures` 和
 `AggregateError` cause 附加。已经发布完整资源的 rollback operation 在成功或
-失败后均保留供审计/人工恢复；仅含未发布部分副本的 pending target、stage 和
-operation 会尽力清理。rollback 可能包含完整数据库、产物以及原本位于 live
+失败后均保留供审计/人工恢复；身份、内容或 rename commit 状态不能证明时，
+operation 会作为隔离的 ambiguous recovery evidence 保留，绝不把可能的唯一
+rollback 副本删掉或自动覆盖 live。只有可证明未发布的 pending target、stage 和
+operation 才会尽力清理。rollback 可能包含完整数据库、产物以及原本位于 live
 storage 内的备份副本，属于敏感数据：父目录必须仅由受信服务账号写入并限制
 读取权限，运维在验证恢复后负责按保留策略清理。原本缺失的数据库、auxiliary
 或存储仍保持缺失；这些 auxiliary 只用于失败回滚与审计，不会从备份安装。
@@ -366,11 +391,11 @@ storage 内的备份副本，属于敏感数据：父目录必须仅由受信服
 
 ```ts
 Settings  { spaMode: boolean; routingType: 'hash' | 'path' }
-ArtifactAuditPolicy { enforcement: 'advisory' | 'blocking'; maxTotalBytes; maxFileBytes; maxFileCount }
+ArtifactAuditPolicy { enforcement: 'advisory' | 'blocking'; maxTotalBytes; maxFileBytes; maxFileCount; maxJavaScriptBytes; maxStylesheetBytes; maxFontBytes }
 Version   { id; name; description; createdAt; size; fileCount; sourceType; status; publishedAt; publishedBy; checksum; integrityStatus; integrityCheckedAt }
 Project   { id; name; slug; description; createdAt; updatedAt; versions: Version[]; activeVersionId: string | null; settings: Settings; auditPolicy: ArtifactAuditPolicy }
-ArtifactAuditReport { id; projectId; versionId; artifactChecksum; status; score; createdAt; createdBy; engineVersion; policy; summary; checks }
-ArtifactAuditJob { id; projectId; versionId; requestedBy; status; priority; attempts; maxAttempts; nextRunAt; lockedBy; lockedUntil; artifactChecksum; engineVersion; policy; reportId; errorCode; errorMessage; timestamps }
+ArtifactAuditReport { id; projectId; versionId; artifactChecksum; status; score; createdAt; createdBy; engineVersion; policy; context; summary; checks }
+ArtifactAuditJob { id; projectId; versionId; requestedBy; status; priority; attempts; maxAttempts; nextRunAt; lockedBy; lockedUntil; artifactChecksum; engineVersion; policy; context; reportId; errorCode; errorMessage; timestamps }
 HistoryEvent { id; action; projectId; projectName; versionId; versionName; timestamp; actorId; metadata? }
 User      { id; name; email; passwordHash; role; createdAt; updatedAt }
 Data      { schemaVersion; projects: Project[]; users: User[]; history: HistoryEvent[]; artifactAudits: ArtifactAuditReport[]; artifactAuditJobs: ArtifactAuditJob[] }
