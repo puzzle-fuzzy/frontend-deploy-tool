@@ -473,6 +473,7 @@ git commit -m "feat: deepen static artifact audit rules"
 - Modify: `apps/server/src/services/artifactAuditProtocol.ts`
 - Modify: `apps/server/src/services/artifactAuditEngine.ts`
 - Modify: `apps/server/src/services/artifactAuditExecutor.ts`
+- Modify: `apps/server/src/services/artifactAuditService.ts`
 - Modify: `apps/server/src/workers/artifactAuditProcess.ts`
 - Modify: `apps/server/src/services/artifactAuditJobService.ts`
 - Modify: `apps/server/src/services/artifactAuditWorker.ts`
@@ -481,8 +482,10 @@ git commit -m "feat: deepen static artifact audit rules"
 - Modify: `apps/server/src/repositories/sqliteArtifactAuditJobRepository.ts`
 - Modify: `apps/server/src/domain/artifactAuditJobTransitions.ts`
 - Test: `apps/server/tests/services/artifactAuditExecutor.test.ts`
+- Test: `apps/server/tests/services/artifactAuditService.test.ts`
 - Test: `apps/server/tests/services/artifactAuditWorker.test.ts`
 - Test: `apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts`
+- Test: `apps/server/tests/api/artifactAudit.test.ts`
 
 **Interfaces:**
 - Produces a strict child envelope:
@@ -519,6 +522,14 @@ protocol limit, or malformed output is terminal with
 `AUDIT_ENGINE_OUTPUT_INVALID`; no absolute artifact path reaches stdout,
 stderr-derived messages, or job rows.
 
+Read stdout/stderr as bounded raw byte streams; never materialize an unbounded
+string before enforcing the limit. Configure Bun's defensive `maxBuffer`
+slightly above the logical protocol limit so the parent reader can observe the
+first excess byte on Bun versions that expose only a killed child. Decode
+retained stdout as strict UTF-8. Process-only success schemas are deep-strict
+at every nested object and reject unknown keys without tightening historic
+shared persistence schemas.
+
 - [ ] **Step 2: Run the tests and confirm failure**
 
 Run:
@@ -544,6 +555,11 @@ explicitly identifies stdout overflow is deterministic protocol invalidity and
 terminal with `AUDIT_ENGINE_OUTPUT_INVALID`; do not infer overflow from a
 generic child failure. A schema-invalid or oversized successful envelope is
 also terminal with the same code.
+
+The synchronous compatibility `POST /audit` catches only known
+`ArtifactAuditInspectionError` values and maps them to the existing safe
+`AUDIT_FAILED` API contract. Unexpected engine exceptions still reach the
+generic crash handler.
 
 - [ ] **Step 4: Persist stable job reasons**
 
