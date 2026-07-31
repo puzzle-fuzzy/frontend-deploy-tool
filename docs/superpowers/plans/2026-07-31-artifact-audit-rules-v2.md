@@ -875,6 +875,17 @@ manifest/auxiliary cleanup runs, then perform the final exact-identity and
 content-fingerprint check, consume both bindings, mark committed, and return in
 that order. Cleanup failure must still compensate.
 
+Enforce the active-target rule for database, storage, and every SQLite
+auxiliary; helpers without an installed-stage binding must not bypass it.
+Recheck target absence immediately before install, after recovery removes an
+exact known target, and again immediately before recovery publication. Inspect
+source/target identities after any install or recovery rename error so a
+committed rename is never mistaken for an uncommitted one. Portable high-level
+filesystem APIs cannot close a hostile same-account writer's race between
+syscalls, so production runtime and rollback parents remain restricted to the
+trusted service account; within each observable boundary the implementation
+must preserve rather than overwrite an unknown replacement.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
