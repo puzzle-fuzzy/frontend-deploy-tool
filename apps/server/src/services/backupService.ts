@@ -589,6 +589,7 @@ function executeRestore({
       throw cleanupError;
     }
     assertRestoreLivePayloadDigests(controlBinding, expectedLivePayloadDigests);
+    assertDatabaseAuxiliariesAbsent(layout.databaseFile);
     commitInstalledRestoreStages(controlBinding);
     restoreCommitted = true;
   } catch (error) {
@@ -3272,13 +3273,15 @@ function restorePublishedRollback(
       resource
     );
     assertRestoreTargetAbsent(targetPath, `${resource}-recovery-target`);
-    restoreFileSystem.rename(recoveryStage, targetPath);
-    assertActiveRestoreBinding(controlBinding, targetParentName);
-    assertRuntimeResourceDigest(
+    publishRecoveryStage(
+      recoveryStage,
       targetPath,
       recoveryIdentity,
       rollbackDigest,
-      resource
+      resource,
+      controlBinding,
+      targetParentName,
+      restoreFileSystem
     );
   } catch (error) {
     cleanupRecoveryStage(
@@ -3292,6 +3295,57 @@ function restorePublishedRollback(
       failures
     );
     throw error;
+  }
+}
+
+function publishRecoveryStage(
+  recoveryStage: string,
+  targetPath: string,
+  recoveryIdentity: PathIdentity,
+  rollbackDigest: string,
+  resource: string,
+  controlBinding: RestoreControlBinding,
+  targetParentName: string,
+  restoreFileSystem: RestoreFileSystem
+): void {
+  let committedRenameError: Error | undefined;
+  try {
+    restoreFileSystem.rename(recoveryStage, targetPath);
+  } catch (error) {
+    const renameError = asError(error);
+    const commitState = inspectRenameCommit(
+      recoveryStage,
+      targetPath,
+      recoveryIdentity
+    );
+    if (commitState !== 'committed') {
+      if (commitState === 'ambiguous') {
+        controlBinding.quarantineOperation = true;
+      }
+      throw renameError;
+    }
+    committedRenameError = renameError;
+  }
+
+  try {
+    assertActiveRestoreBinding(controlBinding, targetParentName);
+    assertRuntimeResourceDigest(
+      targetPath,
+      recoveryIdentity,
+      rollbackDigest,
+      resource
+    );
+  } catch (error) {
+    if (!committedRenameError) throw error;
+    controlBinding.quarantineOperation = true;
+    attachRestoreSecondaryFailures(committedRenameError, [
+      {
+        step: 'recover-publication',
+        resource,
+        error,
+      },
+    ]);
+    throw committedRenameError;
   }
 }
 

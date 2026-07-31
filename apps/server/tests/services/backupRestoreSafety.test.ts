@@ -1691,6 +1691,177 @@ test('recovery never overwrites a replacement created during target removal', ()
   }
 });
 
+for (const recoveryResource of [
+  'database',
+  'storage',
+  '-journal',
+  '-wal',
+  '-shm',
+] as const) {
+  test(`a ${recoveryResource} recovery rename that commits and throws remains physically committed`, () => {
+    const fixture = createRestoreFixture();
+    const primaryError = new Error(
+      `fail before ${recoveryResource} recovery publication`
+    );
+    const publicationError = new Error(
+      `${recoveryResource} recovery committed then threw`
+    );
+    let publicationThrows = 0;
+    try {
+      const targetPath =
+        recoveryResource === 'database'
+          ? fixture.databaseFile
+          : recoveryResource === 'storage'
+            ? fixture.storageDir
+            : `${fixture.databaseFile}${recoveryResource}`;
+      if (recoveryResource === 'database' || recoveryResource === 'storage') {
+        checkpointDatabaseWithoutAuxiliaries(fixture.databaseFile);
+      } else {
+        rmSync(fixture.databaseFile, { force: true });
+        removeDatabaseAuxiliaries(fixture.databaseFile);
+        writeFileSync(
+          targetPath,
+          `original ${recoveryResource} recovery bytes`
+        );
+      }
+      const observablePath =
+        recoveryResource === 'storage' ? fixture.storageMarker : targetPath;
+      const originalBytes = readFileSync(observablePath);
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          acquireOwnership: () => ({ release() {} }),
+          afterRestoredStateInstalled() {
+            throw primaryError;
+          },
+          restoreFileSystem: {
+            rename(source, target) {
+              renameSync(source, target);
+              if (source.includes('.recover-') && target === targetPath) {
+                publicationThrows += 1;
+                throw publicationError;
+              }
+            },
+            copy: cpSync,
+            remove: rmSync,
+          },
+        })
+      );
+
+      const thrown = captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      );
+      expect(thrown).toBe(primaryError);
+      expect(secondaryMessages(thrown)).toEqual([]);
+      expect(publicationThrows).toBe(1);
+      expect(readFileSync(observablePath)).toEqual(originalBytes);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+test('an ambiguous recovery publication preserves its error and unknown target', () => {
+  const fixture = createRestoreFixture();
+  const primaryError = new Error('fail before ambiguous recovery publication');
+  const publicationError = new Error('ambiguous database recovery publication');
+  const replacementBytes = Buffer.from('unknown recovery publication target');
+  let rollbackPath = '';
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoredStateInstalled(currentRollbackPath) {
+          rollbackPath = currentRollbackPath;
+          throw primaryError;
+        },
+        restoreFileSystem: {
+          rename(source, target) {
+            if (
+              source.includes('.recover-') &&
+              target === fixture.databaseFile
+            ) {
+              writeFileSync(target, replacementBytes, { flag: 'wx' });
+              throw publicationError;
+            }
+            renameSync(source, target);
+          },
+          copy: cpSync,
+          remove: rmSync,
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(primaryError);
+    expect(secondaryMessages(thrown)).toContain(publicationError.message);
+    expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+    expect(
+      readFileSync(
+        join(rollbackPath, 'database', basename(fixture.databaseFile))
+      )
+    ).toEqual(originalDatabase);
+    expect(existsSync(rollbackPath)).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a mutated committed recovery publication is quarantined instead of accepted', () => {
+  const fixture = createRestoreFixture();
+  const primaryError = new Error('fail before mutated recovery publication');
+  const publicationError = new Error('mutated database recovery publication');
+  const replacementBytes = Buffer.from('mutated committed recovery target');
+  let rollbackPath = '';
+  try {
+    checkpointDatabaseWithoutAuxiliaries(fixture.databaseFile);
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoredStateInstalled(currentRollbackPath) {
+          rollbackPath = currentRollbackPath;
+          throw primaryError;
+        },
+        restoreFileSystem: {
+          rename(source, target) {
+            renameSync(source, target);
+            if (
+              source.includes('.recover-') &&
+              target === fixture.databaseFile
+            ) {
+              writeFileSync(target, replacementBytes);
+              throw publicationError;
+            }
+          },
+          copy: cpSync,
+          remove: rmSync,
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(primaryError);
+    expect(secondaryMessages(thrown)).toContain(publicationError.message);
+    expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+    expect(
+      readFileSync(
+        join(rollbackPath, 'database', basename(fixture.databaseFile))
+      )
+    ).toEqual(originalDatabase);
+    expect(existsSync(rollbackPath)).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('a database install rename that commits and throws is recovered as installed identity', () => {
   const fixture = createRestoreFixture();
   const fixedNow = new Date('2026-07-30T12:34:56.789Z');
@@ -1773,6 +1944,61 @@ test('final fingerprint runs after manifest stage cleanup and before commit', ()
     fixture.cleanup();
   }
 });
+
+for (const suffix of ['-journal', '-wal', '-shm'] as const) {
+  test(`a live ${suffix} created during manifest cleanup prevents restore commit`, () => {
+    const fixture = createRestoreFixture();
+    const replacementBytes = Buffer.from(
+      `unknown live ${suffix} from cleanup window`
+    );
+    const auxiliaryPath = `${fixture.databaseFile}${suffix}`;
+    let rollbackPath = '';
+    let injections = 0;
+    try {
+      checkpointDatabaseWithoutAuxiliaries(fixture.databaseFile);
+      const originalDatabase = readFileSync(fixture.databaseFile);
+      const originalStorage = readFileSync(fixture.storageMarker);
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          acquireOwnership: () => ({ release() {} }),
+          afterRestoredStateInstalled(currentRollbackPath) {
+            rollbackPath = currentRollbackPath;
+          },
+          restoreFileSystem: {
+            rename: renameSync,
+            copy: cpSync,
+            remove(target, options) {
+              rmSync(target, options);
+              if (
+                injections === 0 &&
+                target.startsWith(`${fixture.databaseFile}.manifest-`)
+              ) {
+                injections += 1;
+                writeFileSync(auxiliaryPath, replacementBytes, { flag: 'wx' });
+              }
+            },
+          },
+        })
+      );
+
+      const thrown = captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      );
+      expect(thrown.message).toContain('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
+      expect(secondaryMessages(thrown).join('\n')).toContain(
+        'RESTORE_CONTROL_LAYOUT_UNSAFE'
+      );
+      expect(injections).toBe(1);
+      expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+      expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+      expect(readFileSync(auxiliaryPath)).toEqual(replacementBytes);
+      expect(existsSync(rollbackPath)).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
 
 test('same-inode database stage mutation after current-state move never installs', () => {
   const fixture = createRestoreFixture();
@@ -2017,6 +2243,17 @@ function removeDatabaseAuxiliaries(databaseFile: string): void {
   for (const suffix of ['-journal', '-wal', '-shm']) {
     rmSync(`${databaseFile}${suffix}`, { force: true });
   }
+}
+
+function checkpointDatabaseWithoutAuxiliaries(databaseFile: string): void {
+  const database = new Database(databaseFile);
+  try {
+    database.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+    database.exec('PRAGMA journal_mode = DELETE');
+  } finally {
+    database.close();
+  }
+  removeDatabaseAuxiliaries(databaseFile);
 }
 
 function captureError(operation: () => unknown): Error {
