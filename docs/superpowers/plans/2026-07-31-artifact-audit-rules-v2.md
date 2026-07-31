@@ -818,6 +818,27 @@ cleanup. Preserve source database/manifest bytes and remove the full temporary
 root plus WAL/SHM/journal files on success and failure; cleanup failure is a
 verification failure.
 
+Before staging, atomically create and bind the rollback root, operation
+directory, and database subdirectory as real control-owned directories. Retain
+their filesystem identities and revalidate those identities, the stage
+identities, and every intermediate parent after post-stage hooks and
+immediately before pre-state capture or live moves. A late rollback
+root/operation symlink must fail before moving live data.
+
+Treat a direct or fallback rename error as an ambiguous commit until source and
+target identities prove otherwise. If the source disappeared and its exact
+identity is at the rollback target, record publication/removal and compensate
+from it even though rename threw. If commit state cannot be proven, retain the
+operation as quarantined recovery evidence and never delete the only possible
+rollback copy. Apply the same logic to the database, storage directory, and
+all SQLite auxiliaries.
+
+Reject staged database `-journal`, `-wal`, and `-shm` files before opening the
+database, after closing/fingerprinting, and immediately before live mutation.
+Include all stage auxiliaries in control-layout checks and cleanup on success
+and failure. Inject each suffix in tests and prove restore fails without live
+mutation or control residue.
+
 - [ ] **Step 4: Update documentation**
 
 Document:
