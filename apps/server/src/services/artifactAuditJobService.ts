@@ -10,6 +10,8 @@ import { ApiError, ErrorCode } from '../errors';
 import type { ArtifactAuditJobRepository } from '../repositories/artifactAuditJobRepository';
 import { createId as defaultCreateId } from '../utils/id';
 import type { ArtifactAuditResult } from './artifactAuditEngine';
+import { ArtifactAuditExecutionError } from './artifactAuditExecutor';
+import { ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES } from './artifactAuditProtocol';
 import { checksumDirectory } from './artifactService';
 
 export type ArtifactAuditJobOutcome =
@@ -256,12 +258,15 @@ export function createArtifactAuditJobService(
     },
 
     fail(jobId, workerId, error) {
+      const failure = classifyArtifactAuditFailure(error);
       const transition = repository.fail({
         jobId,
         workerId,
         now: now().toISOString(),
-        retryable: isRetryableFailure(error),
+        retryable: failure.retryable,
         retryBaseDelayMs,
+        errorCode: failure.errorCode,
+        errorMessage: failure.errorMessage,
       });
       const failed = requireLeaseTransition(transition);
       dependencies.recordOutcome?.(failed.outcome);
@@ -328,13 +333,23 @@ function requireLeaseMs(leaseMs: number): void {
   }
 }
 
-function isRetryableFailure(error: unknown): boolean {
-  return !(
-    error &&
-    typeof error === 'object' &&
-    'retryable' in error &&
-    error.retryable === false
-  );
+function classifyArtifactAuditFailure(error: unknown): {
+  retryable: boolean;
+  errorCode: string;
+  errorMessage: string;
+} {
+  if (error instanceof ArtifactAuditExecutionError) {
+    return {
+      retryable: error.retryable,
+      errorCode: error.code,
+      errorMessage: error.message,
+    };
+  }
+  return {
+    retryable: true,
+    errorCode: 'AUDIT_ENGINE_FAILED',
+    errorMessage: ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES.AUDIT_ENGINE_FAILED,
+  };
 }
 
 function recordCount(count: number, record: () => void): void {

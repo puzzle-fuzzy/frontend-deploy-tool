@@ -105,6 +105,8 @@ export interface FailArtifactAuditJobInput {
   now: string;
   retryable: boolean;
   retryBaseDelayMs: number;
+  errorCode: string;
+  errorMessage: string;
 }
 
 export type ArtifactAuditJobLeaseTransitionResult =

@@ -14,8 +14,11 @@ import {
   ARTIFACT_AUDIT_RULES,
   type ArtifactAuditRuleId,
 } from '../domain/artifactAuditRules';
-import { ApiError, ErrorCode } from '../errors';
 import { safeJoin } from '../utils/safePath';
+import {
+  ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES,
+  type ArtifactAuditProcessErrorCode,
+} from './artifactAuditProtocol';
 import { checksumDirectory } from './artifactService';
 
 export { ARTIFACT_AUDIT_ENGINE_VERSION };
@@ -79,6 +82,21 @@ interface FileInventory {
   largestFileSize: number;
 }
 
+type ArtifactAuditInspectionErrorCode = Extract<
+  ArtifactAuditProcessErrorCode,
+  'AUDIT_REQUIRED' | 'AUDIT_ARTIFACT_UNSAFE' | 'AUDIT_ARTIFACT_UNREADABLE'
+>;
+
+export class ArtifactAuditInspectionError extends Error {
+  readonly code: ArtifactAuditInspectionErrorCode;
+
+  constructor(code: ArtifactAuditInspectionErrorCode) {
+    super(ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES[code]);
+    this.name = 'ArtifactAuditInspectionError';
+    this.code = code;
+  }
+}
+
 /**
  * Performs a deterministic, network-free audit of one extracted artifact tree.
  * The result describes the bytes that were actually inspected, so callers can
@@ -91,15 +109,12 @@ export function auditArtifactDirectory(
   context: ArtifactAuditContext = { spaMode: false, routingType: 'path' }
 ): ArtifactAuditResult {
   try {
+    assertArtifactRootSafe(artifactDir);
     const checksumBeforeInspection = checksumDirectory(artifactDir);
     const inventory = inspectArtifactTree(artifactDir);
     const actualChecksum = checksumDirectory(artifactDir);
     if (actualChecksum !== checksumBeforeInspection) {
-      throw new ApiError(
-        ErrorCode.AUDIT_FAILED,
-        'Artifact changed while the audit was running; retry the audit',
-        409
-      );
+      throw new ArtifactAuditInspectionError('AUDIT_REQUIRED');
     }
     const checks: ArtifactAuditCheck[] = [];
 
@@ -170,25 +185,21 @@ export function auditArtifactDirectory(
       checks,
     };
   } catch (error) {
-    if (error instanceof ApiError) throw error;
-    throw new ApiError(
-      ErrorCode.AUDIT_FAILED,
-      `Artifact audit could not inspect the stored files: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      500
-    );
+    if (error instanceof ArtifactAuditInspectionError) throw error;
+    if (isUnsafeFilesystemError(error)) {
+      throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
+    }
+    if (isFilesystemReadError(error)) {
+      throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNREADABLE');
+    }
+    throw error;
   }
 }
 
 function inspectArtifactTree(root: string): FileInventory {
   const rootStats = lstatSync(root);
   if (rootStats.isSymbolicLink() || !rootStats.isDirectory()) {
-    throw new ApiError(
-      ErrorCode.AUDIT_FAILED,
-      'Artifact root must be a regular directory',
-      500
-    );
+    throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
   }
 
   const files: Array<{ path: string; size: number }> = [];
@@ -210,22 +221,14 @@ function inspectArtifactTree(root: string): FileInventory {
       const absolutePath = join(directory, entry.name);
       const stats = lstatSync(absolutePath);
       if (stats.isSymbolicLink()) {
-        throw new ApiError(
-          ErrorCode.AUDIT_FAILED,
-          `Artifact contains an unsupported symbolic link: ${relativePath}`,
-          500
-        );
+        throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
       }
       if (stats.isDirectory()) {
         walk(absolutePath, relativePath);
         continue;
       }
       if (!stats.isFile()) {
-        throw new ApiError(
-          ErrorCode.AUDIT_FAILED,
-          `Artifact contains an unsupported filesystem entry: ${relativePath}`,
-          500
-        );
+        throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
       }
 
       files.push({ path: relativePath, size: stats.size });
@@ -261,6 +264,44 @@ function inspectArtifactTree(root: string): FileInventory {
       assetBytes,
     },
   };
+}
+
+function assertArtifactRootSafe(root: string): void {
+  const stats = lstatSync(root);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
+  }
+}
+
+function isUnsafeFilesystemError(error: unknown): boolean {
+  return hasFilesystemErrorCode(error, new Set(['ELOOP', 'ENAMETOOLONG']));
+}
+
+function isFilesystemReadError(error: unknown): boolean {
+  return hasFilesystemErrorCode(
+    error,
+    new Set([
+      'EACCES',
+      'EBADF',
+      'EIO',
+      'EISDIR',
+      'EMFILE',
+      'ENFILE',
+      'ENOENT',
+      'ENOTDIR',
+      'EPERM',
+      'ESTALE',
+    ])
+  );
+}
+
+function hasFilesystemErrorCode(error: unknown, codes: Set<string>): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    codes.has(error.code)
+  );
 }
 
 export function summarizeArtifactExtensions(

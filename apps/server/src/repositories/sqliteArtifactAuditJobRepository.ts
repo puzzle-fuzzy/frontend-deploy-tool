@@ -551,6 +551,8 @@ export function createSqliteArtifactAuditJobRepository(
                   ArtifactAuditJob['status'],
                   string,
                   string,
+                  string,
+                  string,
                   string | null,
                   string,
                   string,
@@ -559,8 +561,7 @@ export function createSqliteArtifactAuditJobRepository(
               >(
                 `UPDATE artifact_audit_jobs
                  SET status = ?, next_run_at = ?, locked_by = NULL,
-                     locked_until = NULL, error_code = 'AUDIT_JOB_FAILED',
-                     error_message = 'Artifact audit worker failed',
+                     locked_until = NULL, error_code = ?, error_message = ?,
                      updated_at = ?, completed_at = ?
                  WHERE id = ? AND status = 'running' AND locked_by = ?
                    AND locked_until IS NOT NULL AND locked_until > ?
@@ -569,6 +570,8 @@ export function createSqliteArtifactAuditJobRepository(
               .get(
                 decision.status,
                 decision.nextRunAt,
+                nextInput.errorCode,
+                nextInput.errorMessage,
                 nextInput.now,
                 decision.completedAt,
                 job.id,

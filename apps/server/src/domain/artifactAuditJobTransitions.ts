@@ -79,13 +79,14 @@ export function applyArtifactAuditFailure(
   job: ArtifactAuditJob,
   decision: ArtifactAuditFailureDecision,
   now: string,
-  errorMessage = 'Artifact audit worker failed'
+  errorCode: string,
+  errorMessage: string
 ): void {
   job.status = decision.status;
   job.nextRunAt = decision.nextRunAt;
   job.lockedBy = null;
   job.lockedUntil = null;
-  job.errorCode = 'AUDIT_JOB_FAILED';
+  job.errorCode = errorCode;
   job.errorMessage = errorMessage;
   job.updatedAt = now;
   job.completedAt = decision.completedAt;

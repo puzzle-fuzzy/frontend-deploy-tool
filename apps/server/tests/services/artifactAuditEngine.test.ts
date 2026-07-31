@@ -18,7 +18,6 @@ import {
   ARTIFACT_AUDIT_RULES,
   ARTIFACT_AUDIT_RULESET_ID,
 } from '../../src/domain/artifactAuditRules';
-import { ErrorCode } from '../../src/errors';
 import {
   auditArtifactDirectory,
   MAX_AUDIT_HTML_BYTES,
@@ -215,7 +214,8 @@ describe('auditArtifactDirectory', () => {
       auditArtifactDirectory(artifactDir, 'checksum', policy)
     ).toThrow(
       expect.objectContaining({
-        code: ErrorCode.AUDIT_FAILED,
+        code: 'AUDIT_ARTIFACT_UNSAFE',
+        message: 'Artifact contains an unsafe filesystem entry',
       })
     );
   });

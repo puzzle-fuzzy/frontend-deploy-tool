@@ -1,9 +1,11 @@
 import { fileURLToPath } from 'node:url';
 import type { ArtifactAuditResult } from './artifactAuditEngine';
 import {
+  ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES,
   type ArtifactAuditExecutionInput,
+  type ArtifactAuditProcessErrorCode,
   artifactAuditExecutionInputSchema,
-  artifactAuditExecutionResultSchema,
+  artifactAuditProcessEnvelopeSchema,
 } from './artifactAuditProtocol';
 
 const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
@@ -42,11 +44,13 @@ interface SubprocessArtifactAuditExecutorOptions {
 }
 
 export class ArtifactAuditExecutionError extends Error {
+  readonly code: ArtifactAuditProcessErrorCode;
   readonly retryable: boolean;
 
-  constructor(message: string, retryable: boolean) {
-    super(message);
+  constructor(code: ArtifactAuditProcessErrorCode, retryable: boolean) {
+    super(ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES[code]);
     this.name = 'ArtifactAuditExecutionError';
+    this.code = code;
     this.retryable = retryable;
   }
 }
@@ -74,10 +78,7 @@ export function createSubprocessArtifactAuditExecutor(
       if (signal.aborted) throw abortError();
       const parsedInput = artifactAuditExecutionInputSchema.safeParse(input);
       if (!parsedInput.success) {
-        throw new ArtifactAuditExecutionError(
-          'Artifact audit execution input is invalid',
-          false
-        );
+        throw new ArtifactAuditExecutionError('AUDIT_ENGINE_FAILED', false);
       }
 
       let processResult: ArtifactAuditProcessResult;
@@ -91,24 +92,17 @@ export function createSubprocessArtifactAuditExecutor(
         });
       } catch (error) {
         if (signal.aborted || isAbortError(error)) throw abortError();
-        throw new ArtifactAuditExecutionError(
-          'Artifact audit subprocess could not be started',
-          true
-        );
+        if (isExplicitStdoutMaxBufferError(error)) throw invalidResultError();
+        throw infrastructureError();
       }
       if (signal.aborted) throw abortError();
-      if (processResult.exitCode !== 0) {
-        throw new ArtifactAuditExecutionError(
-          'Artifact audit subprocess exited unsuccessfully',
-          true
-        );
-      }
       if (
         new TextEncoder().encode(processResult.stdout).byteLength >
         maxOutputBytes
       ) {
         throw invalidResultError();
       }
+      if (processResult.exitCode !== 0) throw infrastructureError();
 
       let decoded: unknown;
       try {
@@ -116,9 +110,15 @@ export function createSubprocessArtifactAuditExecutor(
       } catch {
         throw invalidResultError();
       }
-      const result = artifactAuditExecutionResultSchema.safeParse(decoded);
-      if (!result.success) throw invalidResultError();
-      return result.data;
+      const envelope = artifactAuditProcessEnvelopeSchema.safeParse(decoded);
+      if (!envelope.success) throw invalidResultError();
+      if (!envelope.data.ok) {
+        throw new ArtifactAuditExecutionError(
+          envelope.data.error.code,
+          envelope.data.error.retryable
+        );
+      }
+      return envelope.data.result;
     },
   };
 }
@@ -159,10 +159,11 @@ async function spawnArtifactAuditProcess({
 }
 
 function invalidResultError(): ArtifactAuditExecutionError {
-  return new ArtifactAuditExecutionError(
-    'Artifact audit subprocess returned an invalid result',
-    false
-  );
+  return new ArtifactAuditExecutionError('AUDIT_ENGINE_OUTPUT_INVALID', false);
+}
+
+function infrastructureError(): ArtifactAuditExecutionError {
+  return new ArtifactAuditExecutionError('AUDIT_ENGINE_FAILED', true);
 }
 
 function truncateDiagnostic(value: string): string {
@@ -171,6 +172,22 @@ function truncateDiagnostic(value: string): string {
 
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+function isExplicitStdoutMaxBufferError(error: unknown): boolean {
+  if (
+    !error ||
+    typeof error !== 'object' ||
+    !('code' in error) ||
+    error.code !== 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+  ) {
+    return false;
+  }
+  if ('stream' in error && error.stream === 'stdout') return true;
+  return (
+    error instanceof Error &&
+    error.message === 'stdout maxBuffer length exceeded'
+  );
 }
 
 function abortError(): DOMException {

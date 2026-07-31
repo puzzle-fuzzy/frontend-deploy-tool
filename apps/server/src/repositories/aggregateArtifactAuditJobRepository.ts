@@ -339,6 +339,7 @@ function recoverAndClaimAggregate(
           completedAt: null,
         },
         input.now,
+        'AUDIT_JOB_FAILED',
         'Artifact audit worker lease expired'
       );
       recovered.retried += 1;
@@ -352,6 +353,7 @@ function recoverAndClaimAggregate(
           completedAt: input.now,
         },
         input.now,
+        'AUDIT_JOB_FAILED',
         'Artifact audit worker lease expired'
       );
       recovered.failed += 1;
@@ -465,7 +467,13 @@ function failAggregate(
     return { kind: 'lease-lost' };
   }
   const decision = decideArtifactAuditFailure(job, input);
-  applyArtifactAuditFailure(job, decision, input.now);
+  applyArtifactAuditFailure(
+    job,
+    decision,
+    input.now,
+    input.errorCode,
+    input.errorMessage
+  );
   return {
     kind: 'transitioned',
     job,

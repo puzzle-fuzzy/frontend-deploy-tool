@@ -18,6 +18,7 @@ import { createAggregateArtifactAuditJobRepository } from '../../src/repositorie
 import { createJsonProjectRepository } from '../../src/repositories/jsonProjectRepository';
 import type { ProjectRepository } from '../../src/repositories/projectRepository';
 import type { ArtifactAuditResult } from '../../src/services/artifactAuditEngine';
+import { ArtifactAuditExecutionError } from '../../src/services/artifactAuditExecutor';
 import { createArtifactAuditJobService } from '../../src/services/artifactAuditJobService';
 import { checksumDirectory } from '../../src/services/artifactService';
 
@@ -184,8 +185,8 @@ describe('createArtifactAuditJobService', () => {
       status: 'queued',
       attempts: 1,
       nextRunAt: '2026-07-30T00:00:02.000Z',
-      errorCode: ErrorCode.AUDIT_JOB_FAILED,
-      errorMessage: 'Artifact audit worker failed',
+      errorCode: 'AUDIT_ENGINE_FAILED',
+      errorMessage: 'Artifact audit engine failed',
     });
     expect(service.recoverAndClaim('worker-1', 90_000)).toBeNull();
 
@@ -202,6 +203,27 @@ describe('createArtifactAuditJobService', () => {
       completedAt: currentTime.toISOString(),
     });
     expect(outcomes).toEqual(['retried', 'failed']);
+  });
+
+  test('persists typed deterministic failures without retrying or leaking details', () => {
+    const { repo } = createFixture();
+    const service = createService(repo);
+    const { job } = service.enqueue('project-1', 'version-1', 'owner-1');
+    service.recoverAndClaim('worker-1', 90_000);
+
+    const failed = service.fail(
+      job.id,
+      'worker-1',
+      new ArtifactAuditExecutionError('AUDIT_ARTIFACT_UNSAFE', false)
+    );
+
+    expect(failed).toMatchObject({
+      status: 'failed',
+      attempts: 1,
+      errorCode: 'AUDIT_ARTIFACT_UNSAFE',
+      errorMessage: 'Artifact contains an unsafe filesystem entry',
+    });
+    expect(JSON.stringify(failed)).not.toContain(storageDir);
   });
 
   test('recovers expired leases and fails one that exhausted its attempts', () => {

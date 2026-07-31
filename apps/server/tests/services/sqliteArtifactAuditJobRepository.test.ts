@@ -476,6 +476,8 @@ describe('SQLite artifact audit queue', () => {
       job: {
         status: 'queued',
         nextRunAt: '2026-07-30T00:00:03.000Z',
+        errorCode: 'AUDIT_ENGINE_FAILED',
+        errorMessage: 'Artifact audit engine failed',
       },
     });
     expect(
@@ -516,6 +518,13 @@ describe('SQLite artifact audit queue', () => {
       kind: 'transitioned',
       outcome: 'failed',
       job: { status: 'failed', attempts: 1 },
+    });
+    expect(repository.get(scoped('job-2'))).toMatchObject({
+      kind: 'found',
+      job: {
+        errorCode: 'AUDIT_ARTIFACT_UNSAFE',
+        errorMessage: 'Artifact contains an unsafe filesystem entry',
+      },
     });
   });
 
@@ -1166,6 +1175,10 @@ function failInput(retryable: boolean) {
     now: '2026-07-30T00:00:01.000Z',
     retryable,
     retryBaseDelayMs: 2_000,
+    errorCode: retryable ? 'AUDIT_ENGINE_FAILED' : 'AUDIT_ARTIFACT_UNSAFE',
+    errorMessage: retryable
+      ? 'Artifact audit engine failed'
+      : 'Artifact contains an unsafe filesystem entry',
   };
 }
 

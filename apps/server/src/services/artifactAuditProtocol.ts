@@ -77,9 +77,64 @@ export const artifactAuditExecutionResultSchema = z
     }
   });
 
+export const ARTIFACT_AUDIT_PROCESS_ERROR_CODES = [
+  'AUDIT_REQUIRED',
+  'AUDIT_ARTIFACT_UNSAFE',
+  'AUDIT_ARTIFACT_UNREADABLE',
+  'AUDIT_ENGINE_FAILED',
+  'AUDIT_ENGINE_OUTPUT_INVALID',
+] as const;
+
+export type ArtifactAuditProcessErrorCode =
+  (typeof ARTIFACT_AUDIT_PROCESS_ERROR_CODES)[number];
+
+export const ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES = {
+  AUDIT_REQUIRED: 'Artifact changed while the audit was running',
+  AUDIT_ARTIFACT_UNSAFE: 'Artifact contains an unsafe filesystem entry',
+  AUDIT_ARTIFACT_UNREADABLE: 'Artifact files could not be read',
+  AUDIT_ENGINE_FAILED: 'Artifact audit engine failed',
+  AUDIT_ENGINE_OUTPUT_INVALID:
+    'Artifact audit subprocess returned an invalid result',
+} as const satisfies Record<ArtifactAuditProcessErrorCode, string>;
+
+const artifactAuditProcessErrorSchema = z
+  .object({
+    code: z.enum(ARTIFACT_AUDIT_PROCESS_ERROR_CODES),
+    message: z.string(),
+    retryable: z.literal(false),
+  })
+  .strict()
+  .superRefine((error, context) => {
+    if (error.message !== ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES[error.code]) {
+      context.addIssue({
+        code: 'custom',
+        path: ['message'],
+        message: 'Artifact audit process error message is invalid',
+      });
+    }
+  });
+
+export const artifactAuditProcessEnvelopeSchema = z.discriminatedUnion('ok', [
+  z
+    .object({
+      ok: z.literal(true),
+      result: artifactAuditExecutionResultSchema,
+    })
+    .strict(),
+  z
+    .object({
+      ok: z.literal(false),
+      error: artifactAuditProcessErrorSchema,
+    })
+    .strict(),
+]);
+
 export type ArtifactAuditExecutionInput = z.infer<
   typeof artifactAuditExecutionInputSchema
 >;
 export type ArtifactAuditExecutionResult = z.infer<
   typeof artifactAuditExecutionResultSchema
+>;
+export type ArtifactAuditProcessEnvelope = z.infer<
+  typeof artifactAuditProcessEnvelopeSchema
 >;

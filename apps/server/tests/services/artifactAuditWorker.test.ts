@@ -1,7 +1,10 @@
 import { describe, expect, test } from 'bun:test';
 import type { ArtifactAuditJob } from '@deploykit/shared';
 import type { ArtifactAuditResult } from '../../src/services/artifactAuditEngine';
-import type { ArtifactAuditExecutor } from '../../src/services/artifactAuditExecutor';
+import {
+  ArtifactAuditExecutionError,
+  type ArtifactAuditExecutor,
+} from '../../src/services/artifactAuditExecutor';
 import type { ArtifactAuditJobService } from '../../src/services/artifactAuditJobService';
 import { createArtifactAuditWorker } from '../../src/services/artifactAuditWorker';
 
@@ -73,6 +76,36 @@ describe('createArtifactAuditWorker', () => {
 
     expect(await worker.runOnce()).toBe(true);
     expect(failures).toEqual([failure]);
+  });
+
+  test('passes a typed terminal executor failure to durable classification intact', async () => {
+    const job = jobFixture();
+    const failures: unknown[] = [];
+    const failure = new ArtifactAuditExecutionError(
+      'AUDIT_ARTIFACT_UNREADABLE',
+      false
+    );
+    const worker = createArtifactAuditWorker({
+      jobService: serviceFixture({
+        recoverAndClaim: () => ({ job, artifactDir: '/private/artifact' }),
+        fail: (_jobId, _workerId, error) => {
+          failures.push(error);
+          return { ...job, status: 'failed' };
+        },
+      }),
+      executor: {
+        execute: async () => {
+          throw failure;
+        },
+      },
+      workerId: 'worker-1',
+      pollIntervalMs: 1_000,
+      leaseMs: 90_000,
+    });
+
+    expect(await worker.runOnce()).toBe(true);
+    expect(failures).toEqual([failure]);
+    expect(failure.message).not.toContain('/private/artifact');
   });
 
   test('heartbeats the active lease and aborts when ownership is lost', async () => {
