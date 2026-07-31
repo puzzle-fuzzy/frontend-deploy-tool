@@ -110,12 +110,17 @@ title-length or bundle-size heuristics into universal blocking rules.
 - Modify: `apps/server/src/repositories/aggregateArtifactAuditJobRepository.ts`
 - Modify: `apps/server/src/repositories/jsonProjectRepository.ts`
 - Modify: `apps/server/src/services/artifactAuditWorker.ts`
+- Modify: `apps/server/src/services/runtimeOwnership.ts`
+- Modify: `apps/server/src/app.ts`
+- Modify: `apps/server/src/cli/ops.ts`
 - Test: `packages/shared/tests/domain-types.test-d.ts`
 - Test: `apps/server/tests/services/projectDomain.test.ts`
 - Test: `apps/server/tests/services/schemaMigration.test.ts`
 - Test: `apps/server/tests/services/sqliteProjectRepository.test.ts`
 - Test: `apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts`
 - Test: `apps/server/tests/services/artifactAuditWorker.test.ts`
+- Test: `apps/server/tests/services/runtime.test.ts`
+- Test: `apps/server/tests/services/ops.test.ts`
 - Test: `apps/server/tests/api/artifactAudit.test.ts`
 - Test: `packages/client/tests/unit/useProjects.test.tsx`
 - Test: `packages/client/tests/unit/ProjectSettingsForm.test.tsx`
@@ -259,6 +264,23 @@ of the main/WAL/SHM snapshot so it cannot create source auxiliary files.
 Backups are created from the exact bytes/snapshot that was validated, and the
 source identity is revalidated under runtime single-writer ownership before
 any migration mutation.
+
+Capture every migration source through one `O_NOFOLLOW` file descriptor with
+`fstat`/read/`fstat` stability checks and a final path-to-FD identity check;
+never bind validation to separate path opens. Install JSON and SQLite backups
+through a same-directory `O_EXCL`, mode-0600 staging file plus atomic rename so
+pre-existing symlinks or hardlinks are replaced, never followed or written
+through.
+
+Relational upgrades and legacy imports require an active
+`RuntimeMigrationGuard` issued by the existing runtime ownership layer and
+bound to the same database path. The guard registry is module-private,
+runtime-validated, and permanently revoked on release; a cast or plain object
+cannot forge it. `createDeployKitRuntime()` passes its held guard into
+composition. `createApp()` may open current/fresh test data but must fail before
+any historical migration when it has no guard. CLI `inspect` and
+`audit-jobs-prune` hold real runtime ownership for the whole write-capable
+operation and release it in `finally`.
 
 - [ ] **Step 5: Implement persistence and snapshot comparison**
 
