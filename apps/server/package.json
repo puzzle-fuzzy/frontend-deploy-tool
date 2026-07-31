@@ -24,6 +24,7 @@
   },
   "dependencies": {
     "@deploykit/shared": "workspace:*",
+    "entities": "^8.0.0",
     "fflate": "catalog:",
     "hono": "catalog:",
     "nanoid": "catalog:",

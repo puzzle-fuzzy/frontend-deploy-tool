@@ -267,10 +267,10 @@ describe('auditArtifactDirectory', () => {
       `<html><head>
         <base href="/nested/">
         <base href="https://ignored.example/">
-        <script src="assets/app.js?v=1#boot"></script>
-        <link rel="preload stylesheet" href="assets/app.css?theme=dark#main">
+        <script src="assets&sol;app.js?v=1#boot"></script>
+        <link rel="preload stylesheet" href="assets&#47;app.css?theme=dark#main">
       </head><body>
-        <img src="assets/photo%2Epng?size=2#hero" alt="">
+        <img src="assets&sol;photo%2Epng?size=2#hero" alt="">
       </body></html>`
     );
 
@@ -449,11 +449,74 @@ describe('auditArtifactDirectory', () => {
     );
   });
 
+  test('normalizes browser-equivalent entity and control encodings before javascript classification', () => {
+    writeFileSync(
+      join(artifactDir, 'index.html'),
+      `<html><body>
+        <a href="javascript&#58;void(0)">named colon</a>
+        <a href="&#106;&#97;&#118;&#97;&#115;&#99;&#114;&#105;&#112;&#116;&#58;void(0)">numeric scheme</a>
+        <a href="java&#10;script:alert(1)">newline</a>
+        <a href="java&#9;script:alert(1)">tab</a>
+        <a href="java&#x0A;script&#x3A;alert(1)">hex controls</a>
+        <a href="javascript&colon;alert(1)">named entity</a>
+      </body></html>`
+    );
+
+    const result = auditArtifactDirectory(
+      artifactDir,
+      checksumDirectory(artifactDir),
+      policy,
+      staticContext
+    );
+    const javascriptCheck = result.checks.find(
+      (check) => check.id === 'links.javascript_url'
+    );
+
+    expect(javascriptCheck).toMatchObject({
+      passed: false,
+      actual: 6,
+    });
+    expect(JSON.stringify(javascriptCheck)).not.toContain('void(0)');
+    expect(JSON.stringify(javascriptCheck)).not.toContain(artifactDir);
+  });
+
   test('treats relative references under an external base as unverifiable external targets', () => {
     writeFileSync(
       join(artifactDir, 'index.html'),
       `<html><head>
         <base href="https://cdn.example/assets/">
+        <script src="missing.js"></script>
+        <link rel="stylesheet" href="missing.css">
+      </head><body>
+        <img src="missing.png" alt="">
+        <a href="missing.html">missing</a>
+      </body></html>`
+    );
+
+    const result = auditArtifactDirectory(
+      artifactDir,
+      checksumDirectory(artifactDir),
+      policy,
+      staticContext
+    );
+
+    for (const id of [
+      'assets.script_target',
+      'assets.stylesheet_target',
+      'images.local_target',
+      'links.local_target',
+    ]) {
+      expect(result.checks).toContainEqual(
+        expect.objectContaining({ id, passed: true, actual: 0 })
+      );
+    }
+  });
+
+  test('keeps relative references external under an entity-encoded external base', () => {
+    writeFileSync(
+      join(artifactDir, 'index.html'),
+      `<html><head>
+        <base href="https&colon;&sol;&sol;cdn.example&sol;assets&sol;">
         <script src="missing.js"></script>
         <link rel="stylesheet" href="missing.css">
       </head><body>

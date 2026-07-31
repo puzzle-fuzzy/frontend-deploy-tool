@@ -54,6 +54,7 @@
       "version": "1.0.0",
       "dependencies": {
         "@deploykit/shared": "workspace:*",
+        "entities": "^8.0.0",
         "fflate": "catalog:",
         "hono": "catalog:",
         "nanoid": "catalog:",

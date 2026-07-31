@@ -8,6 +8,7 @@ import type {
   ArtifactAuditStatus,
   ArtifactAuditSummary,
 } from '@deploykit/shared';
+import { decodeHTMLAttribute } from 'entities';
 import {
   ARTIFACT_AUDIT_ENGINE_VERSION,
   ARTIFACT_AUDIT_RULES,
@@ -492,6 +493,9 @@ function resolveLocalReference(
   } catch {
     return { kind: 'invalid' };
   }
+  if (resolved.protocol === 'javascript:') {
+    return { kind: 'javascript' };
+  }
   if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
     return { kind: 'skip' };
   }
@@ -571,9 +575,10 @@ function parseHtmlSignals(html: string): HtmlSignals {
     .on('link', {
       element(element) {
         const rel = normalizeText(element.getAttribute('rel'))?.toLowerCase();
-        const href = element.hasAttribute('href')
-          ? (element.getAttribute('href') ?? '')
-          : null;
+        const href = decodeCollectedUrlAttribute(
+          element.getAttribute('href'),
+          element.hasAttribute('href')
+        );
         if (rel?.split(/\s+/).includes('canonical')) {
           canonical ??= normalizeText(href);
         }
@@ -584,9 +589,10 @@ function parseHtmlSignals(html: string): HtmlSignals {
     })
     .on('base', {
       element(element) {
-        const href = element.hasAttribute('href')
-          ? (element.getAttribute('href') ?? '')
-          : null;
+        const href = decodeCollectedUrlAttribute(
+          element.getAttribute('href'),
+          element.hasAttribute('href')
+        );
         if (!baseHrefCollected && href !== null) {
           baseHref = href;
           baseHrefCollected = true;
@@ -595,9 +601,10 @@ function parseHtmlSignals(html: string): HtmlSignals {
     })
     .on('script', {
       element(element) {
-        const source = element.hasAttribute('src')
-          ? (element.getAttribute('src') ?? '')
-          : null;
+        const source = decodeCollectedUrlAttribute(
+          element.getAttribute('src'),
+          element.hasAttribute('src')
+        );
         if (source !== null) scriptSources.push(source);
         if (
           normalizeText(element.getAttribute('type'))?.toLowerCase() ===
@@ -618,18 +625,20 @@ function parseHtmlSignals(html: string): HtmlSignals {
     })
     .on('a', {
       element(element) {
-        const href = element.hasAttribute('href')
-          ? (element.getAttribute('href') ?? '')
-          : null;
+        const href = decodeCollectedUrlAttribute(
+          element.getAttribute('href'),
+          element.hasAttribute('href')
+        );
         if (href !== null) anchorHrefs.push(href);
       },
     })
     .on('img', {
       element(element) {
         images.push({
-          source: element.hasAttribute('src')
-            ? (element.getAttribute('src') ?? '')
-            : null,
+          source: decodeCollectedUrlAttribute(
+            element.getAttribute('src'),
+            element.hasAttribute('src')
+          ),
           hasAlt: element.hasAttribute('alt'),
         });
       },
@@ -838,4 +847,11 @@ function normalizeText(value: string | null): string | null {
   if (value === null) return null;
   const normalized = value.replace(/\s+/g, ' ').trim();
   return normalized || null;
+}
+
+function decodeCollectedUrlAttribute(
+  value: string | null,
+  present: boolean
+): string | null {
+  return present ? decodeHTMLAttribute(value ?? '') : null;
 }
