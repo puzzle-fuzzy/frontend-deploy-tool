@@ -249,6 +249,30 @@ describe('createBackupService', () => {
     }
   });
 
+  test('preserves ENOTDIR from the database auxiliary preflight', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-enotdir-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-enotdir');
+      const service = createBackupService(fixture);
+      service.createBackup(backupDir);
+      const databaseDirectory = join(backupDir, 'database');
+      rmSync(databaseDirectory, { recursive: true });
+      writeFileSync(databaseDirectory, 'not a directory');
+
+      const verification = service.verifyBackup(backupDir);
+
+      expect(verification.valid).toBe(false);
+      expect(verification.errors).toHaveLength(1);
+      expect(verification.errors[0]).toContain('ENOTDIR');
+      expect(verification.errors[0]).toContain(
+        join(databaseDirectory, 'deploykit.sqlite-journal')
+      );
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('restores token, security-event, and idempotency rows from schema v6', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-v6-'));
     try {
