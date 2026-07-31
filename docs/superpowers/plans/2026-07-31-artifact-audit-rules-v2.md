@@ -346,6 +346,7 @@ git commit -m "feat: version artifact audit snapshots"
 - Test: `apps/server/tests/services/artifactAuditEngine.test.ts`
 - Test: `apps/server/tests/services/artifactAuditService.test.ts`
 - Test: `apps/server/tests/services/artifactAuditJobService.test.ts`
+- Test: `apps/server/tests/api/artifactAudit.test.ts`
 
 **Interfaces:**
 - Produces:
