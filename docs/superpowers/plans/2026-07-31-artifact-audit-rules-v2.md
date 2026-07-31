@@ -758,8 +758,12 @@ Prove:
 - both invalid JSON syntax and valid-JSON/domain-invalid values fail for report
   and job `policy_json`, report and job `context_json`, report `summary_json`,
   and report `checks_json`;
-- that corruption matrix runs against generated v6→v7 and current-v7 backup
-  verification, proving source database/manifest bytes unchanged, ownership
+- that corruption matrix runs against every field physically present in
+  generated v6 and current-v7 backup verification; because v6 has no
+  `context_json` columns, its successful migration proves the production
+  context defaults while context corruption is exercised on v7 (a rogue v6
+  context column is schema drift, not a historical JSON payload);
+- these failures prove source database/manifest bytes unchanged, ownership
   acquisition count zero for the initial invalid source, and no live mutation;
 - v6 report/job rows gain context and all rule-budget defaults when verified
   through the backup path;
