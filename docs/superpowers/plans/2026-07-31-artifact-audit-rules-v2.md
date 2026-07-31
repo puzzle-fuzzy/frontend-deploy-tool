@@ -336,6 +336,8 @@ git commit -m "feat: version artifact audit snapshots"
 ### Task 2: Add Stable Rule Catalog and Bounded Engine v2 Checks
 
 **Files:**
+- Modify: `apps/server/package.json`
+- Modify: `bun.lock`
 - Create: `apps/server/src/domain/artifactAuditRules.ts`
 - Modify: `apps/server/src/services/artifactAuditEngine.ts`
 - Modify: `apps/server/src/services/artifactAuditProtocol.ts`
@@ -412,6 +414,11 @@ bun test apps/server/tests/services/artifactAuditEngine.test.ts
 `createCheck()` accepts only a catalog ID and derives `ruleVersion`,
 `category`, and failed severity from that catalog. Passed checks remain
 `severity: 'info'`.
+
+Decode collected URL attributes with the standards-compatible `entities`
+HTML-attribute decoder before any scheme/base classification; declare it as a
+direct server dependency rather than relying on its existing transitive lock
+entry.
 
 Reference resolution:
 
