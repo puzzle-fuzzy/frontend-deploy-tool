@@ -1624,7 +1624,7 @@ git add docs/superpowers/plans/2026-08-01-offline-consistent-backup-contract.md
 git commit -m "docs: record offline backup validation"
 ```
 
-- [ ] **Step 4: Push and verify the delivery-candidate commit**
+- [x] **Step 4: Push and verify the delivery-candidate commit**
 
 ```bash
 git push origin main
@@ -1636,7 +1636,20 @@ git ls-remote origin refs/heads/main
 Wait for both GitHub Actions CI and CodeQL for that exact candidate SHA. Do not
 use an earlier commit's checks as evidence.
 
-- [ ] **Step 5: Record remote evidence and commit final plan closure**
+Delivery-candidate remote evidence:
+
+- Candidate SHA:
+  `b78ea63f45f6842f649fd485fdd957c7b7e390f1`.
+- GitHub Actions CI run
+  `https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30667657148`
+  completed successfully for that exact SHA.
+- CodeQL run
+  `https://github.com/puzzle-fuzzy/frontend-deploy-tool/actions/runs/30667657170`
+  completed successfully for that exact SHA.
+- Local `HEAD`, `origin/main`, and `refs/heads/main` from `git ls-remote` all
+  resolved to the candidate SHA, and the tracked worktree was clean.
+
+- [x] **Step 5: Record remote evidence and commit final plan closure**
 
 After candidate CI and CodeQL pass, update this plan with their exact run URLs,
 candidate SHA, local test counts, review verdicts, and completed checkboxes.
@@ -1650,9 +1663,13 @@ git push origin main
 Wait again for both CI and CodeQL on this new plan-closure SHA; these are the
 final exact-SHA checks reported to the user.
 
-- [ ] **Step 6: Final cleanliness and next-phase handoff**
+- [x] **Step 6: Final cleanliness and next-phase handoff**
 
 Confirm local `HEAD`, `origin/main`, and remote `main` are identical and the
 tracked worktree is clean. Record the next phase without starting it here:
 row-level `releases`/`audit_events` semantic validation plus exact
 backup -> restore -> production boot state equality.
+
+The plan-closing commit is intentionally followed by a second exact-SHA CI,
+CodeQL, local/tracking/remote ref, and clean-worktree check; those final results
+are reported at handoff without creating another self-referential plan commit.
