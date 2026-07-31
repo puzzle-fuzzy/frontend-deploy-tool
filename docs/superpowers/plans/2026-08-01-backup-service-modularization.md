@@ -299,8 +299,15 @@ git commit -m "refactor: extract backup verification boundary"
 
 **Interfaces:**
 
+> Historical interface note: this task records the boundary introduced by the
+> original modularization. The later [Backup Internal Primitives Cleanup
+> Implementation Plan](./2026-08-01-backup-internal-primitives-cleanup.md)
+> removed the unused `verification` transport while preserving the facade's
+> initial verification gate, hook, expected fingerprint, and restore order.
+> The snippets below are therefore historical, not the current interface.
+
 - Produces one operational entry point, `restoreVerifiedBackup(input): BackupRestoreReport`.
-- Input carries `backupPath`, resolved layout, current verification report, expected fingerprint, clock, and the unchanged dependency object.
+- At this extraction checkpoint, the input carried `backupPath`, resolved layout, current verification report, expected fingerprint, clock, and the unchanged dependency object.
 - The function owns operation ID/layout/preflight, ownership acquisition/release, stage binding/capture, final verification, live move/install, rollback/compensation, cleanup, quarantine, and secondary-failure attachment.
 - All binding/progress/recovery types remain private to this module.
 
@@ -316,7 +323,7 @@ added during Task 3 review.
 
 - [x] **Step 2: Move the complete restore state machine as one unit**
 
-Use this facade boundary:
+This task originally used this facade boundary:
 
 ```ts
 export function restoreVerifiedBackup(input: {
@@ -333,7 +340,7 @@ Inside it, preserve the current post-initial-verification sequence beginning wit
 
 - [x] **Step 3: Reduce `backupService.ts` to the public facade**
 
-The facade retains force confirmation, runtime-layout validation, initial detailed verification, `afterInitialBackupVerified`, and delegation:
+At this extraction checkpoint, the facade retained force confirmation, runtime-layout validation, initial detailed verification, `afterInitialBackupVerified`, and delegation:
 
 ```ts
 return restoreVerifiedBackup({
@@ -428,8 +435,11 @@ snapshot missing-path helper. Commit `8c5cdc9` restored the original
 `ENOENT`-only contract and added a real-filesystem auxiliary-path regression;
 both independent re-reviews approved the corrected range. Duplicate read-only
 helpers and the restore transaction's redundant initial `verification` input
-remain non-blocking follow-up maintenance, outside this behavior-preserving
-move.
+remained non-blocking follow-up maintenance at this plan's delivery, outside
+this behavior-preserving move. They were later resolved by the
+[Backup Internal Primitives Cleanup Implementation
+Plan](./2026-08-01-backup-internal-primitives-cleanup.md); that later work is
+not part of the extraction recorded here.
 
 - [x] **Step 5: Commit documentation and review fixes**
 

@@ -291,7 +291,7 @@ git commit -m "refactor: centralize backup file safety primitives"
 not touch restore control flow or public exports, and do not revert concurrent
 work.
 
-- [ ] **Step 1: Write a direct SQL-contract test first**
+- [x] **Step 1: Write a direct SQL-contract test first**
 
 Before editing, run the focused suites and retain their 107-pass baseline. In
 particular, existing tests cover schema v5/v6/v7 hydration and end-to-end
@@ -325,7 +325,7 @@ module does not exist:
 bun test apps/server/tests/services/backupDatabaseInspection.test.ts
 ```
 
-- [ ] **Step 2: Move the shared database inspection verbatim**
+- [x] **Step 2: Move the shared database inspection verbatim**
 
 Create a leaf that owns:
 
@@ -348,7 +348,7 @@ The wrapper must remain readonly and must close the database in `finally`.
 Move the existing SQL literally: do not rename aliases, reorder queries, add
 tables, or change the `schemaVersion >= 6` branch.
 
-- [ ] **Step 3: Rewire snapshot and verification**
+- [x] **Step 3: Rewire snapshot and verification**
 
 Import the inspection functions/type from the new leaf, remove the duplicate
 `VersionIntegrityRow` and `inspectOpenDatabase` definitions, and remove the
@@ -356,7 +356,7 @@ old snapshot-local wrapper. Keep `Database` imports in both workflow modules
 because snapshot still runs `VACUUM INTO` and verification still runs SQLite
 integrity/foreign-key checks and migration validation.
 
-- [ ] **Step 4: Run characterization and structure gates**
+- [x] **Step 4: Run characterization and structure gates**
 
 ```bash
 bun test apps/server/tests/services/backupDatabaseInspection.test.ts
@@ -376,10 +376,9 @@ git diff --check
 
 Expected: the direct SQL-contract suite and all 107 focused tests pass; the two
 database functions and the row interface have one production definition;
-there are no circular
-imports or public exports.
+there are no circular imports or public exports.
 
-- [ ] **Step 5: Independent review and commit**
+- [x] **Step 5: Independent review and commit**
 
 Review exact SQL/count parity, readonly close behavior, type compatibility,
 and the private module DAG before committing.
@@ -405,20 +404,20 @@ git commit -m "refactor: centralize backup database inspection"
 **Ownership:** Documentation implementer owns the tracked docs above. The root
 agent owns the ignored progress ledger, release verification, and push.
 
-- [ ] **Step 1: Update the private module DAG**
+- [x] **Step 1: Update the private module DAG**
 
 Document the two new server-private leaves and their consumers. State why the
 filesystem and SQLite responsibilities are separated and that neither enters
 the Bun-free API graph. Preserve the restore transaction cohesion warning.
 
-- [ ] **Step 2: Resolve the prior follow-up record accurately**
+- [x] **Step 2: Resolve the prior follow-up record accurately**
 
 Update the completed modularization plan so it no longer presents the dead
 `verification` input as the current interface. Preserve its historical meaning
 by linking the later cleanup plan/commit instead of pretending the original
 extraction included this work.
 
-- [ ] **Step 3: Run complete local gates**
+- [x] **Step 3: Run complete local gates**
 
 ```bash
 bun run check
@@ -431,7 +430,13 @@ git status --short --branch
 Expected: formatting/lint, secret scan, all workspace typechecks/tests,
 production builds/packages, and the high-severity dependency audit pass.
 
-- [ ] **Step 4: Run two independent whole-range reviews**
+Result on 2026-08-01: `check` covered 300 files; `verify` passed the secret
+scan, all five workspace typechecks, 634 server tests, 40 client tests, 23
+desktop tests, the web production build, and server web packaging. The
+high-severity dependency audit, `git diff --check`, and tracked-scope status
+inspection also passed.
+
+- [x] **Step 4: Run two independent whole-range reviews**
 
 From the recorded starting base, require separate spec-compliance and
 code-quality/security reviews. Both must inspect the complete range, import
@@ -439,7 +444,13 @@ DAG, public export surface, exact SQL/error semantics, restore order, direct
 tests, and documentation. Fix all Critical/Important findings and re-run every
 covering gate before re-review.
 
-- [ ] **Step 5: Commit documentation and review fixes**
+Result: independent spec-compliance and code-quality/security reviewers both
+approved the complete range with no Critical, Important, or actionable Minor
+findings. They confirmed exact base parity for restore ordering, filesystem
+safety semantics, SQLite inspection, the private import DAG, tests, and
+historical documentation.
+
+- [x] **Step 5: Commit documentation and review fixes**
 
 ```bash
 git add docs/architecture.md \

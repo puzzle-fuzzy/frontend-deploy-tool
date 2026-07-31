@@ -43,7 +43,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型）、`apiToken.ts`（自动化凭据记录） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` / CI upload commit 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`apiTokenRepository.ts`（SQLite/内存 Token 与安全事件）、`jsonProjectRepository.ts`（仅隔离测试）；旧 `data.json` 由 SQLite 初始化器导入 |
-| `services/` | 用例 | `projectService`、`apiTokenService`（项目 Token 生命周期与鉴权）、`versionService`（交互式/CI 上传、发布、回滚、删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）；备份边界拆为唯一公共 facade `backupService`，以及 server-private 的 `backupTypes`（内部类型）、`backupSnapshot`（快照/负载捕获）、`backupVerification`（校验）和 `backupRestoreTransaction`（恢复事务）；另有 `metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`apiTokenService`（项目 Token 生命周期与鉴权）、`versionService`（交互式/CI 上传、发布、回滚、删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）；备份边界拆为唯一公共 facade `backupService`，以及 server-private 的 `backupTypes`（内部类型）、`backupFileSafety`（no-follow、缺失路径、单链接与文件身份语义）、`backupDatabaseInspection`（SQLite 版本行与元数据计数查询）、`backupSnapshot`（快照/负载捕获）、`backupVerification`（校验）和 `backupRestoreTransaction`（恢复事务）；另有 `metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `workers/` | 隔离进程入口 | `artifactAuditProcess.ts` 只接受一份严格 JSON 输入并输出一份经过 schema 校验的结果；不承载 HTTP、会话或数据库连接 |
 | `routes/` | HTTP 适配 | session 管理面的 `projects` / `versions` / `apiTokens` / `artifactAudits` / `history`，经 `middleware/apiToken.ts` 鉴权的独立 `ciVersions`，以及依赖 artifactService 的 `deploy` |
 | `app.ts` | 组合根 | `createApp(config)` 返回不争用所有权的测试应用；先挂载 `/api/ci/*` 的 Token 路由与终止 404，再挂载 session 管理 API；`createDeployKitRuntime(config)` 先获取运行时所有权，再组合相同 Hono app 与 durable audit Worker |
@@ -339,18 +339,28 @@ apps/server/
 
 ```text
 backupService facade
-  -> backupTypes
-  -> backupSnapshot -> backupTypes
-  -> backupVerification -> backupSnapshot + backupTypes
-  -> backupRestoreTransaction -> backupVerification + backupSnapshot + backupTypes
+  -> backupRestoreTransaction + backupSnapshot + backupVerification + backupTypes
+backupRestoreTransaction
+  -> backupFileSafety + backupSnapshot + backupVerification + backupTypes
+backupVerification
+  -> backupDatabaseInspection + backupFileSafety + backupSnapshot + backupTypes
+backupSnapshot
+  -> backupDatabaseInspection + backupFileSafety + backupTypes
+backupDatabaseInspection -> backupTypes
+backupFileSafety -> (no backup-module imports)
+backupTypes -> (no backup-module imports)
 ```
 
-箭头只表示单向 import/use；facade 直接依赖 `backupTypes`，三个内部实现模块
-也各自依赖 `backupTypes`。`backupTypes`、`backupSnapshot`、
-`backupVerification` 和 `backupRestoreTransaction` 都不会反向 import facade。
-这些内部模块仅属于 server，不进入 `contracts.ts`、`api.ts`、
-`@deploykit/shared` 或前端依赖的 Bun-free Hono 类型图；外部调用只经
-`backupService` facade。
+箭头只表示备份模块之间的单向 import/use。`backupFileSafety` 只统一
+no-follow 文件身份、链接与缺失路径等文件系统安全语义；
+`backupDatabaseInspection` 只统一 caller-owned/open database 与 readonly file
+wrapper 的版本行和计数查询。两者分离，避免把文件系统错误语义与 SQLite SQL、
+schema 分支和连接生命周期混成通用 helper。所有内部模块都不会反向 import
+facade。
+
+这些模块全部保持 server-private，不由 `apps/server/package.json`、`src/index.ts`、
+`src/api.ts`、`services/contracts.ts` 或 `@deploykit/shared` 导出，因此不会进入
+前端依赖的 Bun-free Hono 类型图；外部调用仍只经 `backupService` facade。
 
 `bun run ops -- backup` 使用 `VACUUM INTO` 生成 SQLite 自身内部一致的快照，
 完成后再复制存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、
