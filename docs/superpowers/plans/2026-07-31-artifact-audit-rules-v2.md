@@ -99,6 +99,7 @@ title-length or bundle-size heuristics into universal blocking rules.
 - Modify: `apps/server/src/domain/artifactAuditJobTransitions.ts`
 - Modify: `apps/server/src/services/projectService.ts`
 - Modify: `apps/server/src/services/contracts.ts`
+- Modify: `apps/server/src/services/artifactAuditEngine.ts`
 - Modify: `apps/server/src/services/artifactAuditService.ts`
 - Modify: `apps/server/src/services/artifactAuditProtocol.ts`
 - Modify: `apps/server/src/routes/projects.ts`
@@ -223,7 +224,9 @@ export function getArtifactAuditRuleConfig(
 Keep persistence hydration and PATCH parsing separate: the full shared policy
 schema fills historic defaults, while `ArtifactAuditPolicyUpdate` preserves
 the distinction between an omitted new field and a caller explicitly setting
-that field.
+that field. Keep the existing engine type-correct by emitting
+`ruleVersion: 1` and zero-valued `assetBytes` in Task 1; Task 2 replaces those
+compatibility values with catalog-derived versions and measured asset totals.
 
 - [ ] **Step 4: Add relational v7 and document v9 migration tests**
 
