@@ -12,3 +12,4 @@ Review: Process-only nested schemas are deep-strict while historic shared schema
 Review: Sync known inspection faults keep safe AUDIT_FAILED 409; unknown faults stay generic 500.
 Tests: review focused 77 pass; full server 531 pass; typecheck/Biome/diff-check pass.
 Review commit: fix: harden artifact audit process boundaries
+Final remediation: `bun test apps/server/tests/services/artifactAuditExecutor.test.ts apps/server/tests/services/artifactAuditWorker.test.ts apps/server/tests/services/artifactAuditJobService.test.ts apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts` 60 pass; `bun test apps/server/tests` 533 pass; `bun --filter @deploykit/server typecheck` PASS; `bun run typecheck` 5/5; `bun biome check .` PASS; `git diff --check` PASS; SHA `4f25975cdacc5a3343fce4ee6fd1be24bff0ab32`.
