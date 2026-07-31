@@ -39,6 +39,7 @@ interface RestoreDependencies {
   createOperationId?: () => string;
   restoreFileSystem?: RestoreFileSystem;
   acquireOwnership?: () => { release(): void };
+  afterCurrentStateMoved?: (rollbackPath: string) => void;
   afterDatabaseInstalled?: () => void;
   afterRestoredStateInstalled?: () => void;
   afterRestorePayloadStaged?: (
@@ -502,7 +503,7 @@ test('restore keeps the finalize error authoritative while attempting every comp
         }),
         expect.objectContaining({
           step: 'cleanup-stage',
-          resource: 'database-stage',
+          resource: 'database-stage-journal',
           error: stageCleanupError,
         }),
         expect.objectContaining({
@@ -513,7 +514,7 @@ test('restore keeps the finalize error authoritative while attempting every comp
       ])
     );
     expect(databaseRecoveryAttempts).toBe(1);
-    expect(stageCleanupAttempts).toHaveLength(5);
+    expect(stageCleanupAttempts).toHaveLength(3);
     expect(releaseAttempts).toBe(1);
     expect(readFileSync(fixture.storageMarker, 'utf8')).toBe(
       'pre-restore storage'
@@ -1082,10 +1083,321 @@ for (const suffix of ['-journal', '-wal', '-shm']) {
   });
 }
 
-function createRestoreFixture() {
+test('post-move database parent replacement cannot redirect recovery or either cleanup pass', () => {
+  const fixture = createRestoreFixture({ separateParents: true });
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'database-parent-post-move';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const databaseParent = dirname(fixture.databaseFile);
+  const retainedParent = `${databaseParent}-retained`;
+  const externalParent = `${databaseParent}-external`;
+  const externalDatabase = join(externalParent, basename(fixture.databaseFile));
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  const externalDatabaseStage = join(externalParent, basename(databaseStage));
+  const manifestStage = `${fixture.databaseFile}.manifest-${operationName}`;
+  const externalManifestStage = join(externalParent, basename(manifestStage));
+  const externalRollbackDatabase = join(
+    externalParent,
+    '.deploykit-rollback',
+    operationName,
+    'database',
+    basename(fixture.databaseFile)
+  );
+  try {
+    mkdirSync(dirname(externalRollbackDatabase), { recursive: true });
+    const sentinels = new Map<string, Buffer>([
+      [externalDatabase, Buffer.from('external live database')],
+      [externalDatabaseStage, Buffer.from('external database stage')],
+      [`${externalDatabaseStage}-journal`, Buffer.from('external journal')],
+      [`${externalDatabaseStage}-wal`, Buffer.from('external wal')],
+      [`${externalDatabaseStage}-shm`, Buffer.from('external shm')],
+      [externalManifestStage, Buffer.from('external manifest stage')],
+      [externalRollbackDatabase, Buffer.from('external rollback database')],
+    ]);
+    for (const [path, bytes] of sentinels) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    }
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterCurrentStateMoved() {
+          renameSync(databaseParent, retainedParent);
+          symlinkSync(externalParent, databaseParent);
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    for (const [path, bytes] of sentinels) {
+      expect(readFileSync(path).toString('hex')).toBe(bytes.toString('hex'));
+    }
+    const retainedRollback = join(
+      retainedParent,
+      '.deploykit-rollback',
+      operationName
+    );
+    expect(
+      readFileSync(
+        join(retainedRollback, 'database', basename(fixture.databaseFile))
+      ).byteLength
+    ).toBeGreaterThan(0);
+    expect(
+      readFileSync(join(retainedRollback, 'storage', 'marker.txt'), 'utf8')
+    ).toBe('live storage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('post-database-install storage parent replacement cannot redirect recovery or cleanup', () => {
+  const fixture = createRestoreFixture({ separateParents: true });
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'storage-parent-post-database';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const storageParent = dirname(fixture.storageDir);
+  const retainedParent = `${storageParent}-retained`;
+  const externalParent = `${storageParent}-external`;
+  const storageStage = join(
+    storageParent,
+    `.${basename(fixture.storageDir)}.restore-${operationName}`
+  );
+  const externalStorageMarker = join(
+    externalParent,
+    basename(fixture.storageDir),
+    'marker.txt'
+  );
+  const externalStageMarker = join(
+    externalParent,
+    basename(storageStage),
+    'sentinel.txt'
+  );
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const sentinels = new Map<string, Buffer>([
+      [externalStorageMarker, Buffer.from('external live storage')],
+      [externalStageMarker, Buffer.from('external storage stage')],
+    ]);
+    for (const [path, bytes] of sentinels) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    }
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterDatabaseInstalled() {
+          renameSync(storageParent, retainedParent);
+          symlinkSync(externalParent, storageParent);
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    for (const [path, bytes] of sentinels) {
+      expect(readFileSync(path).toString('hex')).toBe(bytes.toString('hex'));
+    }
+    expect(
+      readFileSync(
+        join(
+          dirname(fixture.databaseFile),
+          '.deploykit-rollback',
+          operationName,
+          'storage',
+          'marker.txt'
+        ),
+        'utf8'
+      )
+    ).toBe('live storage');
+    expect(
+      readFileSync(
+        join(retainedParent, basename(storageStage), 'marker.txt'),
+        'utf8'
+      )
+    ).toBe('backup storage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a database stage swapped after current-state move is never installed', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'late-database-stage';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  const retainedStage = `${databaseStage}.trusted`;
+  const externalDatabase = join(
+    dirname(fixture.backupDir),
+    'late-external-database.sqlite'
+  );
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const storageBytes = readFileSync(fixture.storageMarker);
+    const externalBytes = Buffer.from('external database replacement');
+    writeFileSync(externalDatabase, externalBytes);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterCurrentStateMoved() {
+          renameSync(databaseStage, retainedStage);
+          symlinkSync(externalDatabase, databaseStage);
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+    expect(readFileSync(externalDatabase)).toEqual(externalBytes);
+    expect(existsSync(retainedStage)).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a storage stage swapped after database install is never installed', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'late-storage-stage';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const storageStage = join(
+    dirname(fixture.storageDir),
+    `.${basename(fixture.storageDir)}.restore-${operationName}`
+  );
+  const retainedStage = `${storageStage}.trusted`;
+  const externalStorage = join(
+    dirname(fixture.backupDir),
+    'late-external-storage'
+  );
+  const externalMarker = join(externalStorage, 'sentinel.txt');
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const storageBytes = readFileSync(fixture.storageMarker);
+    mkdirSync(externalStorage, { recursive: true });
+    writeFileSync(externalMarker, 'external storage replacement', {
+      flag: 'wx',
+    });
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterDatabaseInstalled() {
+          renameSync(storageStage, retainedStage);
+          symlinkSync(externalStorage, storageStage);
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+    expect(readFileSync(externalMarker, 'utf8')).toBe(
+      'external storage replacement'
+    );
+    expect(readFileSync(join(retainedStage, 'marker.txt'), 'utf8')).toBe(
+      'backup storage'
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('post-move rollback operation replacement is never read or cleaned as trusted evidence', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'post-move-rollback-operation';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const rollbackPath = join(
+    dirname(fixture.databaseFile),
+    '.deploykit-rollback',
+    operationName
+  );
+  const retainedRollback = `${rollbackPath}.trusted`;
+  const externalRollback = join(
+    dirname(fixture.backupDir),
+    'external-rollback-operation'
+  );
+  const externalDatabase = join(
+    externalRollback,
+    'database',
+    basename(fixture.databaseFile)
+  );
+  const externalStorageMarker = join(externalRollback, 'storage', 'marker.txt');
+  try {
+    const externalSentinels = new Map<string, Buffer>([
+      [externalDatabase, Buffer.from('external rollback database')],
+      [externalStorageMarker, Buffer.from('external rollback storage')],
+    ]);
+    for (const [path, bytes] of externalSentinels) {
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(path, bytes);
+    }
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterCurrentStateMoved(currentRollbackPath) {
+          expect(currentRollbackPath).toBe(rollbackPath);
+          renameSync(rollbackPath, retainedRollback);
+          symlinkSync(externalRollback, rollbackPath);
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown.message).toContain('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    for (const [path, bytes] of externalSentinels) {
+      expect(readFileSync(path).toString('hex')).toBe(bytes.toString('hex'));
+    }
+    expect(
+      readFileSync(
+        join(retainedRollback, 'database', basename(fixture.databaseFile))
+      ).byteLength
+    ).toBeGreaterThan(0);
+    expect(
+      readFileSync(join(retainedRollback, 'storage', 'marker.txt'), 'utf8')
+    ).toBe('live storage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+function createRestoreFixture(options: { separateParents?: boolean } = {}) {
   const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-restore-safety-'));
-  const databaseFile = join(tempDir, 'deploykit.sqlite');
-  const storageDir = join(tempDir, 'storage');
+  const databaseParent = options.separateParents
+    ? join(tempDir, 'database-runtime')
+    : tempDir;
+  const storageParent = options.separateParents
+    ? join(tempDir, 'storage-runtime')
+    : tempDir;
+  mkdirSync(databaseParent, { recursive: true });
+  mkdirSync(storageParent, { recursive: true });
+  const databaseFile = join(databaseParent, 'deploykit.sqlite');
+  const storageDir = join(storageParent, 'storage');
   const storageMarker = join(storageDir, 'marker.txt');
   mkdirSync(storageDir);
   writeFileSync(storageMarker, 'backup storage');
