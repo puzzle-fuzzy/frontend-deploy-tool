@@ -1811,6 +1811,64 @@ test('an ambiguous recovery publication preserves its error and unknown target',
   }
 });
 
+test('recovery cleanup fails closed when its path parent becomes a non-directory', () => {
+  const fixture = createRestoreFixture({ separateParents: true });
+  const primaryError = new Error('fail before recovery cleanup');
+  const publicationError = new Error('fail recovery publication');
+  const databaseParent = dirname(fixture.databaseFile);
+  const retainedParent = `${databaseParent}-retained`;
+  let cleanupError: Error | undefined;
+  try {
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoredStateInstalled() {
+          throw primaryError;
+        },
+        restoreFileSystem: {
+          rename(source, target) {
+            if (
+              source.includes('.recover-') &&
+              target === fixture.databaseFile
+            ) {
+              throw publicationError;
+            }
+            renameSync(source, target);
+          },
+          copy: cpSync,
+          remove(target, options) {
+            if (!target.includes('.recover-')) {
+              rmSync(target, options);
+              return;
+            }
+            renameSync(databaseParent, retainedParent);
+            writeFileSync(databaseParent, 'non-directory parent replacement');
+            try {
+              lstatSync(target);
+            } catch (error) {
+              cleanupError =
+                error instanceof Error ? error : new Error(String(error));
+              throw cleanupError;
+            }
+            throw new Error('Expected recovery cleanup to fail with ENOTDIR');
+          },
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(primaryError);
+    if (!cleanupError) throw new Error('Expected recovery cleanup error');
+    expect((cleanupError as Error & { code?: string }).code).toBe('ENOTDIR');
+    expect(secondaryMessages(thrown)).toContain(cleanupError.message);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
 test('a mutated committed recovery publication is quarantined instead of accepted', () => {
   const fixture = createRestoreFixture();
   const primaryError = new Error('fail before mutated recovery publication');

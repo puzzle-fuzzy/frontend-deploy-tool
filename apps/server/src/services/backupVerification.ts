@@ -648,6 +648,6 @@ export function isMissingPathError(error: unknown): boolean {
   return (
     error instanceof Error &&
     'code' in error &&
-    (error.code === 'ENOENT' || error.code === 'ENOTDIR')
+    (error as Error & { code?: string }).code === 'ENOENT'
   );
 }
