@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import {
   acquireRuntimeOwnership,
@@ -9,6 +9,7 @@ import {
 } from '../../src/services/runtimeOwnership';
 
 let tempDir: string;
+const repositoryRoot = join(import.meta.dir, '..', '..', '..', '..');
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ops-'));
@@ -62,15 +63,122 @@ test('inspect and audit-job prune hold runtime ownership for the command lifecyc
   }
 });
 
+function createOpsFixture(name: string): {
+  databaseFile: string;
+  storageDir: string;
+} {
+  const caseDir = join(tempDir, name);
+  const databaseFile = join(caseDir, 'deploykit.sqlite');
+  const storageDir = join(caseDir, 'storage');
+  createSqliteProjectRepository({ databaseFile }).load();
+  return { databaseFile, storageDir };
+}
+
+function backupTemporarySiblings(destination: string): string[] {
+  const parent = dirname(destination);
+  if (!existsSync(parent)) return [];
+  const prefix = `${basename(destination)}.tmp-`;
+  return readdirSync(parent).filter((name) => name.startsWith(prefix));
+}
+
+function expectOwnershipContention(result: ReturnType<typeof spawnOps>): void {
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toBe('');
+  expect(result.stderr.toString()).toContain(RUNTIME_OWNERSHIP_HELD);
+  expect(result.stderr.toString()).toContain(
+    'Stop the DeployKit server and other operational commands before retrying'
+  );
+}
+
+function expectBackupJson(
+  result: ReturnType<typeof spawnOps>,
+  expectedDestination?: string
+): Record<string, unknown> {
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr.toString()).toBe('');
+  const body = JSON.parse(result.stdout.toString()) as Record<string, unknown>;
+  expect(Object.keys(body).sort()).toEqual([
+    'command',
+    'destination',
+    'manifest',
+  ]);
+  expect(body.command).toBe('backup');
+  if (expectedDestination) expect(body.destination).toBe(expectedDestination);
+  expect(body.manifest).toEqual(expect.any(Object));
+  return body;
+}
+
+test('backup rejects held runtime ownership without writing its destination', () => {
+  const { databaseFile, storageDir } = createOpsFixture('held-backup');
+  const destination = join(tempDir, 'held-backup-output');
+  const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+  try {
+    expectOwnershipContention(spawnOps(databaseFile, 'backup', destination));
+    expect(existsSync(destination)).toBe(false);
+    expect(backupTemporarySiblings(destination)).toEqual([]);
+  } finally {
+    ownership.release();
+  }
+});
+
+for (const arguments_ of [['gc', '--dry-run'], ['gc']] as const) {
+  test(`${arguments_.join(' ')} rejects held runtime ownership`, () => {
+    const { databaseFile, storageDir } = createOpsFixture(arguments_.join('-'));
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    try {
+      expectOwnershipContention(spawnOps(databaseFile, ...arguments_));
+    } finally {
+      ownership.release();
+    }
+  });
+}
+
+test('backup rejects flags and extra positional arguments before output', () => {
+  const { databaseFile } = createOpsFixture('backup-grammar');
+  const destination = join(tempDir, 'backup-grammar-output');
+  for (const [arguments_, wouldBeDestination] of [
+    [['backup', '--force'], join(dirname(databaseFile), '--force')],
+    [['backup', destination, '--force'], destination],
+    [['backup', destination, 'extra'], destination],
+  ] as const) {
+    const result = spawnOps(databaseFile, ...arguments_);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stdout.toString()).toBe('');
+    expect(result.stderr.toString()).toContain(
+      'backup accepts zero or one destination path and no flags'
+    );
+    expect(existsSync(wouldBeDestination)).toBe(false);
+    expect(backupTemporarySiblings(wouldBeDestination)).toEqual([]);
+  }
+});
+
+test('backup accepts zero positional arguments before ownership validation', () => {
+  const { databaseFile, storageDir } = createOpsFixture('default-backup');
+  const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+  try {
+    expectOwnershipContention(spawnOps(databaseFile, 'backup'));
+  } finally {
+    ownership.release();
+  }
+});
+
+test('backup accepts one positional destination and releases ownership', () => {
+  const { databaseFile, storageDir } = createOpsFixture('explicit-backup');
+  const destination = join(tempDir, 'explicit-backup-output');
+  expectBackupJson(spawnOps(databaseFile, 'backup', destination), destination);
+  expect(existsSync(destination)).toBe(true);
+  const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+  ownership.release();
+});
+
 function spawnOps(databaseFile: string, ...args: string[]) {
-  const repositoryRoot = join(import.meta.dir, '..', '..', '..', '..');
   return Bun.spawnSync({
     cmd: [
       process.execPath,
       join(repositoryRoot, 'apps', 'server', 'src', 'cli', 'ops.ts'),
       ...args,
     ],
-    cwd: repositoryRoot,
+    cwd: dirname(databaseFile),
     env: {
       ...process.env,
       DEPLOYKIT_ENV: 'test',

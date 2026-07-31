@@ -117,7 +117,7 @@ export function acquireRuntimeOwnership(
         closeWithoutCommit(database);
         if (isSqliteLockError(error)) {
           throw new Error(
-            `[${RUNTIME_OWNERSHIP_HELD}] Runtime resource is already owned: "${path}" for database "${layout.databaseFile}" and storage "${layout.storageDir}"`
+            `[${RUNTIME_OWNERSHIP_HELD}] Runtime resource is already owned: "${path}" for database "${layout.databaseFile}" and storage "${layout.storageDir}". Stop the DeployKit server and other operational commands before retrying.`
           );
         }
         throw error;

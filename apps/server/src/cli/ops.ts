@@ -31,8 +31,9 @@ const artifactAuditJobCursorCodec = createArtifactAuditJobCursorCodec(
 
 switch (command) {
   case 'backup': {
+    const explicitDestination = parseBackupDestination(args.slice(1));
     const destination =
-      args[1] ??
+      explicitDestination ??
       join(
         appDir,
         '.voasx',
@@ -64,16 +65,18 @@ switch (command) {
     break;
   }
   case 'gc': {
-    output({
-      command,
-      dryRun: args.includes('--dry-run'),
-      report: collectStorageGarbage(config.storageDir, {
-        stagingRetentionMs:
-          (config.stagingRetentionHours ?? 24) * 60 * 60 * 1000,
-        recoveryRetentionMs:
-          (config.recoveryRetentionHours ?? 168) * 60 * 60 * 1000,
+    withOperationalOwnership(() => {
+      output({
+        command,
         dryRun: args.includes('--dry-run'),
-      }),
+        report: collectStorageGarbage(config.storageDir, {
+          stagingRetentionMs:
+            (config.stagingRetentionHours ?? 24) * 60 * 60 * 1000,
+          recoveryRetentionMs:
+            (config.recoveryRetentionHours ?? 168) * 60 * 60 * 1000,
+          dryRun: args.includes('--dry-run'),
+        }),
+      });
     });
     break;
   }
@@ -152,7 +155,8 @@ switch (command) {
   bun run ops -- audit-jobs-prune [--dry-run]
   bun run ops -- inspect [projectId versionId]
 
-Stop the DeployKit server before restore. Backup and verify are non-destructive.`);
+Backup, restore, GC, inspect, and audit-jobs-prune require an offline managed resource pair.
+Verify only reads a completed backup.`);
     break;
   }
   default:
@@ -165,6 +169,16 @@ function requireArgument(
 ): string {
   if (!value) throw new Error(`Missing ${description}`);
   return value;
+}
+
+function parseBackupDestination(arguments_: string[]): string | undefined {
+  if (
+    arguments_.length > 1 ||
+    arguments_.some((argument) => argument.startsWith('-'))
+  ) {
+    throw new Error('backup accepts zero or one destination path and no flags');
+  }
+  return arguments_[0];
 }
 
 function output(value: unknown): void {
