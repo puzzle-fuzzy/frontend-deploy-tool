@@ -248,10 +248,17 @@ backup copy failure aborts before any v9 write while preserving the source
 bytes. Only an actually absent data file may create empty document data.
 Current v9 persistence validation must be strict and must not reuse
 default-bearing legacy hydration schemas: a v9 payload missing any current
-required field is invalid. Validate legacy JSON files and `deploykit_state`
-payloads through the complete in-memory migration before creating a backup,
-enabling WAL on the migration target, or making any other filesystem/database
-mutation.
+required field is invalid. The persisted-v9 validator must be complete and
+drift-resistant (for example, reject any parse that would default, strip, or
+otherwise transform the decoded JSON), with one-at-a-time missing-field tests
+for every migration-defaulted field. Validate legacy JSON files and
+`deploykit_state` payloads through the complete in-memory migration before
+creating a backup, enabling WAL on the migration target, or making any other
+filesystem/database mutation. SQLite preflight runs against an isolated copy
+of the main/WAL/SHM snapshot so it cannot create source auxiliary files.
+Backups are created from the exact bytes/snapshot that was validated, and the
+source identity is revalidated under runtime single-writer ownership before
+any migration mutation.
 
 - [ ] **Step 5: Implement persistence and snapshot comparison**
 
