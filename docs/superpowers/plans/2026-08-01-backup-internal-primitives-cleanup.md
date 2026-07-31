@@ -185,11 +185,15 @@ Add focused tests that prove:
 
 1. a genuinely absent path returns `undefined` from `lstatIfPresent` and
    `false` from `pathEntryExistsNoFollow`;
-2. a child under a regular-file parent preserves `ENOTDIR` from both helpers;
-3. a dangling symlink is still a present path entry under no-follow semantics;
-4. a multiply-linked regular file is rejected with
-   `BACKUP_SOURCE_UNSAFE`, and a one-field identity drift makes
-   `sameCapturedIdentity` return false.
+2. `isMissingPathError` accepts a synthetic `ENOENT`, but rejects synthetic
+   `ENOTDIR` and `EACCES` errors;
+3. a child under a regular-file parent preserves real `ENOTDIR` from both
+   helpers;
+4. a dangling symlink is still a present path entry under no-follow semantics;
+5. a multiply-linked regular file is rejected with
+   `BACKUP_SOURCE_UNSAFE`;
+6. equal captured identities compare equal, while a table-driven change to
+   each of `dev`, `ino`, `size`, `mtimeNs`, and `ctimeNs` compares unequal.
 
 Run the new test before implementation and confirm it fails because the new
 module does not exist:
@@ -203,6 +207,35 @@ bun test apps/server/tests/services/backupFileSafety.test.ts
 Move the seven listed file-safety entities verbatim into
 `backupFileSafety.ts`. It may import filesystem types/functions only. Preserve
 the `ENOENT`-only missing-path predicate and exact error text.
+
+The server-private export surface is intentionally explicit so the three
+workflow consumers and the direct boundary test use one contract:
+
+```ts
+export const BACKUP_DATABASE_SNAPSHOT_UNSAFE: string;
+export const BACKUP_SOURCE_UNSAFE: string;
+export interface CapturedFileIdentity {
+  dev: bigint;
+  ino: bigint;
+  size: bigint;
+  mtimeNs: bigint;
+  ctimeNs: bigint;
+}
+export function assertSingleLinkRegularFile(
+  path: string,
+  stats: ReturnType<typeof fstatSync> & { nlink: bigint },
+  unsafeCode: string
+): void;
+export function sameCapturedIdentity(
+  left: CapturedFileIdentity,
+  right: CapturedFileIdentity
+): boolean;
+export function lstatIfPresent(
+  path: string
+): ReturnType<typeof lstatSync> | undefined;
+export function pathEntryExistsNoFollow(path: string): boolean;
+export function isMissingPathError(error: unknown): boolean;
+```
 
 - [ ] **Step 3: Rewire all three consumers**
 
