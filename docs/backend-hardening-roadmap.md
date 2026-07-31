@@ -60,8 +60,8 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 ### 阶段 3：存储可靠性和运维
 
 状态：两阶段删除、事务容量、保守 GC、持久化完整性、恢复命令、文件事务与
-当前验证基线已于 2026-07-30 完成；完整备份一致性和历史语义正确性门槛仍未
-完成。
+当前验证基线已于 2026-07-30 完成；备份已选择 enforced-offline 协作契约，历史
+语义正确性和 production 精确 round-trip 仍是下一阶段。
 
 - 项目/版本删除先进入回收区，再提交元数据，失败可恢复。
 - 真实 runtime 分别对规范化 SQLite 与存储路径持有 SQLite sidecar 内核事务锁；
@@ -111,13 +111,13 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 同库/异存储、异库/同存储互斥、SIGKILL 自动释放、hard-link/存储重叠拒绝，
 以及 v1/v2/v3/v4 与 symlink/身份/checksum 恢复分支。
 
-完整正确性门槛（未完成）：SQLite 与 storage 必须来自同一一致性时点；
-`releases`、`audit_events` 必须逐条通过语义验证；production schema 必须通过
-精确 round-trip 状态断言。为达到该门槛，以下事项继续 pending：
+下一阶段门槛：`releases`、`audit_events` 必须逐条通过语义验证；production schema
+必须通过精确 round-trip 状态断言。enforced-offline 的单机协作选择已完成：backup
+必须与 server、restore、GC 共享 ownership，要求可信父目录并排除未受管写入者；它
+不表示热备份、跨资源原子瞬间、分布式协调、断电持久性或无副作用。
 
-- [ ] 在 enforced offline 备份与真正 quiesced online 备份之间选择并实现一致性
-  契约；当前 `VACUUM INTO` 仅保证 SQLite 快照自身一致，随后复制的存储树属于
-  另一个捕获时点，`createBackup` 不获取 runtime ownership。
+- [x] 选择并实施 enforced-offline 备份契约：先停止写入者和服务，再进行 backup，
+  成功后重启，随后可选只读 verify；`RUNTIME_OWNERSHIP_HELD` 无 force bypass。
 - [ ] 逐条验证 `releases`、`audit_events`，并增加 production schema 精确
   round-trip 状态断言；当前 verifier 已覆盖 SQLite 完整性、外键、表级计数与
   部分 domain hydration，但未验证每一条历史发布和审计行。

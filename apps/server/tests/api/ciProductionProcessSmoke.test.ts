@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { afterEach, expect, test } from 'bun:test';
 import {
   copyFileSync,
+  existsSync,
   mkdirSync,
   mkdtempSync,
   readdirSync,
@@ -11,7 +12,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { strToU8, zipSync } from 'fflate';
 
 const repositoryRoot = join(import.meta.dir, '..', '..', '..', '..');
@@ -32,6 +33,12 @@ interface SpawnedServer {
 }
 
 interface StoppedServerLogs {
+  stdout: string;
+  stderr: string;
+}
+
+interface OpsProcessResult {
+  exitCode: number;
   stdout: string;
   stderr: string;
 }
@@ -130,6 +137,7 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
   const storageDir = join(temporaryRoot, 'storage');
   const publicDir = join(temporaryRoot, 'public');
   const backupDir = join(temporaryRoot, 'backup-v6');
+  const liveBackupDir = join(temporaryRoot, 'live-backup');
   const legacyBackupDir = join(temporaryRoot, 'backup-v5');
   const legacyDatabaseFile = join(temporaryRoot, 'legacy-target.sqlite');
   const legacyStorageDir = join(temporaryRoot, 'legacy-target-storage');
@@ -355,6 +363,22 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
   });
   server = auditProof.server;
   capturedLogs.push(...auditProof.logs);
+
+  const liveBackup = await runOpsExpectFailure(environment, [
+    'backup',
+    liveBackupDir,
+  ]);
+  expect(liveBackup.stdout).toBe('');
+  expect(liveBackup.stderr).toContain('RUNTIME_OWNERSHIP_HELD');
+  expect(liveBackup.stderr).toContain(
+    'Stop the DeployKit server and other operational commands before retrying'
+  );
+  expect(existsSync(liveBackupDir)).toBe(false);
+  expect(
+    readdirSync(temporaryRoot, { withFileTypes: true }).some((entry) =>
+      entry.name.startsWith(`${basename(liveBackupDir)}.tmp-`)
+    )
+  ).toBe(false);
 
   capturedLogs.push(await stopServer(server));
   const beforeBackup = inspectAutomationState(databaseFile, projectId);
@@ -1418,10 +1442,10 @@ async function expectJson(
   return body;
 }
 
-async function runOps(
+async function executeOps(
   environment: Record<string, string | undefined>,
   arguments_: string[]
-): Promise<{ stdout: string; stderr: string }> {
+): Promise<OpsProcessResult> {
   const child = Bun.spawn({
     cmd: [process.execPath, 'run', 'ops', '--', ...arguments_],
     cwd: repositoryRoot,
@@ -1439,11 +1463,7 @@ async function runOps(
       `ops ${arguments_[0] ?? 'unknown'}`
     );
     const [stdout, stderr] = await Promise.all([stdoutPromise, stderrPromise]);
-    expect(
-      exitCode,
-      `ops ${arguments_.join(' ')} failed\n${stdout}\n${stderr}`
-    ).toBe(0);
-    return { stdout, stderr };
+    return { exitCode, stdout, stderr };
   } catch (error) {
     if (child.exitCode === null) child.kill('SIGKILL');
     await child.exited;
@@ -1452,6 +1472,30 @@ async function runOps(
   } finally {
     activeOpsProcesses.delete(child);
   }
+}
+
+async function runOps(
+  environment: Record<string, string | undefined>,
+  arguments_: string[]
+): Promise<{ stdout: string; stderr: string }> {
+  const result = await executeOps(environment, arguments_);
+  expect(
+    result.exitCode,
+    `ops ${arguments_.join(' ')} failed\n${result.stdout}\n${result.stderr}`
+  ).toBe(0);
+  return result;
+}
+
+async function runOpsExpectFailure(
+  environment: Record<string, string | undefined>,
+  arguments_: string[]
+): Promise<OpsProcessResult> {
+  const result = await executeOps(environment, arguments_);
+  expect(
+    result.exitCode,
+    `ops ${arguments_.join(' ')} unexpectedly succeeded\n${result.stdout}\n${result.stderr}`
+  ).not.toBe(0);
+  return result;
 }
 
 function inspectAutomationState(

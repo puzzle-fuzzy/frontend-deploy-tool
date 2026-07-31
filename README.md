@@ -420,9 +420,12 @@ bun run ops -- inspect [projectId versionId]
 bun run ops -- restore <备份目录> --force
 ```
 
-- `backup` 通过 SQLite `VACUUM INTO` 创建事务一致快照，同时复制完整
-  `STORAGE_DIR`，写入包含 schema、元数据计数和产物计数的 `manifest.json`；
-  默认保存到 `apps/server/.voasx/backups/`。
+- `backup` 是单机、协作式的 enforced-offline 操作：必须先停止 DeployKit 和每个
+  非受管写入者；遇到争用会以 `RUNTIME_OWNERSHIP_HELD` 退出，没有 force bypass。
+  停机在备份命令完成其内部验证后结束，此时可以重启服务；独立的只读 `verify`
+  可以在线运行。备份在 ownership 内依次执行 `VACUUM INTO`、完整 `STORAGE_DIR`
+  复制和包含 schema、元数据计数及产物计数的 `manifest.json` 写入；默认保存到
+  `apps/server/.voasx/backups/`。
 - `verify` 检查 SQLite `integrity_check`、外键、清单计数、符号链接、每个正常
   版本的 `index.html` 和 checksum。关系型 v5/v6 备份先在一次性副本上执行与
   生产启动相同的迁移到 v7，再通过生产数据 hydrator/domain schema；当前 v7
@@ -449,6 +452,11 @@ bun run ops -- restore <备份目录> --force
   策略清理。未发布的跨卷临时副本、restore stage 和仅含不可信部分副本的
   operation 会尽力清理。任何无法证明身份/内容或 rename 是否已提交的 rollback
   证据会保留为隔离的 recovery evidence，不能当作可信副本自动覆盖 live 数据。
+
+备份/恢复的互斥只覆盖单机上的规范 database/storage pair，且其父目录必须由可信
+服务账号独占写入。未受管写入者不属于该协作协议，必须由运维在备份前停止。它不是
+热备份，不承诺跨资源原子瞬间、分布式协调或断电后的持久性，也不是无副作用：会写入
+ownership sidecar 和目标文件；在锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。
 
 ## 测试
 

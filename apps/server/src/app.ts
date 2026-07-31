@@ -78,14 +78,10 @@ export interface DeployKitRuntime {
 }
 
 /**
- * Composes the Hono application: wires the configured repository into the project,
- * version, and user services, seeds an admin on first run, resolves the session
- * secret, and provides the Node-backed auth helpers (session middleware, cookie
- * issue/clear) to the typed `/api` app. Then layers the deploy route, security
- * headers, static asset serving, and the SPA fallback. App creation is separated
- * from `Bun.serve` so tests can exercise `createApp()` without opening a port.
- * `createApp()` never acquires runtime ownership: callers that intentionally
- * exercise a historical migration must pass a real active migration guard.
+ * Test/internal composition seam. It does not acquire runtime ownership and is
+ * unsupported as a production entrypoint. Production callers must use
+ * createDeployKitRuntime() so migration, reconciliation, HTTP writes, workers,
+ * and shutdown all share the database/storage ownership lifecycle.
  */
 export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
   return composeApp(config, options, undefined, options.migrationGuard).app;

@@ -339,14 +339,15 @@ apps/server/
 
 ```text
 backupService facade
-  -> backupRestoreTransaction + backupSnapshot + backupVerification + backupTypes
+  -> backupRestoreTransaction + backupSnapshot + backupVerification + backupFailure + backupTypes
 backupRestoreTransaction
   -> backupFileSafety + backupSnapshot + backupVerification + backupTypes
 backupVerification
   -> backupDatabaseInspection + backupFileSafety + backupSnapshot + backupTypes
 backupSnapshot
-  -> backupDatabaseInspection + backupFileSafety + backupTypes
+  -> backupDatabaseInspection + backupFailure + backupFileSafety + backupTypes
 backupDatabaseInspection -> backupTypes
+backupFailure -> (no backup-module imports)
 backupFileSafety -> (no backup-module imports)
 backupTypes -> (no backup-module imports)
 ```
@@ -362,12 +363,16 @@ facade。
 `src/api.ts`、`services/contracts.ts` 或 `@deploykit/shared` 导出，因此不会进入
 前端依赖的 Bun-free Hono 类型图；外部调用仍只经 `backupService` facade。
 
-`bun run ops -- backup` 使用 `VACUUM INTO` 生成 SQLite 自身内部一致的快照，
-完成后再复制存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、
-元数据计数和产物计数。这两个步骤是不同捕获时点：当前 `createBackup` 不获取
-runtime ownership，因此不承诺 SQLite 与存储树处于同一个时间点。schema v6
-清单强制记录 Token、安全事件和 CI 幂等记录三项计数；v5/v6 备份仍可验证和
-恢复，并在恢复后的真实 runtime 启动时迁移到当前 v7。
+`bun run ops -- backup` 与真实 runtime 使用同一 ownership。其完整区间为
+`acquire -> leaf/existence recheck -> VACUUM INTO -> storage copy -> manifest -> prepared verify/fingerprint -> (atomic destination rename | failed-temp cleanup) -> release`。
+这是一份 quiescent、协作式捕获，而不是跨资源原子瞬间：必须先停止服务和每个未受管
+写入者，争用会以 `RUNTIME_OWNERSHIP_HELD` fail closed，且没有 force bypass。它的
+范围严格限于单机规范 database/storage pair 和由可信服务账号独占写入的父目录；不
+提供热备份、分布式协调、断电持久性或无副作用保证。ownership sidecar 和目标文件
+会被写入，锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。版本化
+`manifest.json` 记录 schema、数据库文件名、元数据计数和产物计数；schema v6 清单
+强制记录 Token、安全事件和 CI 幂等记录三项计数；v5/v6 备份仍可验证和恢复，并在
+恢复后的真实 runtime 启动时迁移到当前 v7。
 
 `verify` 在恢复前检查 SQLite 完整性和外键、清单计数、符号链接、版本入口及
 checksum，并执行部分领域 hydration。历史 v5/v6 会在一次性副本上复用生产
