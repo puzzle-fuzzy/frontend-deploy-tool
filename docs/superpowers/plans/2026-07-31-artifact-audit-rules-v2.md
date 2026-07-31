@@ -866,6 +866,15 @@ reads it, verify the copied recovery sibling against that digest, and recheck
 immediately before installing it. A same-inode rollback mutation must be
 quarantined and reported; it must never be restored as trusted pre-state.
 
+Recovery may remove a live target only for an exact `installed` binding. While
+the corresponding stage is still `active`, the live target must be absent; any
+real replacement is preserved and quarantined. If install rename throws after
+committing, resolve source/target identities and transition to `installed`
+before compensation. On success, keep database and storage `installed` while
+manifest/auxiliary cleanup runs, then perform the final exact-identity and
+content-fingerprint check, consume both bindings, mark committed, and return in
+that order. Cleanup failure must still compensate.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
