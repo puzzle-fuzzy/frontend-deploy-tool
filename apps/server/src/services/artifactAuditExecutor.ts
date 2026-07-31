@@ -37,6 +37,28 @@ interface ArtifactAuditSpawnOptions {
   processEntry: string;
 }
 
+interface ArtifactAuditChildProcess {
+  stdout: ReadableStream<Uint8Array>;
+  stderr: ReadableStream<Uint8Array>;
+  exited: Promise<number>;
+  signalCode: number | string | null;
+  kill(signal?: number | string): void;
+}
+
+interface ArtifactAuditChildProcessSpawnOptions {
+  cmd: string[];
+  stdin: Blob;
+  stdout: 'pipe';
+  stderr: 'pipe';
+  killSignal: string;
+  maxBuffer: number;
+  env: Record<string, string>;
+}
+
+type ArtifactAuditChildProcessSpawner = (
+  options: ArtifactAuditChildProcessSpawnOptions
+) => ArtifactAuditChildProcess;
+
 type ArtifactAuditProcessSpawner = (
   options: ArtifactAuditSpawnOptions
 ) => Promise<ArtifactAuditProcessResult>;
@@ -46,6 +68,7 @@ interface SubprocessArtifactAuditExecutorOptions {
   maxOutputBytes?: number;
   processEntry?: string;
   spawn?: ArtifactAuditProcessSpawner;
+  spawnProcess?: ArtifactAuditChildProcessSpawner;
 }
 
 export class ArtifactAuditExecutionError extends Error {
@@ -71,7 +94,10 @@ export function createSubprocessArtifactAuditExecutor(
     fileURLToPath(
       new URL('../workers/artifactAuditProcess.ts', import.meta.url)
     );
-  const spawn = options.spawn ?? spawnArtifactAuditProcess;
+  const spawnProcess = options.spawnProcess ?? spawnBunArtifactAuditProcess;
+  const spawn =
+    options.spawn ??
+    ((spawnOptions) => spawnArtifactAuditProcess(spawnOptions, spawnProcess));
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
     throw new Error('Artifact audit timeout must be a positive integer');
   }
@@ -143,15 +169,18 @@ export function createSubprocessArtifactAuditExecutor(
   };
 }
 
-async function spawnArtifactAuditProcess({
-  input,
-  signal,
-  timeoutMs,
-  maxOutputBytes,
-  maxBufferBytes,
-  processEntry,
-}: ArtifactAuditSpawnOptions): Promise<ArtifactAuditProcessResult> {
-  const subprocess = Bun.spawn({
+async function spawnArtifactAuditProcess(
+  {
+    input,
+    signal,
+    timeoutMs,
+    maxOutputBytes,
+    maxBufferBytes,
+    processEntry,
+  }: ArtifactAuditSpawnOptions,
+  spawnProcess: ArtifactAuditChildProcessSpawner
+): Promise<ArtifactAuditProcessResult> {
+  const subprocess = spawnProcess({
     cmd: [process.execPath, processEntry],
     stdin: new Blob([JSON.stringify(input)], { type: 'application/json' }),
     stdout: 'pipe',
@@ -165,8 +194,10 @@ async function spawnArtifactAuditProcess({
   });
   let timedOut = false;
   let settled = false;
+  let killRequested = false;
   const kill = () => {
-    if (settled) return;
+    if (settled || killRequested) return;
+    killRequested = true;
     try {
       subprocess.kill('SIGKILL');
     } catch {
@@ -229,6 +260,12 @@ async function spawnArtifactAuditProcess({
     clearTimeout(timeout);
     signal.removeEventListener('abort', abort);
   }
+}
+
+function spawnBunArtifactAuditProcess(
+  options: ArtifactAuditChildProcessSpawnOptions
+): ArtifactAuditChildProcess {
+  return Bun.spawn(options);
 }
 
 function invalidResultError(): ArtifactAuditExecutionError {

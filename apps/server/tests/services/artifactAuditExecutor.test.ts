@@ -460,6 +460,41 @@ describe('createSubprocessArtifactAuditExecutor', () => {
     expect(observed?.defensive).toBeGreaterThan(1_024);
   });
 
+  test('requests one kill when stdout overflow races an abort', async () => {
+    const controller = new AbortController();
+    const race = createTerminationRaceProcess(controller, [
+      bytes('x'.repeat(2_048)),
+    ]);
+    const executor = createSubprocessArtifactAuditExecutor({
+      maxOutputBytes: 1_024,
+      timeoutMs: 5_000,
+      spawnProcess: () => race.process,
+    });
+
+    const startedAt = performance.now();
+    await expect(
+      executor.execute(inputFixture('checksum'), controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(race.killCount()).toBe(1);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  test('requests one kill when timeout races an abort', async () => {
+    const controller = new AbortController();
+    const race = createTerminationRaceProcess(controller, []);
+    const executor = createSubprocessArtifactAuditExecutor({
+      timeoutMs: 10,
+      spawnProcess: () => race.process,
+    });
+
+    const startedAt = performance.now();
+    await expect(
+      executor.execute(inputFixture('checksum'), controller.signal)
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(race.killCount()).toBe(1);
+    expect(performance.now() - startedAt).toBeLessThan(1_000);
+  });
+
   test('propagates abort without converting it into a retryable failure', async () => {
     const controller = new AbortController();
     const executor = createSubprocessArtifactAuditExecutor({
@@ -591,4 +626,46 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+function createTerminationRaceProcess(
+  controller: AbortController,
+  stdoutChunks: Uint8Array[]
+) {
+  let stdoutController: ReadableStreamDefaultController<Uint8Array>;
+  let stderrController: ReadableStreamDefaultController<Uint8Array>;
+  let resolveExit: (exitCode: number) => void;
+  let killCount = 0;
+  const exited = new Promise<number>((resolve) => {
+    resolveExit = resolve;
+  });
+  const stdout = new ReadableStream<Uint8Array>({
+    start(streamController) {
+      stdoutController = streamController;
+      for (const chunk of stdoutChunks) streamController.enqueue(chunk);
+    },
+  });
+  const stderr = new ReadableStream<Uint8Array>({
+    start(streamController) {
+      stderrController = streamController;
+    },
+  });
+  return {
+    process: {
+      stdout,
+      stderr,
+      exited,
+      signalCode: null,
+      kill() {
+        killCount += 1;
+        const isFirst = killCount === 1;
+        controller.abort();
+        if (!isFirst) return;
+        stdoutController.close();
+        stderrController.close();
+        resolveExit(137);
+      },
+    },
+    killCount: () => killCount,
+  };
 }
