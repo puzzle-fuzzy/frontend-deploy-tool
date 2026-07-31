@@ -116,6 +116,30 @@ describe('createArtifactAuditService', () => {
     ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_FAILED }));
     expect(repo.load().artifactAudits).toEqual([]);
   });
+
+  test('passes the snapshotted routing context into the synchronous engine', () => {
+    const { repo } = createFixture();
+    repo.mutate((data) => {
+      data.projects[0].settings.spaMode = true;
+      data.projects[0].settings.routingType = 'hash';
+    });
+    const observed: { context: Project['settings'] | null } = {
+      context: null,
+    };
+    const service = createArtifactAuditService(repo, storageDir, {
+      audit(path, checksum, policy, context) {
+        observed.context = structuredClone(context);
+        return auditArtifactDirectory(path, checksum, policy, context);
+      },
+    });
+
+    service.runArtifactAudit('project-1', 'version-1', 'owner-1');
+
+    expect(observed.context).toEqual({
+      spaMode: true,
+      routingType: 'hash',
+    });
+  });
 });
 
 describe('assertArtifactAuditAllowsRelease', () => {

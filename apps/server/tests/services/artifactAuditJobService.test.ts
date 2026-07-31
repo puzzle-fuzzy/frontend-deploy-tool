@@ -144,7 +144,7 @@ describe('createArtifactAuditJobService', () => {
         totalBytes: 1,
         fileCount: 1,
         artifactChecksum: checksum,
-        engineVersion: 1,
+        engineVersion: 2,
         jobId: job.id,
       },
     });

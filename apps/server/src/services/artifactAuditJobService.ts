@@ -5,13 +5,11 @@ import type {
   ArtifactAuditJobPage,
   ArtifactAuditJobStatus,
 } from '@deploykit/shared';
+import { ARTIFACT_AUDIT_ENGINE_VERSION } from '../domain/artifactAuditRules';
 import { ApiError, ErrorCode } from '../errors';
 import type { ArtifactAuditJobRepository } from '../repositories/artifactAuditJobRepository';
 import { createId as defaultCreateId } from '../utils/id';
-import {
-  ARTIFACT_AUDIT_ENGINE_VERSION,
-  type ArtifactAuditResult,
-} from './artifactAuditEngine';
+import type { ArtifactAuditResult } from './artifactAuditEngine';
 import { checksumDirectory } from './artifactService';
 
 export type ArtifactAuditJobOutcome =

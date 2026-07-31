@@ -1,18 +1,49 @@
 import { existsSync, lstatSync, readdirSync, readFileSync } from 'node:fs';
 import { extname, join } from 'node:path';
 import type {
-  ArtifactAuditCategory,
   ArtifactAuditCheck,
+  ArtifactAuditContext,
+  ArtifactAuditExtension,
   ArtifactAuditPolicy,
-  ArtifactAuditSeverity,
   ArtifactAuditStatus,
   ArtifactAuditSummary,
 } from '@deploykit/shared';
+import {
+  ARTIFACT_AUDIT_ENGINE_VERSION,
+  ARTIFACT_AUDIT_RULES,
+  type ArtifactAuditRuleId,
+} from '../domain/artifactAuditRules';
 import { ApiError, ErrorCode } from '../errors';
+import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
 
-export const ARTIFACT_AUDIT_ENGINE_VERSION = 1;
+export { ARTIFACT_AUDIT_ENGINE_VERSION };
 export const MAX_AUDIT_HTML_BYTES = 2 * 1024 * 1024;
+const MAX_EXTENSION_SUMMARY_ENTRIES = 50;
+const INERT_AUDIT_ORIGIN = 'https://deploykit.invalid';
+const INERT_DOCUMENT_URL = `${INERT_AUDIT_ORIGIN}/`;
+
+const JAVASCRIPT_EXTENSIONS = new Set(['.cjs', '.js', '.mjs']);
+const STYLESHEET_EXTENSIONS = new Set(['.css']);
+const FONT_EXTENSIONS = new Set([
+  '.eot',
+  '.otf',
+  '.ttc',
+  '.ttf',
+  '.woff',
+  '.woff2',
+]);
+const IMAGE_EXTENSIONS = new Set([
+  '.avif',
+  '.bmp',
+  '.gif',
+  '.ico',
+  '.jpeg',
+  '.jpg',
+  '.png',
+  '.svg',
+  '.webp',
+]);
 
 export interface ArtifactAuditResult {
   artifactChecksum: string;
@@ -35,6 +66,11 @@ interface HtmlSignals {
   openGraphDescription: string | null;
   openGraphImage: string | null;
   jsonLdDocuments: string[];
+  baseHref: string | null;
+  scriptSources: string[];
+  stylesheetHrefs: string[];
+  anchorHrefs: string[];
+  images: Array<{ source: string | null; hasAlt: boolean }>;
 }
 
 interface FileInventory {
@@ -50,7 +86,8 @@ interface FileInventory {
 export function auditArtifactDirectory(
   artifactDir: string,
   expectedChecksum: string,
-  policy: ArtifactAuditPolicy
+  policy: ArtifactAuditPolicy,
+  context: ArtifactAuditContext = { spaMode: false, routingType: 'path' }
 ): ArtifactAuditResult {
   try {
     const checksumBeforeInspection = checksumDirectory(artifactDir);
@@ -66,66 +103,49 @@ export function auditArtifactDirectory(
     const checks: ArtifactAuditCheck[] = [];
 
     checks.push(
-      createCheck({
-        id: 'structure.checksum',
-        category: 'structure',
+      createCheck('structure.checksum', {
         passed:
           expectedChecksum.length > 0 && actualChecksum === expectedChecksum,
-        failureSeverity: 'error',
         passMessage: 'Artifact checksum matches the uploaded version',
         failMessage: 'Artifact checksum no longer matches the uploaded version',
         actual: actualChecksum,
         expected: expectedChecksum || 'recorded upload checksum',
       }),
-      createCheck({
-        id: 'size.total',
-        category: 'size',
+      createCheck('size.total', {
         passed: inventory.summary.totalBytes <= policy.maxTotalBytes,
-        failureSeverity: 'error',
         passMessage: 'Total artifact size is within the project budget',
         failMessage: 'Total artifact size exceeds the project budget',
         actual: inventory.summary.totalBytes,
         expected: `at most ${policy.maxTotalBytes} bytes`,
       }),
-      createCheck({
-        id: 'size.file_count',
-        category: 'size',
+      createCheck('size.file_count', {
         passed: inventory.summary.fileCount <= policy.maxFileCount,
-        failureSeverity: 'error',
         passMessage: 'Artifact file count is within the project budget',
         failMessage: 'Artifact file count exceeds the project budget',
         actual: inventory.summary.fileCount,
         expected: `at most ${policy.maxFileCount} files`,
       }),
-      createCheck({
-        id: 'size.largest_file',
-        category: 'size',
+      createCheck('size.largest_file', {
         passed: inventory.largestFileSize <= policy.maxFileBytes,
-        failureSeverity: 'error',
         passMessage: 'Every artifact file is within the project budget',
         failMessage: 'At least one artifact file exceeds the project budget',
         actual: inventory.largestFileSize,
         expected: `at most ${policy.maxFileBytes} bytes`,
-      })
+      }),
+      ...createAssetBudgetChecks(inventory.summary, policy)
     );
 
     const indexPath = join(artifactDir, 'index.html');
     const hasIndex = existsSync(indexPath) && lstatSync(indexPath).isFile();
     const indexSize = hasIndex ? lstatSync(indexPath).size : 0;
     checks.push(
-      createCheck({
-        id: 'structure.index_html',
-        category: 'structure',
+      createCheck('structure.index_html', {
         passed: hasIndex,
-        failureSeverity: 'error',
         passMessage: 'Root index.html is present',
         failMessage: 'Root index.html is missing',
       }),
-      createCheck({
-        id: 'structure.index_html_size',
-        category: 'structure',
+      createCheck('structure.index_html_size', {
         passed: hasIndex && indexSize <= MAX_AUDIT_HTML_BYTES,
-        failureSeverity: 'error',
         passMessage: 'Root index.html is within the static parser budget',
         failMessage: hasIndex
           ? 'Root index.html exceeds the static parser budget'
@@ -138,6 +158,7 @@ export function auditArtifactDirectory(
     if (hasIndex && indexSize <= MAX_AUDIT_HTML_BYTES) {
       const signals = parseHtmlSignals(readFileSync(indexPath, 'utf8'));
       checks.push(...createSeoChecks(signals, artifactDir));
+      checks.push(...createReferenceChecks(signals, artifactDir, context));
     }
 
     return {
@@ -171,6 +192,12 @@ function inspectArtifactTree(root: string): FileInventory {
 
   const files: Array<{ path: string; size: number }> = [];
   const extensions = new Map<string, { bytes: number; count: number }>();
+  const assetBytes = {
+    javascript: 0,
+    stylesheet: 0,
+    font: 0,
+    image: 0,
+  };
   const walk = (directory: string, relativePrefix: string) => {
     const entries = readdirSync(directory, { withFileTypes: true }).sort(
       (left, right) => left.name.localeCompare(right.name)
@@ -206,6 +233,8 @@ function inspectArtifactTree(root: string): FileInventory {
       current.bytes += stats.size;
       current.count += 1;
       extensions.set(extension, current);
+      const assetType = classifyAssetExtension(extension);
+      if (assetType) assetBytes[assetType] += stats.size;
     }
   };
   walk(root, '');
@@ -222,21 +251,277 @@ function inspectArtifactTree(root: string): FileInventory {
       totalBytes: files.reduce((total, file) => total + file.size, 0),
       fileCount: files.length,
       largestFiles,
-      extensions: [...extensions.entries()]
-        .map(([extension, values]) => ({ extension, ...values }))
-        .sort(
-          (left, right) =>
-            right.bytes - left.bytes ||
-            left.extension.localeCompare(right.extension)
-        ),
-      assetBytes: {
-        javascript: 0,
-        stylesheet: 0,
-        font: 0,
-        image: 0,
-      },
+      extensions: summarizeArtifactExtensions(
+        [...extensions.entries()].map(([extension, values]) => ({
+          extension,
+          ...values,
+        }))
+      ),
+      assetBytes,
     },
   };
+}
+
+export function summarizeArtifactExtensions(
+  entries: Iterable<ArtifactAuditExtension>
+): ArtifactAuditExtension[] {
+  const sorted = [...entries].sort(
+    (left, right) =>
+      right.bytes - left.bytes || left.extension.localeCompare(right.extension)
+  );
+  if (sorted.length <= MAX_EXTENSION_SUMMARY_ENTRIES) return sorted;
+
+  const included = sorted.slice(0, MAX_EXTENSION_SUMMARY_ENTRIES);
+  const omitted = sorted.slice(MAX_EXTENSION_SUMMARY_ENTRIES);
+  included.push({
+    extension: '(other)',
+    bytes: omitted.reduce((total, entry) => total + entry.bytes, 0),
+    count: omitted.reduce((total, entry) => total + entry.count, 0),
+  });
+  return included;
+}
+
+function classifyAssetExtension(
+  extension: string
+): keyof ArtifactAuditSummary['assetBytes'] | null {
+  if (JAVASCRIPT_EXTENSIONS.has(extension)) return 'javascript';
+  if (STYLESHEET_EXTENSIONS.has(extension)) return 'stylesheet';
+  if (FONT_EXTENSIONS.has(extension)) return 'font';
+  if (IMAGE_EXTENSIONS.has(extension)) return 'image';
+  return null;
+}
+
+function createAssetBudgetChecks(
+  summary: ArtifactAuditSummary,
+  policy: ArtifactAuditPolicy
+): ArtifactAuditCheck[] {
+  return [
+    createCheck('assets.javascript_budget', {
+      passed: summary.assetBytes.javascript <= policy.maxJavaScriptBytes,
+      passMessage: 'JavaScript assets are within the project budget',
+      failMessage: 'JavaScript assets exceed the project budget',
+      actual: summary.assetBytes.javascript,
+      expected: `at most ${policy.maxJavaScriptBytes} bytes`,
+    }),
+    createCheck('assets.stylesheet_budget', {
+      passed: summary.assetBytes.stylesheet <= policy.maxStylesheetBytes,
+      passMessage: 'Stylesheet assets are within the project budget',
+      failMessage: 'Stylesheet assets exceed the project budget',
+      actual: summary.assetBytes.stylesheet,
+      expected: `at most ${policy.maxStylesheetBytes} bytes`,
+    }),
+    createCheck('assets.font_budget', {
+      passed: summary.assetBytes.font <= policy.maxFontBytes,
+      passMessage: 'Font assets are within the project budget',
+      failMessage: 'Font assets exceed the project budget',
+      actual: summary.assetBytes.font,
+      expected: `at most ${policy.maxFontBytes} bytes`,
+    }),
+  ];
+}
+
+function createReferenceChecks(
+  signals: HtmlSignals,
+  artifactDir: string,
+  context: ArtifactAuditContext
+): ArtifactAuditCheck[] {
+  const documentBase = createDocumentBase(signals.baseHref);
+  const missingScripts = countMissingFileTargets(
+    signals.scriptSources,
+    documentBase,
+    artifactDir
+  );
+  const missingStylesheets = countMissingFileTargets(
+    signals.stylesheetHrefs,
+    documentBase,
+    artifactDir
+  );
+  const missingImageSources = signals.images.filter(
+    (image) => !image.source?.trim()
+  ).length;
+  const missingImageAltAttributes = signals.images.filter(
+    (image) => !image.hasAlt
+  ).length;
+  const missingImageTargets = countMissingFileTargets(
+    signals.images.flatMap((image) =>
+      image.source?.trim() ? [image.source] : []
+    ),
+    documentBase,
+    artifactDir
+  );
+
+  let javascriptUrls = 0;
+  let missingLinkTargets = 0;
+  for (const href of signals.anchorHrefs) {
+    const resolved = resolveLocalReference(href, documentBase, artifactDir);
+    if (resolved.kind === 'javascript') {
+      javascriptUrls += 1;
+      continue;
+    }
+    if (context.spaMode || resolved.kind === 'skip') continue;
+    if (resolved.kind === 'invalid') {
+      missingLinkTargets += 1;
+      continue;
+    }
+
+    const targetPath = getStaticLinkTargetPath(resolved.relativePath);
+    if (targetPath === null) continue;
+    const target = safeJoin(artifactDir, targetPath);
+    if (!target || !isRegularFile(target)) missingLinkTargets += 1;
+  }
+
+  return [
+    createAggregateCheck(
+      'assets.script_target',
+      missingScripts,
+      'All locally verifiable script targets are regular files',
+      'One or more locally verifiable script targets are missing or invalid'
+    ),
+    createAggregateCheck(
+      'assets.stylesheet_target',
+      missingStylesheets,
+      'All locally verifiable stylesheet targets are regular files',
+      'One or more locally verifiable stylesheet targets are missing or invalid'
+    ),
+    createAggregateCheck(
+      'links.javascript_url',
+      javascriptUrls,
+      'No anchor uses a javascript URL',
+      'One or more anchors use a javascript URL'
+    ),
+    createAggregateCheck(
+      'links.local_target',
+      missingLinkTargets,
+      context.spaMode
+        ? 'Static link target checks are disabled for SPA routing'
+        : 'All high-confidence local link targets are regular files',
+      'One or more high-confidence local link targets are missing or invalid'
+    ),
+    createAggregateCheck(
+      'images.source',
+      missingImageSources,
+      'Every image declares a non-empty source',
+      'One or more images do not declare a non-empty source'
+    ),
+    createAggregateCheck(
+      'images.alt_attribute',
+      missingImageAltAttributes,
+      'Every image declares an alt attribute',
+      'One or more images are missing an alt attribute'
+    ),
+    createAggregateCheck(
+      'images.local_target',
+      missingImageTargets,
+      'All locally verifiable image targets are regular files',
+      'One or more locally verifiable image targets are missing or invalid'
+    ),
+  ];
+}
+
+function createAggregateCheck(
+  id: ArtifactAuditRuleId,
+  failureCount: number,
+  passMessage: string,
+  failMessage: string
+): ArtifactAuditCheck {
+  return createCheck(id, {
+    passed: failureCount === 0,
+    passMessage,
+    failMessage,
+    actual: failureCount,
+    expected: '0 findings',
+  });
+}
+
+function countMissingFileTargets(
+  references: string[],
+  documentBase: URL | null,
+  artifactDir: string
+): number {
+  let missing = 0;
+  for (const reference of references) {
+    const resolved = resolveLocalReference(
+      reference,
+      documentBase,
+      artifactDir
+    );
+    if (resolved.kind === 'skip' || resolved.kind === 'javascript') {
+      continue;
+    }
+    if (resolved.kind === 'invalid' || resolved.relativePath === '') {
+      missing += 1;
+      continue;
+    }
+    const target = safeJoin(artifactDir, resolved.relativePath);
+    if (!target || !isRegularFile(target)) missing += 1;
+  }
+  return missing;
+}
+
+type LocalReferenceResolution =
+  | { kind: 'skip' }
+  | { kind: 'javascript' }
+  | { kind: 'invalid' }
+  | { kind: 'local'; relativePath: string };
+
+function resolveLocalReference(
+  rawReference: string,
+  documentBase: URL | null,
+  artifactDir: string
+): LocalReferenceResolution {
+  const reference = rawReference.trim();
+  if (
+    reference.startsWith('#') ||
+    /^data:/i.test(reference) ||
+    /^blob:/i.test(reference) ||
+    reference.startsWith('//')
+  ) {
+    return { kind: 'skip' };
+  }
+  if (isAbsoluteHttpUrl(reference)) return { kind: 'skip' };
+
+  const scheme = /^([a-z][a-z\d+.-]*):/i.exec(reference)?.[1]?.toLowerCase();
+  if (scheme === 'javascript') return { kind: 'javascript' };
+  if (scheme === 'http' || scheme === 'https') return { kind: 'invalid' };
+  if (scheme) return { kind: 'skip' };
+  if (!documentBase) return { kind: 'invalid' };
+
+  let resolved: URL;
+  try {
+    resolved = new URL(reference, documentBase);
+  } catch {
+    return { kind: 'invalid' };
+  }
+  if (resolved.protocol !== 'http:' && resolved.protocol !== 'https:') {
+    return { kind: 'skip' };
+  }
+  if (resolved.origin !== INERT_AUDIT_ORIGIN) return { kind: 'skip' };
+
+  let decodedPathname: string;
+  try {
+    decodedPathname = decodeURIComponent(resolved.pathname);
+  } catch {
+    return { kind: 'invalid' };
+  }
+  const relativePath = decodedPathname.replace(/^\/+/, '');
+  if (relativePath === '') return { kind: 'local', relativePath };
+  if (!safeJoin(artifactDir, relativePath)) return { kind: 'invalid' };
+  return { kind: 'local', relativePath };
+}
+
+function createDocumentBase(baseHref: string | null): URL | null {
+  try {
+    return new URL(baseHref ?? INERT_DOCUMENT_URL, INERT_DOCUMENT_URL);
+  } catch {
+    return null;
+  }
+}
+
+function getStaticLinkTargetPath(relativePath: string): string | null {
+  if (relativePath === '') return 'index.html';
+  if (relativePath.endsWith('/')) return `${relativePath}index.html`;
+  if (extname(relativePath) !== '') return relativePath;
+  return null;
 }
 
 function parseHtmlSignals(html: string): HtmlSignals {
@@ -248,6 +533,12 @@ function parseHtmlSignals(html: string): HtmlSignals {
   let canonical: string | null = null;
   const jsonLdDocuments: string[] = [];
   let currentJsonLd: string | null = null;
+  let baseHref: string | null = null;
+  let baseHrefCollected = false;
+  const scriptSources: string[] = [];
+  const stylesheetHrefs: string[] = [];
+  const anchorHrefs: string[] = [];
+  const images: HtmlSignals['images'] = [];
 
   new HTMLRewriter()
     .on('html', {
@@ -280,13 +571,34 @@ function parseHtmlSignals(html: string): HtmlSignals {
     .on('link', {
       element(element) {
         const rel = normalizeText(element.getAttribute('rel'))?.toLowerCase();
+        const href = element.hasAttribute('href')
+          ? (element.getAttribute('href') ?? '')
+          : null;
         if (rel?.split(/\s+/).includes('canonical')) {
-          canonical ??= normalizeText(element.getAttribute('href'));
+          canonical ??= normalizeText(href);
+        }
+        if (rel?.split(/\s+/).includes('stylesheet') && href !== null) {
+          stylesheetHrefs.push(href);
+        }
+      },
+    })
+    .on('base', {
+      element(element) {
+        const href = element.hasAttribute('href')
+          ? (element.getAttribute('href') ?? '')
+          : null;
+        if (!baseHrefCollected && href !== null) {
+          baseHref = href;
+          baseHrefCollected = true;
         }
       },
     })
     .on('script', {
       element(element) {
+        const source = element.hasAttribute('src')
+          ? (element.getAttribute('src') ?? '')
+          : null;
+        if (source !== null) scriptSources.push(source);
         if (
           normalizeText(element.getAttribute('type'))?.toLowerCase() ===
           'application/ld+json'
@@ -304,6 +616,24 @@ function parseHtmlSignals(html: string): HtmlSignals {
         if (currentJsonLd !== null) currentJsonLd += chunk.text;
       },
     })
+    .on('a', {
+      element(element) {
+        const href = element.hasAttribute('href')
+          ? (element.getAttribute('href') ?? '')
+          : null;
+        if (href !== null) anchorHrefs.push(href);
+      },
+    })
+    .on('img', {
+      element(element) {
+        images.push({
+          source: element.hasAttribute('src')
+            ? (element.getAttribute('src') ?? '')
+            : null,
+          hasAlt: element.hasAttribute('alt'),
+        });
+      },
+    })
     .transform(html);
 
   return {
@@ -319,6 +649,11 @@ function parseHtmlSignals(html: string): HtmlSignals {
     openGraphDescription: metadata.get('og:description') ?? null,
     openGraphImage: metadata.get('og:image') ?? null,
     jsonLdDocuments,
+    baseHref,
+    scriptSources,
+    stylesheetHrefs,
+    anchorHrefs,
+    images,
   };
 }
 
@@ -336,123 +671,84 @@ function createSeoChecks(
     !/(^|[,\s])(noindex|none)([,\s]|$)/i.test(signals.robots);
 
   return [
-    createCheck({
-      id: 'seo.title',
-      category: 'seo',
+    createCheck('seo.title', {
       passed: titlePresent,
-      failureSeverity: 'warning',
       passMessage: 'Document has one non-empty title',
       failMessage: 'Document should have exactly one non-empty title',
       actual: signals.titleCount,
       expected: 'exactly one title',
     }),
-    createCheck({
-      id: 'seo.title_length',
-      category: 'seo',
+    createCheck('seo.title_length', {
       passed:
         titlePresent &&
         signals.title.length >= 10 &&
         signals.title.length <= 60,
-      failureSeverity: 'warning',
       passMessage: 'Title length is within the recommended range',
       failMessage: 'Title length should be between 10 and 60 characters',
       actual: signals.title.length,
       expected: '10 to 60 characters',
     }),
-    createCheck({
-      id: 'seo.description',
-      category: 'seo',
+    createCheck('seo.description', {
       passed: Boolean(signals.description),
-      failureSeverity: 'warning',
       passMessage: 'Meta description is present',
       failMessage: 'Meta description is missing',
     }),
-    createCheck({
-      id: 'seo.description_length',
-      category: 'seo',
+    createCheck('seo.description_length', {
       passed: descriptionLength >= 50 && descriptionLength <= 160,
-      failureSeverity: 'warning',
       passMessage: 'Meta description length is within the recommended range',
       failMessage:
         'Meta description length should be between 50 and 160 characters',
       actual: descriptionLength,
       expected: '50 to 160 characters',
     }),
-    createCheck({
-      id: 'seo.canonical',
-      category: 'seo',
+    createCheck('seo.canonical', {
       passed: isAbsoluteHttpUrl(signals.canonical),
-      failureSeverity: 'warning',
       passMessage: 'Canonical URL is an absolute HTTP(S) URL',
       failMessage: 'Canonical URL is missing or is not an absolute HTTP(S) URL',
       actual: signals.canonical ?? 'missing',
     }),
-    createCheck({
-      id: 'seo.robots_indexing',
-      category: 'seo',
+    createCheck('seo.robots_indexing', {
       passed: robotsAllowsIndexing,
-      failureSeverity: 'warning',
       passMessage: 'Page metadata permits search indexing',
       failMessage: 'Page metadata contains a noindex directive',
       actual: signals.robots ?? 'unspecified',
     }),
-    createCheck({
-      id: 'seo.viewport',
-      category: 'seo',
+    createCheck('seo.viewport', {
       passed: Boolean(signals.viewport),
-      failureSeverity: 'warning',
       passMessage: 'Viewport metadata is present',
       failMessage: 'Viewport metadata is missing',
     }),
-    createCheck({
-      id: 'seo.language',
-      category: 'seo',
+    createCheck('seo.language', {
       passed: Boolean(signals.language),
-      failureSeverity: 'warning',
       passMessage: 'Document language is declared',
       failMessage: 'The html element should declare a language',
     }),
-    createCheck({
-      id: 'seo.h1',
-      category: 'seo',
+    createCheck('seo.h1', {
       passed: signals.h1Count === 1,
-      failureSeverity: 'warning',
       passMessage: 'Document has exactly one H1 heading',
       failMessage: 'Document should have exactly one H1 heading',
       actual: signals.h1Count,
       expected: 'exactly one H1',
     }),
-    createCheck({
-      id: 'seo.open_graph_title',
-      category: 'seo',
+    createCheck('seo.open_graph_title', {
       passed: Boolean(signals.openGraphTitle),
-      failureSeverity: 'warning',
       passMessage: 'Open Graph title is present',
       failMessage: 'Open Graph title is missing',
     }),
-    createCheck({
-      id: 'seo.open_graph_description',
-      category: 'seo',
+    createCheck('seo.open_graph_description', {
       passed: Boolean(signals.openGraphDescription),
-      failureSeverity: 'warning',
       passMessage: 'Open Graph description is present',
       failMessage: 'Open Graph description is missing',
     }),
-    createCheck({
-      id: 'seo.open_graph_image',
-      category: 'seo',
+    createCheck('seo.open_graph_image', {
       passed: isAbsoluteHttpUrl(signals.openGraphImage),
-      failureSeverity: 'warning',
       passMessage: 'Open Graph image is an absolute HTTP(S) URL',
       failMessage:
         'Open Graph image is missing or is not an absolute HTTP(S) URL',
       actual: signals.openGraphImage ?? 'missing',
     }),
-    createCheck({
-      id: 'seo.json_ld',
-      category: 'seo',
+    createCheck('seo.json_ld', {
       passed: jsonLdValid,
-      failureSeverity: 'warning',
       passMessage: 'JSON-LD metadata is present and parseable',
       failMessage:
         signals.jsonLdDocuments.length === 0
@@ -460,40 +756,35 @@ function createSeoChecks(
           : 'At least one JSON-LD document is invalid JSON',
       actual: signals.jsonLdDocuments.length,
     }),
-    createCheck({
-      id: 'seo.robots_txt',
-      category: 'seo',
+    createCheck('seo.robots_txt', {
       passed: isRegularFile(join(artifactDir, 'robots.txt')),
-      failureSeverity: 'warning',
       passMessage: 'robots.txt is present',
       failMessage: 'robots.txt is missing',
     }),
-    createCheck({
-      id: 'seo.sitemap_xml',
-      category: 'seo',
+    createCheck('seo.sitemap_xml', {
       passed: isRegularFile(join(artifactDir, 'sitemap.xml')),
-      failureSeverity: 'warning',
       passMessage: 'sitemap.xml is present',
       failMessage: 'sitemap.xml is missing',
     }),
   ];
 }
 
-function createCheck(input: {
-  id: string;
-  category: ArtifactAuditCategory;
-  passed: boolean;
-  failureSeverity: Exclude<ArtifactAuditSeverity, 'info'>;
-  passMessage: string;
-  failMessage: string;
-  actual?: string | number | boolean;
-  expected?: string;
-}): ArtifactAuditCheck {
+function createCheck(
+  id: ArtifactAuditRuleId,
+  input: {
+    passed: boolean;
+    passMessage: string;
+    failMessage: string;
+    actual?: string | number | boolean;
+    expected?: string;
+  }
+): ArtifactAuditCheck {
+  const rule = ARTIFACT_AUDIT_RULES[id];
   return {
-    id: input.id,
-    ruleVersion: 1,
-    category: input.category,
-    severity: input.passed ? 'info' : input.failureSeverity,
+    id,
+    ruleVersion: rule.version,
+    category: rule.category,
+    severity: input.passed ? 'info' : rule.failureSeverity,
     passed: input.passed,
     message: input.passed ? input.passMessage : input.failMessage,
     ...(input.actual === undefined ? {} : { actual: input.actual }),

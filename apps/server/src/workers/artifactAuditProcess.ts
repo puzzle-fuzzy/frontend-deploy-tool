@@ -12,7 +12,8 @@ try {
     auditArtifactDirectory(
       input.artifactDir,
       input.expectedChecksum,
-      input.policy
+      input.policy,
+      input.context
     )
   );
   process.stdout.write(JSON.stringify(result));

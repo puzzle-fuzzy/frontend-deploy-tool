@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type {
+  ArtifactAuditContext,
   ArtifactAuditPolicy,
   ArtifactAuditReport,
   ArtifactAuditStatus,
@@ -9,12 +10,12 @@ import {
   hasSameArtifactAuditContext,
   hasSameArtifactAuditPolicy,
 } from '../domain/artifactAuditJob';
+import { ARTIFACT_AUDIT_ENGINE_VERSION } from '../domain/artifactAuditRules';
 import { appendHistoryEvent } from '../domain/history';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
-  ARTIFACT_AUDIT_ENGINE_VERSION,
   type ArtifactAuditResult,
   auditArtifactDirectory,
 } from './artifactAuditEngine';
@@ -26,7 +27,8 @@ interface ArtifactAuditServiceDependencies {
   audit?: (
     artifactDir: string,
     expectedChecksum: string,
-    policy: ArtifactAuditPolicy
+    policy: ArtifactAuditPolicy,
+    context: ArtifactAuditContext
   ) => ArtifactAuditResult;
   recordOutcome?: (status: ArtifactAuditStatus) => void;
 }
@@ -73,7 +75,7 @@ export function createArtifactAuditService(
       }
       const policy = structuredClone(project.auditPolicy);
       const context = structuredClone(project.settings);
-      const result = audit(artifactDir, version.checksum, policy);
+      const result = audit(artifactDir, version.checksum, policy, context);
       if (checksumDirectory(artifactDir) !== result.artifactChecksum) {
         throw new ApiError(
           ErrorCode.AUDIT_FAILED,

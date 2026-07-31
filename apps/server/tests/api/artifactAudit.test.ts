@@ -77,7 +77,7 @@ describe('artifact audit API', () => {
       projectId: project.id,
       versionId,
       status: 'warning',
-      engineVersion: 1,
+      engineVersion: 2,
       policy: project.auditPolicy,
     });
 
