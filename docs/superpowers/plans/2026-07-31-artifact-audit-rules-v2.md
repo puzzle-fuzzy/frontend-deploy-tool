@@ -720,8 +720,8 @@ git commit -m "feat: expose artifact audit freshness"
 - Modify: `apps/server/src/repositories/sqliteProjectRepository.ts`
 - Modify: `apps/server/tests/api/ciProductionProcessSmoke.test.ts`
 - Modify: `apps/server/tests/services/backupService.test.ts`
+- Modify: `apps/server/tests/services/backupRestoreSafety.test.ts`
 - Modify: `apps/server/tests/services/sqliteProjectRepository.test.ts`
-- Modify: `apps/server/tests/services/schemaMigration.test.ts`
 - Modify: `apps/server/tests/fixtures/schema-v5-backup/README.md`
 - Modify: `README.md`
 - Modify: `TODO.md`
@@ -730,47 +730,84 @@ git commit -m "feat: expose artifact audit freshness"
 - Modify: `docs/backend-hardening-roadmap.md`
 
 **Interfaces:**
-- No new runtime interface.
+- No new HTTP or domain interface. The production relational data hydrator may
+  become an internal reusable export so startup and backup validation cannot
+  drift.
 - The frozen schema-v5 fixture remains unchanged except documentation; tests
-  prove its verify→restore→v7 startup path.
-- A generated v6-shaped database with real report/job JSON proves the exact
-  v6→v7 migration and backup preflight.
+  keep its existing verify→restore→v7 startup proof focused on the backup path.
+- Generated v6 and current-v7 databases with real report/job JSON prove exact
+  migration, domain hydration, staged restore validation, and fail-closed
+  cleanup. Task 4 is a hard prerequisite for the production assessment/gate
+  assertions.
 
 - [ ] **Step 1: Add failing historical and production smoke assertions**
 
 Prove:
 
-- v5 backup verification dry-runs through v6 and v7 before live mutation;
-- a drifted v6 target column fails verification before ownership;
-- malformed migrated `policy_json`, `context_json`, `summary_json`, or
-  `checks_json` fails verification before ownership while the source database
-  and manifest bytes remain unchanged;
-- v6 report/job rows gain context and rule-budget defaults;
+- v5 and generated-v6 backup verification use the exact production migrations
+  before any live mutation; Task 1's direct repository migration tests are not
+  duplicated;
+- a drifted v6 target column fails through `verifyBackup()` and restore before
+  ownership, while the existing frozen-v5 production smoke remains the
+  backup-path compatibility proof;
+- both invalid JSON syntax and valid-JSON/domain-invalid values fail for report
+  and job `policy_json`, report and job `context_json`, report `summary_json`,
+  and report `checks_json`;
+- that corruption matrix runs against generated v6→v7 and current-v7 backup
+  verification, proving source database/manifest bytes unchanged, ownership
+  acquisition count zero for the initial invalid source, and no live mutation;
+- v6 report/job rows gain context and all rule-budget defaults when verified
+  through the backup path;
+- current-v7 project assembly passes through `projectSchema`, so domain-invalid
+  project/version fields also fail before restore;
+- a source-swap injection between initial verify and restore cannot change the
+  installed payload: restore re-captures into a control-owned stage, revalidates
+  that exact staged payload, and leaves live state untouched on mismatch;
+- an observable injected temporary-root records that the root and database
+  `-wal`, `-shm`, and `-journal` files disappear after both successful and
+  failed validation; cleanup failure makes verification invalid;
 - engine v1 report is readable but stale;
-- enqueue→worker→report survives restart with engine v2;
-- advisory→blocking does not enqueue/cancel/re-scan;
-- blocking still rejects missing/stale/failed and accepts current warning;
-- no audit operation publishes or deletes the preview.
+- with the worker disabled, enqueue one advisory job, switch enforcement only
+  to blocking, and prove the same queued job remains without cancel, enqueue,
+  or re-scan;
+- after restart with the worker enabled, poll that same job to engine-v2
+  completion; restart again and prove the job, current report, and assessment
+  persist;
+- blocking treats that current warning report as releasable, while
+  missing/stale/failed reports reject release and leave active version, preview
+  status, artifact bytes, and job/report counts unchanged;
+- no audit operation publishes or deletes the preview; if warning acceptance is
+  tested by publishing, production changes only at the explicit publish call.
 
 - [ ] **Step 2: Run migration/smoke tests and confirm failures**
 
 ```bash
-bun test apps/server/tests/services/schemaMigration.test.ts \
-  apps/server/tests/services/sqliteProjectRepository.test.ts \
+bun test apps/server/tests/services/sqliteProjectRepository.test.ts \
   apps/server/tests/services/backupService.test.ts \
+  apps/server/tests/services/backupRestoreSafety.test.ts \
   apps/server/tests/api/ciProductionProcessSmoke.test.ts
 ```
 
 - [ ] **Step 3: Complete compatibility fixes**
 
 Use production migration and backup code only; do not add test-only migration
-logic to runtime. Extract or reuse the repository's production project,
-report, and job row hydrators, and run every migrated row through those same
-hydrators in the temporary backup-preflight database. SQLite
-`integrity_check`, foreign-key checks, and table counts alone are insufficient
-because valid TEXT columns may contain invalid JSON or domain data. Preserve
-source database/manifest bytes and remove all temporary WAL/SHM/journal files
-on both success and failure.
+logic to runtime. Export or reuse `loadRelationalData()` as the one production
+validation path, make assembled projects pass through `projectSchema`, and run
+it against every verified database: directly for v7 and after the exact
+production migration for v5/v6. Reuse the production report and job mappers;
+SQLite `integrity_check`, foreign-key checks, and table counts alone are
+insufficient because valid TEXT columns may contain invalid JSON or invalid
+domain values.
+
+Close verify→restore TOCTOU by retaining the fast initial validation, then
+capturing the manifest, database, and storage payload with Task 1's
+control-owned, no-follow boundary into a restore stage and re-running complete
+verification against that exact staged payload before moving live state. Never
+re-copy a previously verified mutable source path directly into place.
+Introduce only an internal injectable temporary-root factory needed to assert
+cleanup. Preserve source database/manifest bytes and remove the full temporary
+root plus WAL/SHM/journal files on success and failure; cleanup failure is a
+verification failure.
 
 - [ ] **Step 4: Update documentation**
 
@@ -779,13 +816,18 @@ Document:
 - ruleset/engine v2 and stable rule-ID policy;
 - current-only detailed reports and superseded job semantics;
 - assessment freshness reasons;
-- configurable asset budgets;
+- all six configurable scan budgets, with enforcement-only changes remaining
+  fresh;
 - offline/static limitations and profile/rendered-DOM deferral;
 - the distinction between job execution failure and a successful report with
   failed findings.
 - the synchronous `POST /audit` compatibility exception, including that it is
   preview-only, in-process, bounded by the same static engine limits, and not
   governed by the background worker's single-slot lease.
+- relational v5/v6→v7 domain-validating backup preflight, direct current-v7
+  domain validation, exact staged restore revalidation, and cleanup behavior;
+- `GET /audit-assessment`, engine-v2 asset/context fields, and the persisted
+  restart/enforcement-toggle flow.
 
 Update roadmap/TODO only for functionality proven by tests.
 
