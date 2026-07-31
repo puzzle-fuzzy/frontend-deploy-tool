@@ -529,6 +529,9 @@ first excess byte on Bun versions that expose only a killed child. Decode
 retained stdout as strict UTF-8. Process-only success schemas are deep-strict
 at every nested object and reject unknown keys without tightening historic
 shared persistence schemas.
+Subprocess termination uses a separate synchronous `killRequested` latch so
+overflow, abort, timeout, and reader/exit rejection races request at most one
+signal before all streams and exit settle.
 
 - [ ] **Step 2: Run the tests and confirm failure**
 
