@@ -1,4 +1,13 @@
-import type { HistoryEvent, Project, Settings, Version } from '../src';
+import {
+  type ArtifactAuditContext,
+  type ArtifactAuditPolicyUpdate,
+  type ArtifactAuditRuleConfig,
+  getArtifactAuditRuleConfig,
+  type HistoryEvent,
+  type Project,
+  type Settings,
+  type Version,
+} from '../src';
 
 const settings: Settings = {
   spaMode: true,
@@ -36,6 +45,9 @@ const project: Project = {
     maxTotalBytes: 50 * 1024 * 1024,
     maxFileBytes: 10 * 1024 * 1024,
     maxFileCount: 1_000,
+    maxJavaScriptBytes: 10 * 1024 * 1024,
+    maxStylesheetBytes: 2 * 1024 * 1024,
+    maxFontBytes: 10 * 1024 * 1024,
   },
   createdBy: 'user-1',
   members: [
@@ -54,4 +66,18 @@ const event: HistoryEvent = {
   actorId: 'user-1',
 };
 
+const auditContext: ArtifactAuditContext = settings;
+const legacyPolicyUpdate: ArtifactAuditPolicyUpdate = {
+  enforcement: 'blocking',
+  maxTotalBytes: 1_024,
+  maxFileBytes: 512,
+  maxFileCount: 10,
+};
+const ruleConfig: ArtifactAuditRuleConfig = getArtifactAuditRuleConfig(
+  project.auditPolicy
+);
+
+void auditContext;
+void legacyPolicyUpdate;
+void ruleConfig;
 void event;

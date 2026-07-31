@@ -91,6 +91,7 @@ export function createArtifactAuditWorker({
           artifactDir,
           expectedChecksum: job.artifactChecksum,
           policy: job.policy,
+          context: job.context,
         },
         controller.signal
       );

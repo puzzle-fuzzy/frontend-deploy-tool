@@ -229,6 +229,12 @@ function inspectArtifactTree(root: string): FileInventory {
             right.bytes - left.bytes ||
             left.extension.localeCompare(right.extension)
         ),
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
     },
   };
 }
@@ -485,6 +491,7 @@ function createCheck(input: {
 }): ArtifactAuditCheck {
   return {
     id: input.id,
+    ruleVersion: 1,
     category: input.category,
     severity: input.passed ? 'info' : input.failureSeverity,
     passed: input.passed,

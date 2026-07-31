@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import type {
   ArtifactAuditJob,
   ArtifactAuditPolicy,
+  ArtifactAuditPolicyUpdate,
   ArtifactAuditReport,
   Project,
 } from '@deploykit/shared';
@@ -398,10 +399,30 @@ describe('artifact audit API', () => {
       maxTotalBytes: 2_000_000,
       maxFileBytes: 1_000_000,
       maxFileCount: 100,
+      maxJavaScriptBytes: 900_000,
+      maxStylesheetBytes: 300_000,
+      maxFontBytes: 700_000,
     };
     const updated = await updatePolicy(project.id, policy);
     expect(updated.status).toBe(200);
     expect(((await updated.json()) as Project).auditPolicy).toEqual(policy);
+
+    const legacyUpdated = await updatePolicy(project.id, {
+      enforcement: 'advisory',
+      maxTotalBytes: 1_500_000,
+      maxFileBytes: 750_000,
+      maxFileCount: 80,
+    });
+    expect(legacyUpdated.status).toBe(200);
+    expect(((await legacyUpdated.json()) as Project).auditPolicy).toEqual({
+      enforcement: 'advisory',
+      maxTotalBytes: 1_500_000,
+      maxFileBytes: 750_000,
+      maxFileCount: 80,
+      maxJavaScriptBytes: policy.maxJavaScriptBytes,
+      maxStylesheetBytes: policy.maxStylesheetBytes,
+      maxFontBytes: policy.maxFontBytes,
+    });
 
     const history = await app.request(
       `/api/projects/${project.id}/history`,
@@ -410,8 +431,16 @@ describe('artifact audit API', () => {
     expect((await history.json()).items[0]).toMatchObject({
       action: 'project.update_audit_policy',
       metadata: {
-        auditPolicy: policy,
-        previousPolicy: project.auditPolicy,
+        auditPolicy: {
+          enforcement: 'advisory',
+          maxTotalBytes: 1_500_000,
+          maxFileBytes: 750_000,
+          maxFileCount: 80,
+          maxJavaScriptBytes: policy.maxJavaScriptBytes,
+          maxStylesheetBytes: policy.maxStylesheetBytes,
+          maxFontBytes: policy.maxFontBytes,
+        },
+        previousPolicy: policy,
       },
     });
   });
@@ -665,7 +694,7 @@ async function createUploadedVersion(slug: string): Promise<{
 
 async function updatePolicy(
   projectId: string,
-  policy: ArtifactAuditPolicy
+  policy: ArtifactAuditPolicyUpdate
 ): Promise<Response> {
   return await app.request(
     `/api/projects/${projectId}/audit-policy`,

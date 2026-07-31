@@ -1,4 +1,9 @@
-import type { ArtifactAuditJob, ArtifactAuditPolicy } from '@deploykit/shared';
+import {
+  type ArtifactAuditContext,
+  type ArtifactAuditJob,
+  type ArtifactAuditPolicy,
+  hasSameArtifactAuditRuleConfig,
+} from '@deploykit/shared';
 
 export const ACTIVE_ARTIFACT_AUDIT_JOB_STATUSES = [
   'queued',
@@ -15,12 +20,14 @@ export function hasSameArtifactAuditSnapshot(
     artifactChecksum: string;
     engineVersion: number;
     policy: ArtifactAuditPolicy;
+    context: ArtifactAuditContext;
   }
 ): boolean {
   return (
     job.artifactChecksum === snapshot.artifactChecksum &&
     job.engineVersion === snapshot.engineVersion &&
-    hasSameArtifactAuditPolicy(job.policy, snapshot.policy)
+    hasSameArtifactAuditPolicy(job.policy, snapshot.policy) &&
+    hasSameArtifactAuditContext(job.context, snapshot.context)
   );
 }
 
@@ -28,11 +35,15 @@ export function hasSameArtifactAuditPolicy(
   left: ArtifactAuditPolicy,
   right: ArtifactAuditPolicy
 ): boolean {
+  return hasSameArtifactAuditRuleConfig(left, right);
+}
+
+export function hasSameArtifactAuditContext(
+  left: ArtifactAuditContext,
+  right: ArtifactAuditContext
+): boolean {
   return (
-    left.enforcement === right.enforcement &&
-    left.maxTotalBytes === right.maxTotalBytes &&
-    left.maxFileBytes === right.maxFileBytes &&
-    left.maxFileCount === right.maxFileCount
+    left.spaMode === right.spaMode && left.routingType === right.routingType
   );
 }
 

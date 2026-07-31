@@ -163,6 +163,10 @@ function inputFixture(expectedChecksum: string) {
       maxTotalBytes: 50 * 1024 * 1024,
       maxFileBytes: 10 * 1024 * 1024,
       maxFileCount: 1_000,
+      maxJavaScriptBytes: 10 * 1024 * 1024,
+      maxStylesheetBytes: 2 * 1024 * 1024,
+      maxFontBytes: 10 * 1024 * 1024,
     },
+    context: { spaMode: false, routingType: 'path' as const },
   };
 }

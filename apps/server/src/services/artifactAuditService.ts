@@ -5,7 +5,10 @@ import type {
   ArtifactAuditReport,
   ArtifactAuditStatus,
 } from '@deploykit/shared';
-import { hasSameArtifactAuditPolicy } from '../domain/artifactAuditJob';
+import {
+  hasSameArtifactAuditContext,
+  hasSameArtifactAuditPolicy,
+} from '../domain/artifactAuditJob';
 import { appendHistoryEvent } from '../domain/history';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -69,6 +72,7 @@ export function createArtifactAuditService(
         );
       }
       const policy = structuredClone(project.auditPolicy);
+      const context = structuredClone(project.settings);
       const result = audit(artifactDir, version.checksum, policy);
       if (checksumDirectory(artifactDir) !== result.artifactChecksum) {
         throw new ApiError(
@@ -89,6 +93,7 @@ export function createArtifactAuditService(
         createdBy: actorId,
         engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
         policy,
+        context,
         summary: result.summary,
         checks: result.checks,
       };
@@ -116,7 +121,8 @@ export function createArtifactAuditService(
         }
         if (
           currentVersion.checksum !== version.checksum ||
-          !hasSameArtifactAuditPolicy(currentProject.auditPolicy, policy)
+          !hasSameArtifactAuditPolicy(currentProject.auditPolicy, policy) ||
+          !hasSameArtifactAuditContext(currentProject.settings, context)
         ) {
           throw new ApiError(
             ErrorCode.AUDIT_FAILED,

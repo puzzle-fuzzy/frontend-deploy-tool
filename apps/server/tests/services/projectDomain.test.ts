@@ -1,5 +1,11 @@
 import { describe, expect, test } from 'bun:test';
-import type { HistoryEvent, Project } from '@deploykit/shared';
+import {
+  artifactAuditPolicySchema,
+  getArtifactAuditRuleConfig,
+  type HistoryEvent,
+  hasSameArtifactAuditRuleConfig,
+  type Project,
+} from '@deploykit/shared';
 import { paginateHistory } from '../../src/domain/history';
 import {
   DEFAULT_PROJECT_SETTINGS,
@@ -25,6 +31,9 @@ function makeProject(overrides: Partial<Project> = {}): Project {
       maxTotalBytes: 50 * 1024 * 1024,
       maxFileBytes: 10 * 1024 * 1024,
       maxFileCount: 1_000,
+      maxJavaScriptBytes: 10 * 1024 * 1024,
+      maxStylesheetBytes: 2 * 1024 * 1024,
+      maxFontBytes: 10 * 1024 * 1024,
     },
     createdBy: 'user-1',
     members: [],
@@ -115,6 +124,46 @@ describe('project domain', () => {
         typoBudget: 1,
       })
     ).toBeNull();
+  });
+
+  test('hydrates historic policies without rejecting a small total budget', () => {
+    expect(
+      artifactAuditPolicySchema.parse({
+        enforcement: 'blocking',
+        maxTotalBytes: 1_024,
+        maxFileBytes: 512,
+        maxFileCount: 10,
+      })
+    ).toEqual({
+      enforcement: 'blocking',
+      maxTotalBytes: 1_024,
+      maxFileBytes: 512,
+      maxFileCount: 10,
+      maxJavaScriptBytes: 10 * 1024 * 1024,
+      maxStylesheetBytes: 2 * 1024 * 1024,
+      maxFontBytes: 10 * 1024 * 1024,
+    });
+  });
+
+  test('compares only scan-affecting rule configuration', () => {
+    const advisory = makeProject().auditPolicy;
+    const blocking = { ...advisory, enforcement: 'blocking' as const };
+
+    expect(getArtifactAuditRuleConfig(blocking)).toEqual({
+      maxTotalBytes: advisory.maxTotalBytes,
+      maxFileBytes: advisory.maxFileBytes,
+      maxFileCount: advisory.maxFileCount,
+      maxJavaScriptBytes: advisory.maxJavaScriptBytes,
+      maxStylesheetBytes: advisory.maxStylesheetBytes,
+      maxFontBytes: advisory.maxFontBytes,
+    });
+    expect(hasSameArtifactAuditRuleConfig(advisory, blocking)).toBe(true);
+    expect(
+      hasSameArtifactAuditRuleConfig(advisory, {
+        ...blocking,
+        maxStylesheetBytes: blocking.maxStylesheetBytes + 1,
+      })
+    ).toBe(false);
   });
 });
 

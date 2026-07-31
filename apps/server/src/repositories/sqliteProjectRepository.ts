@@ -76,6 +76,9 @@ interface ProjectRow {
   audit_max_total_bytes: number;
   audit_max_file_bytes: number;
   audit_max_file_count: number;
+  audit_max_javascript_bytes: number;
+  audit_max_stylesheet_bytes: number;
+  audit_max_font_bytes: number;
   created_by: string;
 }
 
@@ -130,6 +133,7 @@ interface ArtifactAuditRow {
   created_by: string;
   engine_version: number;
   policy_json: string;
+  context_json: string;
   summary_json: string;
   checks_json: string;
 }
@@ -445,7 +449,8 @@ function loadRelationalData(database: Database): Data {
       `SELECT id, name, slug, description, created_at, updated_at,
               active_version_id, spa_mode, routing_type, audit_enforcement,
               audit_max_total_bytes, audit_max_file_bytes,
-              audit_max_file_count, created_by
+              audit_max_file_count, audit_max_javascript_bytes,
+              audit_max_stylesheet_bytes, audit_max_font_bytes, created_by
        FROM projects
        ORDER BY sort_order ASC`
     )
@@ -502,6 +507,9 @@ function loadRelationalData(database: Database): Data {
       maxTotalBytes: row.audit_max_total_bytes,
       maxFileBytes: row.audit_max_file_bytes,
       maxFileCount: row.audit_max_file_count,
+      maxJavaScriptBytes: row.audit_max_javascript_bytes,
+      maxStylesheetBytes: row.audit_max_stylesheet_bytes,
+      maxFontBytes: row.audit_max_font_bytes,
     },
     createdBy: row.created_by,
     members: membersByProject.get(row.id) ?? [],
@@ -521,7 +529,7 @@ function loadRelationalData(database: Database): Data {
     .query<ArtifactAuditRow, []>(
       `SELECT id, project_id, version_id, artifact_checksum, status, score,
               created_at, created_by, engine_version, policy_json,
-              summary_json, checks_json
+              context_json, summary_json, checks_json
        FROM artifact_audits
        ORDER BY project_id ASC, created_at DESC`
     )
@@ -531,7 +539,7 @@ function loadRelationalData(database: Database): Data {
     .query<ArtifactAuditJobRow, []>(
       `SELECT id, project_id, version_id, requested_by, status, priority,
               attempts, max_attempts, next_run_at, locked_by, locked_until,
-              artifact_checksum, engine_version, policy_json, report_id,
+              artifact_checksum, engine_version, policy_json, context_json, report_id,
               error_code, error_message, created_at, updated_at, started_at,
               completed_at
        FROM artifact_audit_jobs
@@ -608,6 +616,7 @@ function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
     createdBy: row.created_by,
     engineVersion: row.engine_version,
     policy: JSON.parse(row.policy_json) as ArtifactAuditReport['policy'],
+    context: JSON.parse(row.context_json) as ArtifactAuditReport['context'],
     summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
     checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
   });
@@ -816,8 +825,9 @@ function persistProjects(database: Database, projects: Project[]): void {
     `INSERT INTO projects (
        id, name, slug, description, created_at, updated_at, active_version_id,
        spa_mode, routing_type, audit_enforcement, audit_max_total_bytes,
-       audit_max_file_bytes, audit_max_file_count, created_by, sort_order
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       audit_max_file_bytes, audit_max_file_count, audit_max_javascript_bytes,
+       audit_max_stylesheet_bytes, audit_max_font_bytes, created_by, sort_order
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        name = excluded.name,
        slug = excluded.slug,
@@ -831,6 +841,9 @@ function persistProjects(database: Database, projects: Project[]): void {
        audit_max_total_bytes = excluded.audit_max_total_bytes,
        audit_max_file_bytes = excluded.audit_max_file_bytes,
        audit_max_file_count = excluded.audit_max_file_count,
+       audit_max_javascript_bytes = excluded.audit_max_javascript_bytes,
+       audit_max_stylesheet_bytes = excluded.audit_max_stylesheet_bytes,
+       audit_max_font_bytes = excluded.audit_max_font_bytes,
        created_by = excluded.created_by,
        sort_order = excluded.sort_order`
   );
@@ -849,6 +862,9 @@ function persistProjects(database: Database, projects: Project[]): void {
       project.auditPolicy.maxTotalBytes,
       project.auditPolicy.maxFileBytes,
       project.auditPolicy.maxFileCount,
+      project.auditPolicy.maxJavaScriptBytes,
+      project.auditPolicy.maxStylesheetBytes,
+      project.auditPolicy.maxFontBytes,
       project.createdBy,
       index
     );
@@ -862,9 +878,9 @@ function persistArtifactAudits(
   const statement = database.query(
     `INSERT INTO artifact_audits (
        id, project_id, version_id, artifact_checksum, status, score,
-       created_at, created_by, engine_version, policy_json, summary_json,
-       checks_json
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       created_at, created_by, engine_version, policy_json, context_json,
+       summary_json, checks_json
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(version_id) DO UPDATE SET
        id = excluded.id,
        project_id = excluded.project_id,
@@ -875,6 +891,7 @@ function persistArtifactAudits(
        created_by = excluded.created_by,
        engine_version = excluded.engine_version,
        policy_json = excluded.policy_json,
+       context_json = excluded.context_json,
        summary_json = excluded.summary_json,
        checks_json = excluded.checks_json`
   );
@@ -890,6 +907,7 @@ function persistArtifactAudits(
       report.createdBy,
       report.engineVersion,
       JSON.stringify(report.policy),
+      JSON.stringify(report.context),
       JSON.stringify(report.summary),
       JSON.stringify(report.checks)
     );
@@ -904,9 +922,9 @@ function persistArtifactAuditJobs(
     `INSERT INTO artifact_audit_jobs (
        id, project_id, version_id, requested_by, status, priority, attempts,
        max_attempts, next_run_at, locked_by, locked_until, artifact_checksum,
-       engine_version, policy_json, report_id, error_code, error_message,
+       engine_version, policy_json, context_json, report_id, error_code, error_message,
        created_at, updated_at, started_at, completed_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(id) DO UPDATE SET
        project_id = excluded.project_id,
        version_id = excluded.version_id,
@@ -921,6 +939,7 @@ function persistArtifactAuditJobs(
        artifact_checksum = excluded.artifact_checksum,
        engine_version = excluded.engine_version,
        policy_json = excluded.policy_json,
+       context_json = excluded.context_json,
        report_id = excluded.report_id,
        error_code = excluded.error_code,
        error_message = excluded.error_message,
@@ -945,6 +964,7 @@ function persistArtifactAuditJobs(
       job.artifactChecksum,
       job.engineVersion,
       JSON.stringify(job.policy),
+      JSON.stringify(job.context),
       job.reportId,
       job.errorCode,
       job.errorMessage,

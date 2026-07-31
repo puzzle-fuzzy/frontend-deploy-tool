@@ -142,6 +142,7 @@ export function createArtifactAuditCompletionRecords(input: {
     createdBy: job.requestedBy,
     engineVersion: job.engineVersion,
     policy: structuredClone(job.policy),
+    context: structuredClone(job.context),
     summary: structuredClone(result.summary),
     checks: structuredClone(result.checks),
   };

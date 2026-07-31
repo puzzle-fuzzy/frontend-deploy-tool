@@ -220,6 +220,9 @@ function projectFixture(projectId: string, versionId: string): Project {
       maxTotalBytes: 50 * 1024 * 1024,
       maxFileBytes: 10 * 1024 * 1024,
       maxFileCount: 1_000,
+      maxJavaScriptBytes: 10 * 1024 * 1024,
+      maxStylesheetBytes: 2 * 1024 * 1024,
+      maxFontBytes: 10 * 1024 * 1024,
     },
     createdBy: 'owner-1',
     members: [
@@ -247,11 +250,18 @@ function reportFixture(
     createdBy: 'owner-1',
     engineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
     policy: structuredClone(project.auditPolicy),
+    context: structuredClone(project.settings),
     summary: {
       totalBytes: version.size,
       fileCount: version.fileCount,
       largestFiles: [],
       extensions: [],
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
     },
     checks: [],
   };

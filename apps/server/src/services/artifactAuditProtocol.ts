@@ -1,5 +1,6 @@
 import {
   artifactAuditCheckSchema,
+  artifactAuditContextSchema,
   artifactAuditPolicySchema,
   artifactAuditStatusSchema,
   artifactAuditSummarySchema,
@@ -11,6 +12,7 @@ export const artifactAuditExecutionInputSchema = z
     artifactDir: z.string().min(1).max(4_096),
     expectedChecksum: z.string().max(256),
     policy: artifactAuditPolicySchema,
+    context: artifactAuditContextSchema,
   })
   .strict();
 

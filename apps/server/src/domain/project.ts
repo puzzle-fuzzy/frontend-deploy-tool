@@ -1,6 +1,8 @@
 import {
   type ArtifactAuditPolicy,
+  type ArtifactAuditPolicyUpdate,
   artifactAuditPolicySchema,
+  artifactAuditPolicyUpdateSchema,
   DEFAULT_ARTIFACT_AUDIT_POLICY,
   type Project,
   type Settings,
@@ -35,10 +37,27 @@ export function parseSettings(input: unknown): Settings | null {
   return result.success ? result.data : null;
 }
 
-/** Parses and validates a complete project artifact-audit policy. */
+/** Parses a PATCH payload without hydrating omitted asset budgets. */
 export function parseArtifactAuditPolicy(
   input: unknown
+): ArtifactAuditPolicyUpdate | null {
+  const result = artifactAuditPolicyUpdateSchema.safeParse(input);
+  return result.success ? result.data : null;
+}
+
+/** Validates a normalized policy after PATCH fields are merged in mutation. */
+export function normalizeArtifactAuditPolicy(
+  input: ArtifactAuditPolicyUpdate,
+  stored: ArtifactAuditPolicy
 ): ArtifactAuditPolicy | null {
-  const result = artifactAuditPolicySchema.safeParse(input);
+  const result = artifactAuditPolicySchema.safeParse({
+    enforcement: input.enforcement,
+    maxTotalBytes: input.maxTotalBytes,
+    maxFileBytes: input.maxFileBytes,
+    maxFileCount: input.maxFileCount,
+    maxJavaScriptBytes: input.maxJavaScriptBytes ?? stored.maxJavaScriptBytes,
+    maxStylesheetBytes: input.maxStylesheetBytes ?? stored.maxStylesheetBytes,
+    maxFontBytes: input.maxFontBytes ?? stored.maxFontBytes,
+  });
   return result.success ? result.data : null;
 }

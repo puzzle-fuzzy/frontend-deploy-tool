@@ -11,22 +11,52 @@ export const settingsSchema = z.object({
   routingType: z.enum(['hash', 'path']),
 });
 
+export const artifactAuditContextSchema = settingsSchema;
+
 export const artifactAuditEnforcementSchema = z.enum(['advisory', 'blocking']);
+
+export const DEFAULT_ARTIFACT_AUDIT_POLICY = {
+  enforcement: 'advisory',
+  maxTotalBytes: 50 * 1024 * 1024,
+  maxFileBytes: 10 * 1024 * 1024,
+  maxFileCount: 1_000,
+  maxJavaScriptBytes: 10 * 1024 * 1024,
+  maxStylesheetBytes: 2 * 1024 * 1024,
+  maxFontBytes: 10 * 1024 * 1024,
+} as const;
+
+const maxTotalBytesSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(10 * 1024 * 1024 * 1024);
+const maxFileBytesSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(2 * 1024 * 1024 * 1024);
+const maxFileCountSchema = z.number().int().positive().max(100_000);
+const maxAssetBytesSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(10 * 1024 * 1024 * 1024);
 
 export const artifactAuditPolicySchema = z
   .object({
     enforcement: artifactAuditEnforcementSchema,
-    maxTotalBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(10 * 1024 * 1024 * 1024),
-    maxFileBytes: z
-      .number()
-      .int()
-      .positive()
-      .max(2 * 1024 * 1024 * 1024),
-    maxFileCount: z.number().int().positive().max(100_000),
+    maxTotalBytes: maxTotalBytesSchema,
+    maxFileBytes: maxFileBytesSchema,
+    maxFileCount: maxFileCountSchema,
+    maxJavaScriptBytes: maxAssetBytesSchema.default(
+      DEFAULT_ARTIFACT_AUDIT_POLICY.maxJavaScriptBytes
+    ),
+    maxStylesheetBytes: maxAssetBytesSchema.default(
+      DEFAULT_ARTIFACT_AUDIT_POLICY.maxStylesheetBytes
+    ),
+    maxFontBytes: maxAssetBytesSchema.default(
+      DEFAULT_ARTIFACT_AUDIT_POLICY.maxFontBytes
+    ),
   })
   .strict()
   .refine((policy) => policy.maxFileBytes <= policy.maxTotalBytes, {
@@ -34,12 +64,21 @@ export const artifactAuditPolicySchema = z
     message: 'maxFileBytes cannot exceed maxTotalBytes',
   });
 
-export const DEFAULT_ARTIFACT_AUDIT_POLICY = {
-  enforcement: 'advisory',
-  maxTotalBytes: 50 * 1024 * 1024,
-  maxFileBytes: 10 * 1024 * 1024,
-  maxFileCount: 1_000,
-} as const;
+export const artifactAuditPolicyUpdateSchema = z
+  .object({
+    enforcement: artifactAuditEnforcementSchema,
+    maxTotalBytes: maxTotalBytesSchema,
+    maxFileBytes: maxFileBytesSchema,
+    maxFileCount: maxFileCountSchema,
+    maxJavaScriptBytes: maxAssetBytesSchema.optional(),
+    maxStylesheetBytes: maxAssetBytesSchema.optional(),
+    maxFontBytes: maxAssetBytesSchema.optional(),
+  })
+  .strict()
+  .refine((policy) => policy.maxFileBytes <= policy.maxTotalBytes, {
+    path: ['maxFileBytes'],
+    message: 'maxFileBytes cannot exceed maxTotalBytes',
+  });
 
 /** Global role governing what a user may do. */
 export const roleSchema = z.enum(['admin', 'developer', 'viewer']);
@@ -188,6 +227,7 @@ export const artifactAuditCategorySchema = z.enum(['structure', 'seo', 'size']);
 
 export const artifactAuditCheckSchema = z.object({
   id: z.string(),
+  ruleVersion: z.number().int().positive().default(1),
   category: artifactAuditCategorySchema,
   severity: artifactAuditSeveritySchema,
   passed: z.boolean(),
@@ -207,11 +247,40 @@ export const artifactAuditExtensionSchema = z.object({
   count: z.number().int().nonnegative(),
 });
 
+const artifactAuditAssetBytesSchema = z.object({
+  javascript: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(10 * 1024 * 1024 * 1024),
+  stylesheet: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(10 * 1024 * 1024 * 1024),
+  font: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(10 * 1024 * 1024 * 1024),
+  image: z
+    .number()
+    .int()
+    .nonnegative()
+    .max(10 * 1024 * 1024 * 1024),
+});
+
 export const artifactAuditSummarySchema = z.object({
   totalBytes: z.number().int().nonnegative(),
   fileCount: z.number().int().nonnegative(),
   largestFiles: z.array(artifactAuditFileSchema),
   extensions: z.array(artifactAuditExtensionSchema),
+  assetBytes: artifactAuditAssetBytesSchema.default({
+    javascript: 0,
+    stylesheet: 0,
+    font: 0,
+    image: 0,
+  }),
 });
 
 export const artifactAuditReportSchema = z.object({
@@ -225,6 +294,10 @@ export const artifactAuditReportSchema = z.object({
   createdBy: z.string(),
   engineVersion: z.number().int().positive(),
   policy: artifactAuditPolicySchema,
+  context: artifactAuditContextSchema.default({
+    spaMode: false,
+    routingType: 'path',
+  }),
   summary: artifactAuditSummarySchema,
   checks: z.array(artifactAuditCheckSchema),
 });
@@ -253,6 +326,10 @@ export const artifactAuditJobSchema = z
     artifactChecksum: z.string(),
     engineVersion: z.number().int().positive(),
     policy: artifactAuditPolicySchema,
+    context: artifactAuditContextSchema.default({
+      spaMode: false,
+      routingType: 'path',
+    }),
     reportId: z.string().nullable(),
     errorCode: z.string().nullable(),
     errorMessage: z.string().nullable(),
@@ -327,7 +404,12 @@ export type Settings = z.infer<typeof settingsSchema>;
 export type ArtifactAuditEnforcement = z.infer<
   typeof artifactAuditEnforcementSchema
 >;
+export type ArtifactAuditContext = z.infer<typeof artifactAuditContextSchema>;
 export type ArtifactAuditPolicy = z.infer<typeof artifactAuditPolicySchema>;
+export type ArtifactAuditPolicyUpdate = z.infer<
+  typeof artifactAuditPolicyUpdateSchema
+>;
+export type ArtifactAuditRuleConfig = Omit<ArtifactAuditPolicy, 'enforcement'>;
 export type ArtifactAuditStatus = z.infer<typeof artifactAuditStatusSchema>;
 export type ArtifactAuditSeverity = z.infer<typeof artifactAuditSeveritySchema>;
 export type ArtifactAuditCategory = z.infer<typeof artifactAuditCategorySchema>;
@@ -376,3 +458,23 @@ export interface HistoryPageQuery {
   cursor?: string;
 }
 export type Data = z.infer<typeof dataSchema>;
+
+export function getArtifactAuditRuleConfig(
+  policy: ArtifactAuditPolicy
+): ArtifactAuditRuleConfig {
+  const { enforcement: _enforcement, ...ruleConfig } = policy;
+  return ruleConfig;
+}
+
+export function hasSameArtifactAuditRuleConfig(
+  left: ArtifactAuditPolicy,
+  right: ArtifactAuditPolicy
+): boolean {
+  const leftConfig = getArtifactAuditRuleConfig(left);
+  const rightConfig = getArtifactAuditRuleConfig(right);
+  const leftKeys = Object.keys(leftConfig) as (keyof ArtifactAuditRuleConfig)[];
+  return (
+    leftKeys.length === Object.keys(rightConfig).length &&
+    leftKeys.every((key) => leftConfig[key] === rightConfig[key])
+  );
+}

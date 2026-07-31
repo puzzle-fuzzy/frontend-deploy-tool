@@ -21,6 +21,9 @@ const policy: ArtifactAuditPolicy = {
   maxTotalBytes: 1_000_000,
   maxFileBytes: 500_000,
   maxFileCount: 100,
+  maxJavaScriptBytes: 500_000,
+  maxStylesheetBytes: 250_000,
+  maxFontBytes: 500_000,
 };
 
 let artifactDir: string;

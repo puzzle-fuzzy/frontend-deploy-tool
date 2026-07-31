@@ -4,6 +4,7 @@ import { Buffer } from 'node:buffer';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { ArtifactAuditPolicy } from '@deploykit/shared';
 import { createArtifactAuditJobCursorCodec } from '../../src/domain/artifactAuditJobCursor';
 import { createSqliteArtifactAuditJobRepository } from '../../src/repositories/sqliteArtifactAuditJobRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
@@ -16,11 +17,14 @@ import {
 const NOW = '2026-07-30T00:00:00.000Z';
 const CURSOR_SECRET = 'sqlite-audit-job-repository-test-secret';
 const CURSOR_CODEC = createArtifactAuditJobCursorCodec(CURSOR_SECRET);
-const POLICY = {
-  enforcement: 'advisory' as const,
+const POLICY: ArtifactAuditPolicy = {
+  enforcement: 'advisory',
   maxTotalBytes: 50 * 1024 * 1024,
   maxFileBytes: 10 * 1024 * 1024,
   maxFileCount: 1_000,
+  maxJavaScriptBytes: 10 * 1024 * 1024,
+  maxStylesheetBytes: 2 * 1024 * 1024,
+  maxFontBytes: 10 * 1024 * 1024,
 };
 const LIMITS = { global: 10, requester: 10, project: 10 };
 
@@ -37,10 +41,11 @@ afterEach(() => {
 });
 
 describe('SQLite artifact audit queue', () => {
-  test('migrates v4 with a backup and the complete queue index set', () => {
+  test('migrates v4 to v7 with a backup and the complete queue index set', () => {
     const database = new Database(databaseFile, { create: true });
     configureSqlite(database);
     createRelationalSchema(database);
+    downgradeSchemaToV6(database);
     database.exec(`
       DROP TABLE ci_idempotency_records;
       DROP TABLE api_token_security_events;
@@ -83,9 +88,9 @@ describe('SQLite artifact audit queue', () => {
       .all();
     verify.close();
 
-    expect(RELATIONAL_SCHEMA_VERSION).toBe(6);
-    expect(version).toBe(6);
-    expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+    expect(RELATIONAL_SCHEMA_VERSION).toBe(7);
+    expect(version).toBe(7);
+    expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
     expect(indexes.map((index) => index.name)).toEqual(
       expect.arrayContaining([
         'artifact_audit_jobs_active_version_unique_idx',
@@ -108,6 +113,7 @@ describe('SQLite artifact audit queue', () => {
     const database = new Database(databaseFile, { create: true });
     configureSqlite(database);
     createRelationalSchema(database);
+    downgradeSchemaToV6(database);
     seedProject(database);
     database.exec(`
       DROP TABLE ci_idempotency_records;
@@ -139,7 +145,7 @@ describe('SQLite artifact audit queue', () => {
     expect(() =>
       createSqliteProjectRepository({ databaseFile }).load()
     ).toThrow();
-    expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+    expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 
     const verify = new Database(databaseFile);
     expect(
@@ -301,6 +307,33 @@ describe('SQLite artifact audit queue', () => {
         limits: { global: 1, requester: 1, project: 1 },
       }).kind
     ).toBe('reused');
+  });
+
+  test('deduplicates enforcement-only changes but replaces routing-context changes', () => {
+    const repository = createFixture();
+    expect(repository.enqueue(enqueueInput('job-1'))).toMatchObject({
+      kind: 'enqueued',
+      job: {
+        id: 'job-1',
+        context: { spaMode: false, routingType: 'path' },
+      },
+    });
+
+    updateProjectPolicy({ ...POLICY, enforcement: 'blocking' });
+    expect(repository.enqueue(enqueueInput('job-2'))).toMatchObject({
+      kind: 'reused',
+      job: { id: 'job-1' },
+    });
+
+    updateProjectContext({ spaMode: true, routingType: 'hash' });
+    expect(repository.enqueue(enqueueInput('job-3'))).toMatchObject({
+      kind: 'enqueued',
+      replacedJobCount: 1,
+      job: {
+        id: 'job-3',
+        context: { spaMode: true, routingType: 'hash' },
+      },
+    });
   });
 
   test('rejects global, requester, and project capacity independently', () => {
@@ -500,6 +533,54 @@ describe('SQLite artifact audit queue', () => {
         version_id: 'version-1',
       }),
     ]);
+  });
+
+  test('completion ignores enforcement but fails closed on routing-context drift', () => {
+    const repository = createFixture();
+    repository.enqueue(enqueueInput('job-1'));
+    repository.recoverAndClaim(claimInput('worker-1'));
+    updateProjectPolicy({ ...POLICY, enforcement: 'blocking' });
+
+    expect(repository.complete(completeInput())).toMatchObject({
+      kind: 'transitioned',
+      outcome: 'succeeded',
+      job: { status: 'succeeded' },
+    });
+    expect(readReports()).toEqual([
+      expect.objectContaining({
+        context_json: JSON.stringify({
+          spaMode: false,
+          routingType: 'path',
+        }),
+      }),
+    ]);
+
+    updateProjectPolicy(POLICY);
+    expect(
+      repository.enqueue({
+        ...enqueueInput('job-2'),
+        now: '2026-07-30T00:00:02.000Z',
+      })
+    ).toMatchObject({ kind: 'enqueued' });
+    repository.recoverAndClaim({
+      ...claimInput('worker-2'),
+      now: '2026-07-30T00:00:02.000Z',
+    });
+    updateProjectContext({ spaMode: true, routingType: 'hash' });
+    expect(
+      repository.complete({
+        ...completeInput(),
+        jobId: 'job-2',
+        workerId: 'worker-2',
+        now: '2026-07-30T00:00:03.000Z',
+        reportId: 'report-2',
+        historyEventId: 'history-2',
+      })
+    ).toMatchObject({
+      kind: 'transitioned',
+      outcome: 'failed',
+      job: { status: 'failed', errorCode: 'AUDIT_REQUIRED' },
+    });
   });
 
   test('rolls completion back when the history append trigger fails', () => {
@@ -925,6 +1006,22 @@ function createFixture() {
   });
 }
 
+function downgradeSchemaToV6(database: Database): void {
+  for (const [table, column] of [
+    ['projects', 'audit_max_javascript_bytes'],
+    ['projects', 'audit_max_stylesheet_bytes'],
+    ['projects', 'audit_max_font_bytes'],
+    ['artifact_audits', 'context_json'],
+    ['artifact_audit_jobs', 'context_json'],
+  ] as const) {
+    const present = database
+      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .some((candidate) => candidate.name === column);
+    if (present) database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+}
+
 function seedProject(database: Database): void {
   database
     .query(
@@ -1036,6 +1133,12 @@ function completeInput() {
         fileCount: 1,
         largestFiles: [{ path: 'index.html', size: 1 }],
         extensions: [{ extension: '.html', bytes: 1, count: 1 }],
+        assetBytes: {
+          javascript: 0,
+          stylesheet: 0,
+          font: 0,
+          image: 0,
+        },
       },
       checks: [],
     },
@@ -1151,6 +1254,21 @@ function updateProjectPolicy(policy: typeof POLICY): void {
   database.close();
 }
 
+function updateProjectContext(context: {
+  spaMode: boolean;
+  routingType: 'hash' | 'path';
+}): void {
+  const database = new Database(databaseFile);
+  database
+    .query(
+      `UPDATE projects
+       SET spa_mode = ?, routing_type = ?
+       WHERE id = 'project-1'`
+    )
+    .run(context.spaMode ? 1 : 0, context.routingType);
+  database.close();
+}
+
 function seedOtherActive(input: {
   projectId: string;
   versionId: string;
@@ -1226,7 +1344,7 @@ function resetDatabase(): void {
   rmSync(databaseFile, { force: true });
   rmSync(`${databaseFile}-wal`, { force: true });
   rmSync(`${databaseFile}-shm`, { force: true });
-  rmSync(`${databaseFile}.pre-relational-v6.bak`, { force: true });
+  rmSync(`${databaseFile}.pre-relational-v7.bak`, { force: true });
 }
 
 function readJobs(): Array<Record<string, unknown>> {

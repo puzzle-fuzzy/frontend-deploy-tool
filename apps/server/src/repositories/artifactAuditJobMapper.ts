@@ -18,6 +18,7 @@ export interface ArtifactAuditJobRow {
   artifact_checksum: string;
   engine_version: number;
   policy_json: string;
+  context_json: string;
   report_id: string | null;
   error_code: string | null;
   error_message: string | null;
@@ -30,7 +31,7 @@ export interface ArtifactAuditJobRow {
 export const ARTIFACT_AUDIT_JOB_SELECT_COLUMNS = `
   id, project_id, version_id, requested_by, status, priority, attempts,
   max_attempts, next_run_at, locked_by, locked_until, artifact_checksum,
-  engine_version, policy_json, report_id, error_code, error_message,
+  engine_version, policy_json, context_json, report_id, error_code, error_message,
   created_at, updated_at, started_at, completed_at
 `;
 
@@ -52,6 +53,7 @@ export function rowToArtifactAuditJob(
     artifactChecksum: row.artifact_checksum,
     engineVersion: row.engine_version,
     policy: JSON.parse(row.policy_json) as ArtifactAuditJob['policy'],
+    context: JSON.parse(row.context_json) as ArtifactAuditJob['context'],
     reportId: row.report_id,
     errorCode: row.error_code,
     errorMessage: row.error_message,

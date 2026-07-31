@@ -1,5 +1,5 @@
 import type {
-  ArtifactAuditPolicy,
+  ArtifactAuditPolicyUpdate,
   CreateProjectInput,
   HistoryPage,
   Project,
@@ -15,6 +15,7 @@ import {
   DEFAULT_PROJECT_AUDIT_POLICY,
   DEFAULT_PROJECT_SETTINGS,
   isSlugUnique,
+  normalizeArtifactAuditPolicy,
 } from '../domain/project';
 import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
@@ -141,7 +142,7 @@ export function createProjectService(
 
     updateProjectAuditPolicy(
       id: string,
-      auditPolicy: ArtifactAuditPolicy,
+      auditPolicyUpdate: ArtifactAuditPolicyUpdate,
       actorId: string
     ): Project {
       return repo.mutate((data) => {
@@ -155,11 +156,26 @@ export function createProjectService(
         }
 
         const previousPolicy = project.auditPolicy;
+        const auditPolicy = normalizeArtifactAuditPolicy(
+          auditPolicyUpdate,
+          previousPolicy
+        );
+        if (!auditPolicy) {
+          throw new ApiError(
+            ErrorCode.INVALID_AUDIT_POLICY,
+            'Invalid artifact audit policy'
+          );
+        }
         if (
           previousPolicy.enforcement === auditPolicy.enforcement &&
           previousPolicy.maxTotalBytes === auditPolicy.maxTotalBytes &&
           previousPolicy.maxFileBytes === auditPolicy.maxFileBytes &&
-          previousPolicy.maxFileCount === auditPolicy.maxFileCount
+          previousPolicy.maxFileCount === auditPolicy.maxFileCount &&
+          previousPolicy.maxJavaScriptBytes ===
+            auditPolicy.maxJavaScriptBytes &&
+          previousPolicy.maxStylesheetBytes ===
+            auditPolicy.maxStylesheetBytes &&
+          previousPolicy.maxFontBytes === auditPolicy.maxFontBytes
         ) {
           return project;
         }

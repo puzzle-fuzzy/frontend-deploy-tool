@@ -6,6 +6,7 @@ import type {
 } from '@deploykit/shared';
 import {
   compareArtifactAuditClaimOrder,
+  hasSameArtifactAuditContext,
   hasSameArtifactAuditPolicy,
   hasSameArtifactAuditSnapshot,
   isActiveArtifactAuditJob,
@@ -49,6 +50,7 @@ export function createAggregateArtifactAuditJobRepository(
           artifactChecksum: current.version.checksum,
           engineVersion: input.engineVersion,
           policy: current.project.auditPolicy,
+          context: current.project.settings,
         };
         const activeJobs = data.artifactAuditJobs.filter(
           (job) =>
@@ -98,6 +100,7 @@ export function createAggregateArtifactAuditJobRepository(
           artifactChecksum: current.version.checksum,
           engineVersion: input.engineVersion,
           policy: structuredClone(current.project.auditPolicy),
+          context: structuredClone(current.project.settings),
           reportId: null,
           errorCode: null,
           errorMessage: null,
@@ -366,7 +369,8 @@ function recoverAndClaimAggregate(
       current.kind !== 'found' ||
       job.artifactChecksum !== current.version.checksum ||
       job.engineVersion !== input.engineVersion ||
-      !hasSameArtifactAuditPolicy(job.policy, current.project.auditPolicy)
+      !hasSameArtifactAuditPolicy(job.policy, current.project.auditPolicy) ||
+      !hasSameArtifactAuditContext(job.context, current.project.settings)
     ) {
       applyArtifactAuditCancel(
         job,
@@ -405,7 +409,8 @@ function completeAggregate(
     input.result.artifactChecksum !== job.artifactChecksum ||
     current.version.checksum !== job.artifactChecksum ||
     job.engineVersion !== input.engineVersion ||
-    !hasSameArtifactAuditPolicy(current.project.auditPolicy, job.policy)
+    !hasSameArtifactAuditPolicy(current.project.auditPolicy, job.policy) ||
+    !hasSameArtifactAuditContext(current.project.settings, job.context)
   ) {
     applyArtifactAuditTerminalFailure(
       job,

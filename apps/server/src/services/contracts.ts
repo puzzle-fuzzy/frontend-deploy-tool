@@ -4,7 +4,7 @@ import type {
   ApiTokenSecurityEvent,
   ArtifactAuditJob,
   ArtifactAuditJobPage,
-  ArtifactAuditPolicy,
+  ArtifactAuditPolicyUpdate,
   ArtifactAuditReport,
   CreateProjectInput,
   HistoryPage,
@@ -131,7 +131,7 @@ export interface ProjectService {
   ): Project;
   updateProjectAuditPolicy(
     id: string,
-    auditPolicy: ArtifactAuditPolicy,
+    auditPolicy: ArtifactAuditPolicyUpdate,
     actorId: string
   ): Project;
   deleteProject(id: string, actorId: string): Project;

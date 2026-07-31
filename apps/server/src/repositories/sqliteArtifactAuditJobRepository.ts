@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { existsSync } from 'node:fs';
 import type { ArtifactAuditJob, ArtifactAuditPolicy } from '@deploykit/shared';
 import {
+  hasSameArtifactAuditContext,
   hasSameArtifactAuditPolicy,
   hasSameArtifactAuditSnapshot,
   isActiveArtifactAuditJob,
@@ -99,6 +100,7 @@ export function createSqliteArtifactAuditJobRepository(
               artifactChecksum: project.checksum,
               engineVersion: nextInput.engineVersion,
               policy: project.policy,
+              context: project.context,
             };
             const duplicate = activeJobs.find((job) =>
               hasSameArtifactAuditSnapshot(job, snapshot)
@@ -144,12 +146,12 @@ export function createSqliteArtifactAuditJobRepository(
                 `INSERT INTO artifact_audit_jobs (
                    id, project_id, version_id, requested_by, status, priority,
                    attempts, max_attempts, next_run_at, locked_by, locked_until,
-                   artifact_checksum, engine_version, policy_json, report_id,
-                   error_code, error_message, created_at, updated_at, started_at,
-                   completed_at
+                   artifact_checksum, engine_version, policy_json, context_json,
+                   report_id, error_code, error_message, created_at, updated_at,
+                   started_at, completed_at
                  ) VALUES (
-                   ?, ?, ?, ?, 'queued', ?, 0, ?, ?, NULL, NULL, ?, ?, ?, NULL,
-                   NULL, NULL, ?, ?, NULL, NULL
+                   ?, ?, ?, ?, 'queued', ?, 0, ?, ?, NULL, NULL, ?, ?, ?, ?,
+                   NULL, NULL, NULL, ?, ?, NULL, NULL
                  )`
               )
               .run(
@@ -163,6 +165,7 @@ export function createSqliteArtifactAuditJobRepository(
                 project.checksum,
                 nextInput.engineVersion,
                 JSON.stringify(project.policy),
+                JSON.stringify(project.context),
                 nextInput.now,
                 nextInput.now
               );
@@ -269,7 +272,8 @@ export function createSqliteArtifactAuditJobRepository(
                 current.kind !== 'found' ||
                 candidate.artifactChecksum !== current.checksum ||
                 candidate.engineVersion !== nextInput.engineVersion ||
-                !hasSameArtifactAuditPolicy(candidate.policy, current.policy)
+                !hasSameArtifactAuditPolicy(candidate.policy, current.policy) ||
+                !hasSameArtifactAuditContext(candidate.context, current.context)
               ) {
                 terminateStaleJob(
                   database,
@@ -402,7 +406,8 @@ export function createSqliteArtifactAuditJobRepository(
               nextInput.result.artifactChecksum !== job.artifactChecksum ||
               current.checksum !== job.artifactChecksum ||
               job.engineVersion !== nextInput.engineVersion ||
-              !hasSameArtifactAuditPolicy(current.policy, job.policy)
+              !hasSameArtifactAuditPolicy(current.policy, job.policy) ||
+              !hasSameArtifactAuditContext(current.context, job.context)
             ) {
               const stale = transitionJobFailed(
                 database,
@@ -433,8 +438,8 @@ export function createSqliteArtifactAuditJobRepository(
                 `INSERT INTO artifact_audits (
                    id, project_id, version_id, artifact_checksum, status, score,
                    created_at, created_by, engine_version, policy_json,
-                   summary_json, checks_json
-                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                   context_json, summary_json, checks_json
+                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(version_id) DO UPDATE SET
                    id = excluded.id,
                    project_id = excluded.project_id,
@@ -445,6 +450,7 @@ export function createSqliteArtifactAuditJobRepository(
                    created_by = excluded.created_by,
                    engine_version = excluded.engine_version,
                    policy_json = excluded.policy_json,
+                   context_json = excluded.context_json,
                    summary_json = excluded.summary_json,
                    checks_json = excluded.checks_json`
               )
@@ -459,6 +465,7 @@ export function createSqliteArtifactAuditJobRepository(
                 records.report.createdBy,
                 records.report.engineVersion,
                 JSON.stringify(records.report.policy),
+                JSON.stringify(records.report.context),
                 JSON.stringify(records.report.summary),
                 JSON.stringify(records.report.checks)
               );
@@ -739,6 +746,7 @@ type ProjectSnapshotResult =
       kind: 'found';
       checksum: string;
       policy: ArtifactAuditPolicy;
+      context: { spaMode: boolean; routingType: 'hash' | 'path' };
       projectName: string;
       versionName: string;
     }
@@ -760,13 +768,22 @@ function readProjectSnapshot(
         audit_max_total_bytes: number;
         audit_max_file_bytes: number;
         audit_max_file_count: number;
+        audit_max_javascript_bytes: number;
+        audit_max_stylesheet_bytes: number;
+        audit_max_font_bytes: number;
+        spa_mode: number;
+        routing_type: 'hash' | 'path';
       },
       [string, string]
     >(
       `SELECT versions.checksum, projects.name AS project_name,
               versions.name AS version_name, projects.audit_enforcement,
               projects.audit_max_total_bytes, projects.audit_max_file_bytes,
-              projects.audit_max_file_count
+              projects.audit_max_file_count,
+              projects.audit_max_javascript_bytes,
+              projects.audit_max_stylesheet_bytes,
+              projects.audit_max_font_bytes, projects.spa_mode,
+              projects.routing_type
        FROM projects
        LEFT JOIN versions
          ON versions.project_id = projects.id AND versions.id = ?
@@ -785,6 +802,13 @@ function readProjectSnapshot(
       maxTotalBytes: project.audit_max_total_bytes,
       maxFileBytes: project.audit_max_file_bytes,
       maxFileCount: project.audit_max_file_count,
+      maxJavaScriptBytes: project.audit_max_javascript_bytes,
+      maxStylesheetBytes: project.audit_max_stylesheet_bytes,
+      maxFontBytes: project.audit_max_font_bytes,
+    },
+    context: {
+      spaMode: project.spa_mode === 1,
+      routingType: project.routing_type,
     },
   };
 }

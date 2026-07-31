@@ -309,7 +309,7 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     apiTokens: 2,
     ciIdempotencyRecords: 3,
     versions: 3,
-    schemaVersion: 6,
+    schemaVersion: 7,
     integrity: 'ok',
     foreignKeyViolations: 0,
   });
@@ -326,7 +326,7 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     };
   };
   expect(backupBody.manifest).toMatchObject({
-    schemaVersion: 6,
+    schemaVersion: 7,
     metadataCounts: {
       apiTokens: beforeBackup.apiTokens,
       apiTokenSecurityEvents: beforeBackup.apiTokenSecurityEvents,
@@ -415,7 +415,7 @@ test('production process preserves CI idempotency, credential lifecycle, and bac
     apiTokenSecurityEvents: 0,
     ciIdempotencyRecords: 0,
     versions: 0,
-    schemaVersion: 6,
+    schemaVersion: 7,
     integrity: 'ok',
     foreignKeyViolations: 0,
   });

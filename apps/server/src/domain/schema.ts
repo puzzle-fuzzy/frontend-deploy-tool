@@ -33,8 +33,9 @@ import { syncProductionStatus } from './version';
  * - v6: versions persist explicit artifact integrity status and check time.
  * - v7: projects carry artifact-audit policy and current per-version reports.
  * - v8: durable artifact-audit jobs carry snapshots, leases, and outcomes.
+ * - v9: audit policies carry asset budgets and jobs/reports snapshot context.
  */
-export const CURRENT_SCHEMA_VERSION = 8;
+export const CURRENT_SCHEMA_VERSION = 9;
 
 export interface MigrationResult {
   data: Data;
@@ -129,7 +130,17 @@ export function createEmptyData(): Data {
  */
 export function migrate(raw: unknown): MigrationResult {
   const parsed = legacyDataSchema.safeParse(raw);
-  if (!parsed.success) return { data: createEmptyData(), migrated: false };
+  if (!parsed.success) {
+    if (
+      typeof raw === 'object' &&
+      raw !== null &&
+      'schemaVersion' in raw &&
+      raw.schemaVersion === 8
+    ) {
+      throw new Error('Document schema v8 migration failed validation');
+    }
+    return { data: createEmptyData(), migrated: false };
+  }
 
   const input = parsed.data;
   const inputVersion = input.schemaVersion ?? 0;

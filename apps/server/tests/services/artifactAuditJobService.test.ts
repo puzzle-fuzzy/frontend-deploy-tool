@@ -474,6 +474,9 @@ function projectFixture(checksum: string): Project {
       maxTotalBytes: 50 * 1024 * 1024,
       maxFileBytes: 10 * 1024 * 1024,
       maxFileCount: 1_000,
+      maxJavaScriptBytes: 10 * 1024 * 1024,
+      maxStylesheetBytes: 2 * 1024 * 1024,
+      maxFontBytes: 10 * 1024 * 1024,
     },
     createdBy: 'owner-1',
     members: [
@@ -496,6 +499,12 @@ function resultFixture(checksum: string): ArtifactAuditResult {
       fileCount: 1,
       largestFiles: [{ path: 'index.html', size: 1 }],
       extensions: [{ extension: '.html', bytes: 1, count: 1 }],
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
     },
     checks: [],
   };

@@ -97,9 +97,153 @@ test('migrate upgrades a pre-metadata v1 payload to the current schema', () => {
     maxTotalBytes: 50 * 1024 * 1024,
     maxFileBytes: 10 * 1024 * 1024,
     maxFileCount: 1_000,
+    maxJavaScriptBytes: 10 * 1024 * 1024,
+    maxStylesheetBytes: 2 * 1024 * 1024,
+    maxFontBytes: 10 * 1024 * 1024,
   });
   expect(data.artifactAudits).toEqual([]);
   expect(data.artifactAuditJobs).toEqual([]);
+});
+
+test('migrate hydrates v8 audit snapshots to the v9 contract', () => {
+  const policy = {
+    enforcement: 'blocking',
+    maxTotalBytes: 1_024,
+    maxFileBytes: 512,
+    maxFileCount: 10,
+  } as const;
+  const raw = {
+    schemaVersion: 8,
+    projects: [
+      {
+        id: 'p1',
+        name: 'P',
+        slug: 'project',
+        description: '',
+        createdAt: '2026-07-30T00:00:00.000Z',
+        updatedAt: '2026-07-30T00:00:00.000Z',
+        activeVersionId: null,
+        versions: [
+          {
+            id: 'v1',
+            name: 'v1',
+            description: '',
+            createdAt: '2026-07-30T00:00:00.000Z',
+            size: 10,
+            fileCount: 1,
+            sourceType: 'folder',
+            status: 'preview',
+            publishedAt: null,
+            publishedBy: null,
+            checksum: 'checksum-1',
+            integrityStatus: 'verified',
+            integrityCheckedAt: '2026-07-30T00:00:00.000Z',
+          },
+        ],
+        settings: { spaMode: true, routingType: 'hash' },
+        auditPolicy: policy,
+        createdBy: 'system',
+        members: [],
+      },
+    ],
+    users: [],
+    history: [],
+    artifactAudits: [
+      {
+        id: 'report-1',
+        projectId: 'p1',
+        versionId: 'v1',
+        artifactChecksum: 'checksum-1',
+        status: 'warning',
+        score: 90,
+        createdAt: '2026-07-30T00:01:00.000Z',
+        createdBy: 'system',
+        engineVersion: 1,
+        policy,
+        summary: {
+          totalBytes: 10,
+          fileCount: 1,
+          largestFiles: [{ path: 'index.html', size: 10 }],
+          extensions: [{ extension: '.html', bytes: 10, count: 1 }],
+        },
+        checks: [
+          {
+            id: 'seo.title',
+            category: 'seo',
+            severity: 'warning',
+            passed: false,
+            message: 'Title is missing',
+          },
+        ],
+      },
+    ],
+    artifactAuditJobs: [
+      {
+        id: 'job-1',
+        projectId: 'p1',
+        versionId: 'v1',
+        requestedBy: 'system',
+        status: 'succeeded',
+        priority: 0,
+        attempts: 1,
+        maxAttempts: 3,
+        nextRunAt: '2026-07-30T00:00:00.000Z',
+        lockedBy: null,
+        lockedUntil: null,
+        artifactChecksum: 'checksum-1',
+        engineVersion: 1,
+        policy,
+        reportId: 'report-1',
+        errorCode: null,
+        errorMessage: null,
+        createdAt: '2026-07-30T00:00:00.000Z',
+        updatedAt: '2026-07-30T00:01:00.000Z',
+        startedAt: '2026-07-30T00:00:05.000Z',
+        completedAt: '2026-07-30T00:01:00.000Z',
+      },
+    ],
+  };
+
+  const { data, migrated } = migrate(raw);
+
+  expect(migrated).toBe(true);
+  expect(data.schemaVersion).toBe(9);
+  expect(data.projects[0].auditPolicy).toMatchObject({
+    ...policy,
+    maxJavaScriptBytes: 10 * 1024 * 1024,
+    maxStylesheetBytes: 2 * 1024 * 1024,
+    maxFontBytes: 10 * 1024 * 1024,
+  });
+  expect(data.artifactAudits[0]).toMatchObject({
+    engineVersion: 1,
+    context: { spaMode: false, routingType: 'path' },
+    summary: {
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
+    },
+    checks: [{ ruleVersion: 1 }],
+  });
+  expect(data.artifactAuditJobs[0]).toMatchObject({
+    engineVersion: 1,
+    context: { spaMode: false, routingType: 'path' },
+  });
+});
+
+test('migrate fails closed when a declared v8 document is invalid', () => {
+  expect(() =>
+    migrate({
+      schemaVersion: 8,
+      projects: 'not-an-array',
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    })
+  ).toThrow('Document schema v8 migration failed validation');
 });
 
 test('migrate leaves already-current data unchanged', () => {
@@ -146,21 +290,20 @@ test('repository backs up and persists a migrated v0 file on first load', () => 
   expect(repo.load()).toEqual(loaded);
 });
 
-test('repository backs up a deployed v7 document before adding audit jobs', () => {
+test('repository backs up a deployed v8 document before versioning audit snapshots', () => {
   const dataFile = join(tempDir, 'data.json');
   const current = migrate(v0Payload).data;
-  const { artifactAuditJobs: _artifactAuditJobs, ...withoutJobs } = current;
-  const v7Payload = { ...withoutJobs, schemaVersion: 7 };
-  const original = JSON.stringify(v7Payload);
+  const v8Payload = { ...current, schemaVersion: 8 };
+  const original = JSON.stringify(v8Payload);
   writeFileSync(dataFile, original);
 
   const repo = createJsonProjectRepository(dataFile);
   const loaded = repo.load();
 
-  expect(loaded.schemaVersion).toBe(8);
+  expect(loaded.schemaVersion).toBe(9);
   expect(loaded.artifactAuditJobs).toEqual([]);
   expect(readFileSync(`${dataFile}.bak`, 'utf-8')).toBe(original);
   const persisted = JSON.parse(readFileSync(dataFile, 'utf-8'));
-  expect(persisted.schemaVersion).toBe(8);
+  expect(persisted.schemaVersion).toBe(9);
   expect(persisted.artifactAuditJobs).toEqual([]);
 });

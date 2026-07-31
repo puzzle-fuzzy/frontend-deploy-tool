@@ -61,6 +61,9 @@ function createFixture(tempDir: string) {
           maxTotalBytes: 50 * 1024 * 1024,
           maxFileBytes: 10 * 1024 * 1024,
           maxFileCount: 1_000,
+          maxJavaScriptBytes: 10 * 1024 * 1024,
+          maxStylesheetBytes: 2 * 1024 * 1024,
+          maxFontBytes: 10 * 1024 * 1024,
         },
         createdBy: 'user-1',
         members: [],
@@ -94,12 +97,22 @@ function createFixture(tempDir: string) {
           maxTotalBytes: 50 * 1024 * 1024,
           maxFileBytes: 10 * 1024 * 1024,
           maxFileCount: 1_000,
+          maxJavaScriptBytes: 10 * 1024 * 1024,
+          maxStylesheetBytes: 2 * 1024 * 1024,
+          maxFontBytes: 10 * 1024 * 1024,
         },
+        context: { spaMode: false, routingType: 'path' },
         summary: {
           totalBytes: 19,
           fileCount: 1,
           largestFiles: [{ path: 'index.html', size: 19 }],
           extensions: [{ extension: '.html', bytes: 19, count: 1 }],
+          assetBytes: {
+            javascript: 0,
+            stylesheet: 0,
+            font: 0,
+            image: 0,
+          },
         },
         checks: [],
       },
@@ -124,7 +137,11 @@ function createFixture(tempDir: string) {
           maxTotalBytes: 50 * 1024 * 1024,
           maxFileBytes: 10 * 1024 * 1024,
           maxFileCount: 1_000,
+          maxJavaScriptBytes: 10 * 1024 * 1024,
+          maxStylesheetBytes: 2 * 1024 * 1024,
+          maxFontBytes: 10 * 1024 * 1024,
         },
+        context: { spaMode: false, routingType: 'path' },
         reportId: 'audit-1',
         errorCode: null,
         errorMessage: null,
@@ -311,9 +328,9 @@ describe('createBackupService', () => {
         .get()?.present;
       migrated.close();
 
-      expect(version).toBe(6);
+      expect(version).toBe(7);
       expect(tokenTable).toBe(1);
-      expect(existsSync(`${fixture.databaseFile}.pre-relational-v6.bak`)).toBe(
+      expect(existsSync(`${fixture.databaseFile}.pre-relational-v7.bak`)).toBe(
         true
       );
     } finally {
@@ -779,7 +796,12 @@ function downgradeBackupToSchemaV5(backupDir: string): void {
       DROP TABLE ci_idempotency_records;
       DROP TABLE api_token_security_events;
       DROP TABLE project_api_tokens;
-      DELETE FROM schema_migrations WHERE version = 6;
+      ALTER TABLE projects DROP COLUMN audit_max_javascript_bytes;
+      ALTER TABLE projects DROP COLUMN audit_max_stylesheet_bytes;
+      ALTER TABLE projects DROP COLUMN audit_max_font_bytes;
+      ALTER TABLE artifact_audits DROP COLUMN context_json;
+      ALTER TABLE artifact_audit_jobs DROP COLUMN context_json;
+      DELETE FROM schema_migrations WHERE version >= 6;
     `);
   } finally {
     database.close();

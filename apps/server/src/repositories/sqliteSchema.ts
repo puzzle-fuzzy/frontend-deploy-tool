@@ -1,6 +1,6 @@
 import type { Database } from 'bun:sqlite';
 
-export const RELATIONAL_SCHEMA_VERSION = 6;
+export const RELATIONAL_SCHEMA_VERSION = 7;
 
 const RELATIONAL_SCHEMA_SQL = `
   CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -40,6 +40,15 @@ const RELATIONAL_SCHEMA_SQL = `
     ),
     audit_max_file_count INTEGER NOT NULL DEFAULT 1000 CHECK (
       audit_max_file_count > 0
+    ),
+    audit_max_javascript_bytes INTEGER NOT NULL DEFAULT 10485760 CHECK (
+      audit_max_javascript_bytes > 0
+    ),
+    audit_max_stylesheet_bytes INTEGER NOT NULL DEFAULT 2097152 CHECK (
+      audit_max_stylesheet_bytes > 0
+    ),
+    audit_max_font_bytes INTEGER NOT NULL DEFAULT 10485760 CHECK (
+      audit_max_font_bytes > 0
     ),
     created_by TEXT NOT NULL,
     sort_order INTEGER NOT NULL,
@@ -85,6 +94,8 @@ const RELATIONAL_SCHEMA_SQL = `
     created_by TEXT NOT NULL,
     engine_version INTEGER NOT NULL CHECK (engine_version > 0),
     policy_json TEXT NOT NULL,
+    context_json TEXT NOT NULL
+      DEFAULT '{"spaMode":false,"routingType":"path"}',
     summary_json TEXT NOT NULL,
     checks_json TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
@@ -113,6 +124,8 @@ const RELATIONAL_SCHEMA_SQL = `
     artifact_checksum TEXT NOT NULL,
     engine_version INTEGER NOT NULL CHECK (engine_version > 0),
     policy_json TEXT NOT NULL,
+    context_json TEXT NOT NULL
+      DEFAULT '{"spaMode":false,"routingType":"path"}',
     report_id TEXT NULL,
     error_code TEXT NULL,
     error_message TEXT NULL,
@@ -646,6 +659,31 @@ export function upgradeRelationalSchema(
       .query(
         `INSERT INTO schema_migrations (version, applied_at)
          VALUES (6, ?)`
+      )
+      .run(new Date().toISOString());
+  }
+  if (fromVersion < 7) {
+    database.exec(`
+      ALTER TABLE projects
+        ADD COLUMN audit_max_javascript_bytes INTEGER NOT NULL
+        DEFAULT 10485760 CHECK (audit_max_javascript_bytes > 0);
+      ALTER TABLE projects
+        ADD COLUMN audit_max_stylesheet_bytes INTEGER NOT NULL
+        DEFAULT 2097152 CHECK (audit_max_stylesheet_bytes > 0);
+      ALTER TABLE projects
+        ADD COLUMN audit_max_font_bytes INTEGER NOT NULL
+        DEFAULT 10485760 CHECK (audit_max_font_bytes > 0);
+      ALTER TABLE artifact_audits
+        ADD COLUMN context_json TEXT NOT NULL
+        DEFAULT '{"spaMode":false,"routingType":"path"}';
+      ALTER TABLE artifact_audit_jobs
+        ADD COLUMN context_json TEXT NOT NULL
+        DEFAULT '{"spaMode":false,"routingType":"path"}';
+    `);
+    database
+      .query(
+        `INSERT INTO schema_migrations (version, applied_at)
+         VALUES (7, ?)`
       )
       .run(new Date().toISOString());
   }

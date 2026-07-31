@@ -47,6 +47,9 @@ function createData(projectName = 'Signal Desk'): Data {
           maxTotalBytes: 50 * 1024 * 1024,
           maxFileBytes: 10 * 1024 * 1024,
           maxFileCount: 1_000,
+          maxJavaScriptBytes: 10 * 1024 * 1024,
+          maxStylesheetBytes: 2 * 1024 * 1024,
+          maxFontBytes: 10 * 1024 * 1024,
         },
         createdBy: 'user-1',
         members: [],
@@ -57,6 +60,22 @@ function createData(projectName = 'Signal Desk'): Data {
     artifactAudits: [],
     artifactAuditJobs: [],
   };
+}
+
+function downgradeSchemaToV6(database: Database): void {
+  for (const [table, column] of [
+    ['projects', 'audit_max_javascript_bytes'],
+    ['projects', 'audit_max_stylesheet_bytes'],
+    ['projects', 'audit_max_font_bytes'],
+    ['artifact_audits', 'context_json'],
+    ['artifact_audit_jobs', 'context_json'],
+  ] as const) {
+    const present = database
+      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .some((candidate) => candidate.name === column);
+    if (present) database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
 }
 
 test('creates a SQLite store with WAL enabled', () => {
@@ -105,11 +124,268 @@ test('creates the normalized relational schema', () => {
   ]);
 });
 
-test('upgrades the deployed relational v3 schema to v6 with a backup', () => {
+test('upgrades relational v6 audit snapshots to v7 without rejecting small total budgets', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
+  for (const [table, column] of [
+    ['projects', 'audit_max_javascript_bytes'],
+    ['projects', 'audit_max_stylesheet_bytes'],
+    ['projects', 'audit_max_font_bytes'],
+    ['artifact_audits', 'context_json'],
+    ['artifact_audit_jobs', 'context_json'],
+  ] as const) {
+    const present = database
+      .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
+      .all()
+      .some((candidate) => candidate.name === column);
+    if (present) database.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+  }
+  const policy = {
+    enforcement: 'blocking' as const,
+    maxTotalBytes: 1_024,
+    maxFileBytes: 512,
+    maxFileCount: 10,
+  };
+  database
+    .query(
+      `INSERT INTO users (
+         id, name, email, password_hash, role, created_at, updated_at, sort_order
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'user-1',
+      'Owner',
+      'owner@example.com',
+      'hash',
+      'developer',
+      '2026-07-30T00:00:00.000Z',
+      '2026-07-30T00:00:00.000Z',
+      0
+    );
+  database
+    .query(
+      `INSERT INTO projects (
+         id, name, slug, description, created_at, updated_at, active_version_id,
+         spa_mode, routing_type, audit_enforcement, audit_max_total_bytes,
+         audit_max_file_bytes, audit_max_file_count, created_by, sort_order
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'project-1',
+      'Project',
+      'project',
+      '',
+      '2026-07-30T00:00:00.000Z',
+      '2026-07-30T00:00:00.000Z',
+      null,
+      1,
+      'hash',
+      policy.enforcement,
+      policy.maxTotalBytes,
+      policy.maxFileBytes,
+      policy.maxFileCount,
+      'user-1',
+      0
+    );
+  database
+    .query(
+      `INSERT INTO versions (
+         id, project_id, name, description, created_at, size, file_count,
+         source_type, status, published_at, published_by, checksum,
+         integrity_status, integrity_checked_at, sort_order
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'version-1',
+      'project-1',
+      'v1',
+      '',
+      '2026-07-30T00:00:00.000Z',
+      10,
+      1,
+      'folder',
+      'preview',
+      null,
+      null,
+      'checksum-1',
+      'verified',
+      '2026-07-30T00:00:00.000Z',
+      0
+    );
+  database
+    .query(
+      `INSERT INTO artifact_audits (
+         id, project_id, version_id, artifact_checksum, status, score,
+         created_at, created_by, engine_version, policy_json, summary_json,
+         checks_json
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'report-1',
+      'project-1',
+      'version-1',
+      'checksum-1',
+      'warning',
+      90,
+      '2026-07-30T00:01:00.000Z',
+      'user-1',
+      1,
+      JSON.stringify(policy),
+      JSON.stringify({
+        totalBytes: 10,
+        fileCount: 1,
+        largestFiles: [{ path: 'index.html', size: 10 }],
+        extensions: [{ extension: '.html', bytes: 10, count: 1 }],
+      }),
+      JSON.stringify([
+        {
+          id: 'seo.title',
+          category: 'seo',
+          severity: 'warning',
+          passed: false,
+          message: 'Title is missing',
+        },
+      ])
+    );
+  database
+    .query(
+      `INSERT INTO artifact_audit_jobs (
+         id, project_id, version_id, requested_by, status, priority, attempts,
+         max_attempts, next_run_at, locked_by, locked_until, artifact_checksum,
+         engine_version, policy_json, report_id, error_code, error_message,
+         created_at, updated_at, started_at, completed_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .run(
+      'job-1',
+      'project-1',
+      'version-1',
+      'user-1',
+      'succeeded',
+      0,
+      1,
+      3,
+      '2026-07-30T00:00:00.000Z',
+      null,
+      null,
+      'checksum-1',
+      1,
+      JSON.stringify(policy),
+      'report-1',
+      null,
+      null,
+      '2026-07-30T00:00:00.000Z',
+      '2026-07-30T00:01:00.000Z',
+      '2026-07-30T00:00:05.000Z',
+      '2026-07-30T00:01:00.000Z'
+    );
+  database.exec(`
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z'),
+      (4, '2026-07-30T00:00:00.000Z'),
+      (5, '2026-07-30T00:00:00.000Z'),
+      (6, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number | null }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const integrity = verify
+    .query<{ integrity_check: string }, []>('PRAGMA integrity_check')
+    .get();
+  const foreignKeyViolations = verify.query('PRAGMA foreign_key_check').all();
+  verify.close();
+
+  expect(migration?.version).toBe(7);
+  expect(integrity?.integrity_check).toBe('ok');
+  expect(foreignKeyViolations).toEqual([]);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
+  expect(loaded.projects[0].auditPolicy).toEqual({
+    ...policy,
+    maxJavaScriptBytes: 10 * 1024 * 1024,
+    maxStylesheetBytes: 2 * 1024 * 1024,
+    maxFontBytes: 10 * 1024 * 1024,
+  });
+  expect(loaded.artifactAudits[0]).toMatchObject({
+    engineVersion: 1,
+    context: { spaMode: false, routingType: 'path' },
+    summary: {
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
+    },
+    checks: [{ ruleVersion: 1 }],
+  });
+  expect(loaded.artifactAuditJobs[0]).toMatchObject({
+    engineVersion: 1,
+    context: { spaMode: false, routingType: 'path' },
+  });
+});
+
+test('fails relational v6 to v7 closed when an audit budget column has drifted', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  downgradeSchemaToV6(database);
+  database.exec(`
+    ALTER TABLE projects
+      ADD COLUMN audit_max_javascript_bytes TEXT NULL;
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z'),
+      (4, '2026-07-30T00:00:00.000Z'),
+      (5, '2026-07-30T00:00:00.000Z'),
+      (6, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
+    'duplicate column name: audit_max_javascript_bytes'
+  );
+
+  const verify = new Database(databaseFile);
+  const migration = verify
+    .query<{ version: number | null }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get();
+  const javascriptColumn = verify
+    .query<{ name: string; type: string; notnull: number }, []>(
+      'PRAGMA table_info(projects)'
+    )
+    .all()
+    .find((column) => column.name === 'audit_max_javascript_bytes');
+  verify.close();
+
+  expect(migration?.version).toBe(6);
+  expect(javascriptColumn).toMatchObject({ type: 'TEXT', notnull: 0 });
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
+});
+
+test('upgrades the deployed relational v3 schema to v7 with a backup', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  downgradeSchemaToV6(database);
   database.exec(`
     DROP TABLE ci_idempotency_records;
     DROP TABLE api_token_security_events;
@@ -138,17 +414,18 @@ test('upgrades the deployed relational v3 schema to v6 with a backup', () => {
   verify.close();
 
   expect(loaded.artifactAuditJobs).toEqual([]);
-  expect(migration?.version).toBe(6);
+  expect(migration?.version).toBe(7);
   expect(jobColumns).toContain('locked_until');
   expect(jobColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 });
 
-test('upgrades relational v5 to v6 with token tables and a backup', () => {
+test('upgrades relational v5 to v7 with token tables and a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
+  downgradeSchemaToV6(database);
   database.exec(`
     DROP TABLE ci_idempotency_records;
     DROP TABLE api_token_security_events;
@@ -188,13 +465,13 @@ test('upgrades relational v5 to v6 with token tables and a backup', () => {
     .map((row) => row.name);
   verify.close();
 
-  expect(migration?.version).toBe(6);
+  expect(migration?.version).toBe(7);
   expect(tables).toEqual([
     'api_token_security_events',
     'ci_idempotency_records',
     'project_api_tokens',
   ]);
-  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 });
 
 test('refuses to mark v6 applied when a token table has drifted', () => {
@@ -202,6 +479,7 @@ test('refuses to mark v6 applied when a token table has drifted', () => {
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
   createRelationalSchema(database);
+  downgradeSchemaToV6(database);
   database.exec(`
     DROP TABLE ci_idempotency_records;
     DROP TABLE api_token_security_events;
@@ -238,10 +516,10 @@ test('refuses to mark v6 applied when a token table has drifted', () => {
   verify.close();
   expect(migration?.version).toBe(5);
   expect(tokenColumns).toEqual(['id', 'project_id']);
-  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 });
 
-test('upgrades relational v1 through v6 with policy, audit, jobs, integrity, and backup', () => {
+test('upgrades relational v1 through v7 with policy, audit, jobs, integrity, and backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -311,11 +589,11 @@ test('upgrades relational v1 through v6 with policy, audit, jobs, integrity, and
   expect(columns).toContain('integrity_checked_at');
   expect(projectColumns).toContain('audit_enforcement');
   expect(projectColumns).toContain('audit_max_total_bytes');
-  expect(migration?.version).toBe(6);
-  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+  expect(migration?.version).toBe(7);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 });
 
-test('upgrades the deployed relational v2 schema to v6 with a backup', () => {
+test('upgrades the deployed relational v2 schema to v7 with a backup', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
   configureSqlite(database);
@@ -363,10 +641,10 @@ test('upgrades the deployed relational v2 schema to v6 with a backup', () => {
   verify.close();
 
   expect(loaded.projects).toEqual([]);
-  expect(migration?.version).toBe(6);
+  expect(migration?.version).toBe(7);
   expect(auditColumns).toContain('engine_version');
   expect(auditColumns).toContain('policy_json');
-  expect(existsSync(`${databaseFile}.pre-relational-v6.bak`)).toBe(true);
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 });
 
 test('save persists data that a second repository can read', () => {
@@ -585,6 +863,9 @@ test('round-trips project audit policy and replaces a version current report', (
     maxTotalBytes: 2_000,
     maxFileBytes: 1_000,
     maxFileCount: 10,
+    maxJavaScriptBytes: 1_500,
+    maxStylesheetBytes: 500,
+    maxFontBytes: 1_250,
   };
   data.projects[0].versions.push({
     id: 'version-1',
@@ -612,15 +893,23 @@ test('round-trips project audit policy and replaces a version current report', (
     createdBy: 'user-1',
     engineVersion: 1,
     policy: { ...data.projects[0].auditPolicy },
+    context: { spaMode: false, routingType: 'path' },
     summary: {
       totalBytes: 10,
       fileCount: 1,
       largestFiles: [{ path: 'index.html', size: 10 }],
       extensions: [{ extension: '.html', bytes: 10, count: 1 }],
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
     },
     checks: [
       {
         id: 'seo.title',
+        ruleVersion: 1,
         category: 'seo',
         severity: 'warning',
         passed: false,
@@ -686,6 +975,7 @@ test('round-trips artifact audit job leases, snapshots, and terminal fields', ()
     artifactChecksum: 'checksum-1',
     engineVersion: 1,
     policy: { ...data.projects[0].auditPolicy },
+    context: { spaMode: false, routingType: 'path' },
     reportId: null,
     errorCode: null,
     errorMessage: null,
