@@ -444,7 +444,7 @@ git add docs/architecture.md docs/backend-hardening-roadmap.md \
 git commit -m "docs: record backup service module boundaries"
 ```
 
-- [ ] **Step 6: Fetch, push `main`, and wait for exact-SHA gates**
+- [x] **Step 6: Fetch, push `main`, and wait for exact-SHA gates**
 
 ```bash
 git fetch origin main
