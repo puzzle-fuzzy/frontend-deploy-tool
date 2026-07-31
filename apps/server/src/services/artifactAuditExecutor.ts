@@ -128,7 +128,7 @@ export function createSubprocessArtifactAuditExecutor(
           processEntry,
         });
       } catch (error) {
-        if (signal.aborted || isAbortError(error)) throw abortError();
+        if (signal.aborted) throw abortError();
         if (isExplicitStdoutMaxBufferError(error)) throw invalidResultError();
         throw infrastructureError();
       }
@@ -240,6 +240,24 @@ async function spawnArtifactAuditProcess(
       stderrPromise,
       exitPromise,
     ]);
+    if (signal.aborted) throw abortError();
+    if (stdoutResult.status === 'fulfilled' && stdoutResult.value.exceeded) {
+      settled = true;
+      return {
+        exitCode: exitResult.status === 'fulfilled' ? exitResult.value : null,
+        signalCode:
+          typeof subprocess.signalCode === 'number'
+            ? subprocess.signalCode
+            : null,
+        stdout: stdoutResult.value.bytes,
+        stderr:
+          stderrResult.status === 'fulfilled'
+            ? stderrResult.value.bytes
+            : new Uint8Array(),
+        stdoutExceeded: true,
+        timedOut,
+      };
+    }
     if (stdoutResult.status === 'rejected') throw stdoutResult.reason;
     if (stderrResult.status === 'rejected') throw stderrResult.reason;
     if (exitResult.status === 'rejected') throw exitResult.reason;
@@ -274,10 +292,6 @@ function invalidResultError(): ArtifactAuditExecutionError {
 
 function infrastructureError(): ArtifactAuditExecutionError {
   return new ArtifactAuditExecutionError('AUDIT_ENGINE_FAILED', true);
-}
-
-function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
 }
 
 async function readBoundedStream(
