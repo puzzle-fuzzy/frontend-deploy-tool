@@ -139,14 +139,12 @@ export function restoreVerifiedBackup({
   expectedFingerprint,
   layout,
   now,
-  verification,
 }: {
   backupPath: string;
   dependencies: BackupServiceDependencies;
   expectedFingerprint: string;
   layout: RuntimeResourceLayout;
   now: () => Date;
-  verification: BackupVerificationReport;
 }): BackupRestoreReport {
   const restoreFileSystem =
     dependencies.restoreFileSystem ?? defaultRestoreFileSystem;
@@ -167,7 +165,7 @@ export function restoreVerifiedBackup({
   try {
     assertRestoreControlLayoutSafe(layout, operation);
     controlBinding = bindRestoreControls(operation);
-    verification = prepareRestorePayload({
+    const verification = prepareRestorePayload({
       backupPath,
       controlBinding,
       dependencies,

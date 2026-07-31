@@ -76,7 +76,6 @@ export function createBackupService(
         expectedFingerprint: initialVerification.fingerprint,
         layout,
         now,
-        verification,
       });
     },
   };
