@@ -1,14 +1,22 @@
 import { existsSync } from 'node:fs';
 import { resolveRuntimeResourceLayout } from '../utils/runtimeResourcePath';
+import { attachBackupSecondaryFailures } from './backupFailure';
 import { restoreVerifiedBackup } from './backupRestoreTransaction';
-import { createBackupSnapshotAt } from './backupSnapshot';
+import {
+  assertBackupDestinationSafe,
+  createBackupSnapshotAt,
+} from './backupSnapshot';
 import type {
+  BackupManifest,
   BackupService,
   BackupServiceConfig,
   BackupServiceDependencies,
 } from './backupTypes';
 import { verifyBackupAt, verifyBackupDetailedAt } from './backupVerification';
-import { assertRuntimeResourceLeavesSafe } from './runtimeOwnership';
+import {
+  acquireRuntimeOwnership,
+  assertRuntimeResourceLeavesSafe,
+} from './runtimeOwnership';
 
 export type {
   BackupManifest,
@@ -16,6 +24,10 @@ export type {
   BackupService,
   BackupVerificationReport,
 } from './backupTypes';
+
+type BackupOutcome =
+  | { kind: 'success'; manifest: BackupManifest }
+  | { kind: 'failure'; error: unknown };
 
 export function createBackupService(
   config: BackupServiceConfig,
@@ -33,12 +45,48 @@ export function createBackupService(
       if (!existsSync(layout.databaseFile)) {
         throw new Error(`Database does not exist: ${layout.databaseFile}`);
       }
-      return createBackupSnapshotAt({
-        destination,
-        layout,
-        now,
-        verifyPreparedBackup: (path) => verifyBackupAt(path, dependencies),
-      });
+      assertBackupDestinationSafe(destination, layout);
+
+      const ownership = (
+        dependencies.acquireOwnership ?? acquireRuntimeOwnership
+      )(layout.databaseFile, layout.storageDir);
+      let outcome: BackupOutcome;
+      try {
+        assertRuntimeResourceLeavesSafe(layout);
+        if (!existsSync(layout.databaseFile)) {
+          throw new Error(`Database does not exist: ${layout.databaseFile}`);
+        }
+        assertBackupDestinationSafe(destination, layout);
+        outcome = {
+          kind: 'success',
+          manifest: createBackupSnapshotAt({
+            destination,
+            layout,
+            now,
+            createTemporaryId: dependencies.createBackupTemporaryId,
+            removeTemporaryPath: dependencies.removeBackupTemporaryPath,
+            verifyPreparedBackup: (path) => verifyBackupAt(path, dependencies),
+          }),
+        };
+      } catch (error) {
+        outcome = { kind: 'failure', error };
+      }
+
+      try {
+        ownership.release();
+      } catch (releaseError) {
+        if (outcome.kind === 'success') throw releaseError;
+        attachBackupSecondaryFailures(outcome.error, [
+          {
+            step: 'release',
+            resource: 'runtime-ownership',
+            error: releaseError,
+          },
+        ]);
+      }
+
+      if (outcome.kind === 'failure') throw outcome.error;
+      return outcome.manifest;
     },
 
     verifyBackup(backupPath) {

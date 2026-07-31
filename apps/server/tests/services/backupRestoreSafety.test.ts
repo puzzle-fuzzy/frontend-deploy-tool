@@ -20,6 +20,7 @@ import { basename, dirname, join } from 'node:path';
 import { createEmptyData } from '../../src/domain/schema';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { createBackupService } from '../../src/services/backupService';
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
 interface RestoreFileSystem {
   rename(source: string, target: string): void;
@@ -649,9 +650,7 @@ test('restore rejects rollback control roots equal to or above live storage befo
       ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
       expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
       expect(existsSync(rollbackRoot)).toBe(false);
-      expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
-        false
-      );
+      assertRuntimeOwnershipAvailable(fixture);
       expect(existsSync(`${storageDir}.runtime-lock.sqlite`)).toBe(false);
     }
   } finally {
@@ -677,9 +676,7 @@ test('restore rejects a live-storage ancestor of the rollback root without mutat
     ).toThrow('DATABASE_STORAGE_OVERLAP');
     expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
     expect(existsSync(rollbackRoot)).toBe(false);
-    expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
-      false
-    );
+    assertRuntimeOwnershipAvailable(fixture);
   } finally {
     fixture.cleanup();
   }
@@ -787,12 +784,7 @@ test('restore rejects dangling control symlinks before ownership or mutation', (
       expect(lstatSync(controlPath).isSymbolicLink()).toBe(true);
       expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
       expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
-      expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
-        false
-      );
-      expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(
-        false
-      );
+      assertRuntimeOwnershipAvailable(fixture);
     }
   } finally {
     fixture.cleanup();
@@ -881,10 +873,7 @@ test('verify and restore reject a symlinked backup database before ownership or 
     expect(existsSync(rollbackRoot)).toBe(false);
     expect(existsSync(databaseStage)).toBe(false);
     expect(existsSync(storageStage)).toBe(false);
-    expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
-      false
-    );
-    expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(false);
+    assertRuntimeOwnershipAvailable(fixture);
   } finally {
     fixture.cleanup();
   }
@@ -978,10 +967,7 @@ test('restore revalidates and cleans a replaced database stage before moving liv
     expect(existsSync(databaseStage)).toBe(false);
     expect(existsSync(storageStage)).toBe(false);
     expect(existsSync(rollbackRoot)).toBe(false);
-    expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(
-      false
-    );
-    expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(false);
+    assertRuntimeOwnershipAvailable(fixture);
   } finally {
     fixture.cleanup();
   }
@@ -2285,6 +2271,19 @@ function createRestoreFixture(options: { separateParents?: boolean } = {}) {
       rmSync(tempDir, { recursive: true, force: true });
     },
   };
+}
+
+function assertRuntimeOwnershipAvailable(fixture: {
+  databaseFile: string;
+  storageDir: string;
+}): void {
+  expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(true);
+  expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(true);
+  const ownership = acquireRuntimeOwnership(
+    fixture.databaseFile,
+    fixture.storageDir
+  );
+  ownership.release();
 }
 
 function restoreDependencies(

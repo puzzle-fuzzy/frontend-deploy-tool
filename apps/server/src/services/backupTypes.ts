@@ -80,6 +80,8 @@ export interface BackupServiceDependencies {
   afterRestoreStorageStageCreated?: (storageStage: string) => void;
   createTemporaryRoot?: (prefix: string) => string;
   cleanupTemporaryRoot?: (temporaryRoot: string) => void;
+  createBackupTemporaryId?: () => string;
+  removeBackupTemporaryPath?: (temporaryPath: string) => void;
 }
 
 export interface RestoreFileSystem {

@@ -3,8 +3,10 @@ import { describe, expect, test } from 'bun:test';
 import {
   copyFileSync,
   existsSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   renameSync,
   rmSync,
@@ -12,18 +14,18 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { Data } from '@deploykit/shared';
 import { CURRENT_SCHEMA_VERSION } from '../../src/domain/schema';
 import { createSqliteApiTokenRepository } from '../../src/repositories/apiTokenRepository';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import { checksumDirectory } from '../../src/services/artifactService';
 import { createBackupService } from '../../src/services/backupService';
+import { BACKUP_OUTPUT_LAYOUT_UNSAFE } from '../../src/services/backupSnapshot';
 import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
-function createFixture(tempDir: string) {
+function createFixture(tempDir: string, storageDir = join(tempDir, 'storage')) {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
-  const storageDir = join(tempDir, 'storage');
   const artifactDir = join(storageDir, 'p1', 'v1');
   mkdirSync(artifactDir, { recursive: true });
   writeFileSync(join(artifactDir, 'index.html'), '<html>backup</html>');
@@ -1172,7 +1174,322 @@ describe('createBackupService', () => {
       rmSync(tempDir, { recursive: true, force: true });
     }
   });
+
+  test('backup refuses a live owner and succeeds immediately after release', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-owner-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const service = createBackupService(fixture);
+      const holder = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      try {
+        expect(() => service.createBackup(destination)).toThrow(
+          'RUNTIME_OWNERSHIP_HELD'
+        );
+        expect(existsSync(destination)).toBe(false);
+        expect(backupTemporarySiblings(destination)).toEqual([]);
+      } finally {
+        holder.release();
+      }
+      expect(service.createBackup(destination).formatVersion).toBe(1);
+      expect(existsSync(destination)).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup owns runtime through prepared verification and publish', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-interval-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      let verificationObservedContention = false;
+      const service = createBackupService(fixture, {
+        createTemporaryRoot(prefix) {
+          expect(() =>
+            acquireRuntimeOwnership(fixture.databaseFile, fixture.storageDir)
+          ).toThrow('RUNTIME_OWNERSHIP_HELD');
+          verificationObservedContention = true;
+          return mkdtempSync(join(tempDir, prefix));
+        },
+      });
+      service.createBackup(destination);
+      expect(verificationObservedContention).toBe(true);
+      const afterPublish = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      afterPublish.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup releases ownership and removes output after a primary failure', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-primary-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const primary = new Error('injected now failure');
+      let releases = 0;
+      const service = createBackupService(fixture, {
+        now() {
+          throw primary;
+        },
+        acquireOwnership(databaseFile, storageDir) {
+          const real = acquireRuntimeOwnership(databaseFile, storageDir);
+          return {
+            release() {
+              releases += 1;
+              real.release();
+            },
+          };
+        },
+      });
+      expect(captureThrown(() => service.createBackup(destination))).toBe(
+        primary
+      );
+      expect(releases).toBe(1);
+      expect(existsSync(destination)).toBe(false);
+      expect(backupTemporarySiblings(destination)).toEqual([]);
+      const retry = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('successful backup reports release failure after publishing destination', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-release-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const releaseError = new Error('injected release failure');
+      let releases = 0;
+      const service = createBackupService(fixture, {
+        acquireOwnership(databaseFile, storageDir) {
+          const real = acquireRuntimeOwnership(databaseFile, storageDir);
+          return {
+            release() {
+              releases += 1;
+              real.release();
+              throw releaseError;
+            },
+          };
+        },
+      });
+      expect(captureThrown(() => service.createBackup(destination))).toBe(
+        releaseError
+      );
+      expect(releases).toBe(1);
+      expect(existsSync(destination)).toBe(true);
+      const retry = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup preserves primary error and orders cleanup then release failures', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-secondary-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const primary = new Error('primary failure') as Error & {
+        backupSecondaryFailures?: Array<{ step: string; error: unknown }>;
+      };
+      const cleanupError = new Error('cleanup failure');
+      const releaseError = new Error('release failure');
+      let releases = 0;
+      const service = createBackupService(fixture, {
+        now() {
+          throw primary;
+        },
+        removeBackupTemporaryPath() {
+          throw cleanupError;
+        },
+        acquireOwnership(databaseFile, storageDir) {
+          const real = acquireRuntimeOwnership(databaseFile, storageDir);
+          return {
+            release() {
+              releases += 1;
+              real.release();
+              throw releaseError;
+            },
+          };
+        },
+      });
+      expect(captureThrown(() => service.createBackup(destination))).toBe(
+        primary
+      );
+      expect(releases).toBe(1);
+      expect(
+        primary.backupSecondaryFailures?.map((failure) => failure.step)
+      ).toEqual(['cleanup-temporary', 'release']);
+      expect(
+        primary.backupSecondaryFailures?.map((failure) => failure.error)
+      ).toEqual([cleanupError, releaseError]);
+      expect(existsSync(destination)).toBe(false);
+      const retained = backupTemporarySiblings(destination);
+      expect(retained).toHaveLength(1);
+      rmSync(join(dirname(destination), retained[0]), {
+        recursive: true,
+        force: true,
+      });
+      const retry = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup destination cannot be inside artifact storage', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-overlap-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(fixture.storageDir, 'backup-output');
+      let acquisitions = 0;
+      const service = createBackupService(fixture, {
+        acquireOwnership() {
+          acquisitions += 1;
+          throw new Error('overlap must fail before ownership');
+        },
+      });
+      expect(() => service.createBackup(destination)).toThrow(
+        BACKUP_OUTPUT_LAYOUT_UNSAFE
+      );
+      expect(acquisitions).toBe(0);
+      expect(existsSync(destination)).toBe(false);
+      expect(backupTemporarySiblings(destination)).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup rejects and preserves a dangling destination symlink', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-symlink-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      symlinkSync(join(tempDir, 'missing-target'), destination);
+      expect(() =>
+        createBackupService(fixture).createBackup(destination)
+      ).toThrow('Backup destination already exists');
+      expect(lstatSync(destination).isSymbolicLink()).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup rechecks destination after ownership acquisition', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-recheck-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      let releases = 0;
+      const service = createBackupService(fixture, {
+        acquireOwnership(databaseFile, storageDir) {
+          const real = acquireRuntimeOwnership(databaseFile, storageDir);
+          mkdirSync(destination);
+          return {
+            release() {
+              releases += 1;
+              real.release();
+            },
+          };
+        },
+      });
+      expect(() => service.createBackup(destination)).toThrow(
+        'Backup destination already exists'
+      );
+      expect(releases).toBe(1);
+      expect(existsSync(destination)).toBe(true);
+      expect(backupTemporarySiblings(destination)).toEqual([]);
+      const retry = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup rejects a derived temporary path that equals a runtime resource', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-temp-overlap-')
+    );
+    try {
+      const destination = join(tempDir, 'backup-output');
+      const storageDir = `${destination}.tmp-fixed`;
+      const fixture = createFixture(tempDir, storageDir);
+      rmSync(storageDir, { recursive: true, force: true });
+      const service = createBackupService(fixture, {
+        createBackupTemporaryId: () => 'fixed',
+      });
+      expect(() => service.createBackup(destination)).toThrow(
+        BACKUP_OUTPUT_LAYOUT_UNSAFE
+      );
+      expect(existsSync(destination)).toBe(false);
+      expect(existsSync(storageDir)).toBe(false);
+      const retry = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup rejects unsafe temporary identifiers before output mutation', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-temp-id-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      for (const temporaryId of ['nested/path', 'windows\\path', '..']) {
+        const service = createBackupService(fixture, {
+          createBackupTemporaryId: () => temporaryId,
+        });
+        expect(() => service.createBackup(destination)).toThrow(
+          BACKUP_OUTPUT_LAYOUT_UNSAFE
+        );
+        expect(existsSync(destination)).toBe(false);
+        expect(backupTemporarySiblings(destination)).toEqual([]);
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
 });
+
+function backupTemporarySiblings(destination: string): string[] {
+  const parent = dirname(destination);
+  if (!existsSync(parent)) return [];
+  const prefix = `${basename(destination)}.tmp-`;
+  return readdirSync(parent).filter((name) => name.startsWith(prefix));
+}
+
+function captureThrown(operation: () => unknown): unknown {
+  try {
+    operation();
+  } catch (error) {
+    return error;
+  }
+  throw new Error('Expected operation to throw');
+}
 
 function isCaseInsensitiveVolume(directory: string): boolean {
   const probe = join(directory, 'DeployKit-Case-Probe');

@@ -25,12 +25,17 @@ import {
 } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { createId } from '../utils/id';
-import type { RuntimeResourceLayout } from '../utils/runtimeResourcePath';
+import {
+  canonicalizeResourcePath,
+  type RuntimeResourceLayout,
+  runtimePathsOverlap,
+} from '../utils/runtimeResourcePath';
 import { safeJoin } from '../utils/safePath';
 import {
   inspectDatabase,
   type VersionIntegrityRow,
 } from './backupDatabaseInspection';
+import { attachBackupSecondaryFailures } from './backupFailure';
 import {
   assertSingleLinkRegularFile,
   BACKUP_DATABASE_SNAPSHOT_UNSAFE,
@@ -47,19 +52,68 @@ interface RestoreStageCaptureCallbacks {
   storage(): void;
 }
 
-export function createBackupSnapshotAt(input: {
+interface CreateBackupSnapshotInput {
   destination: string;
   layout: RuntimeResourceLayout;
   now: () => Date;
+  createTemporaryId?: () => string;
+  removeTemporaryPath?: (temporaryPath: string) => void;
   verifyPreparedBackup: (backupPath: string) => BackupVerificationReport;
-}): BackupManifest {
-  const { destination, layout, now, verifyPreparedBackup } = input;
-  if (existsSync(destination)) {
+}
+
+export const BACKUP_OUTPUT_LAYOUT_UNSAFE = 'BACKUP_OUTPUT_LAYOUT_UNSAFE';
+
+export function assertBackupDestinationSafe(
+  destination: string,
+  layout: RuntimeResourceLayout
+): void {
+  if (pathEntryExistsNoFollow(destination)) {
     throw new Error(`Backup destination already exists: ${destination}`);
   }
+  assertBackupOutputDoesNotOverlap(destination, 'destination', layout);
+}
 
+function assertBackupTemporaryPathSafe(
+  temporaryPath: string,
+  layout: RuntimeResourceLayout
+): void {
+  if (pathEntryExistsNoFollow(temporaryPath)) {
+    throw new Error(`Backup temporary path already exists: ${temporaryPath}`);
+  }
+  assertBackupOutputDoesNotOverlap(temporaryPath, 'temporary path', layout);
+}
+
+function assertBackupOutputDoesNotOverlap(
+  outputPath: string,
+  outputLabel: 'destination' | 'temporary path',
+  layout: RuntimeResourceLayout
+): void {
+  const canonicalOutput = canonicalizeResourcePath(outputPath);
+  const overlap = layout.resources.find((resource) =>
+    runtimePathsOverlap(canonicalOutput, resource.path)
+  );
+  if (overlap) {
+    throw new Error(
+      `[${BACKUP_OUTPUT_LAYOUT_UNSAFE}] Backup ${outputLabel} overlaps runtime resource ${overlap.name}`
+    );
+  }
+}
+
+export function createBackupSnapshotAt(
+  input: CreateBackupSnapshotInput
+): BackupManifest {
+  const { destination, layout, now, verifyPreparedBackup } = input;
+  assertBackupDestinationSafe(destination, layout);
+
+  const temporaryId = input.createTemporaryId?.() ?? createId();
+  if (!/^[A-Za-z0-9_-]+$/.test(temporaryId)) {
+    throw new Error(
+      `[${BACKUP_OUTPUT_LAYOUT_UNSAFE}] Backup temporary identifier must be a safe path segment`
+    );
+  }
+  const temporaryPath = `${destination}.tmp-${temporaryId}`;
+  assertBackupTemporaryPathSafe(temporaryPath, layout);
   mkdirSync(dirname(destination), { recursive: true });
-  const temporaryPath = `${destination}.tmp-${createId()}`;
   const databaseDirectory = join(temporaryPath, 'database');
   const snapshotFile = join(databaseDirectory, basename(layout.databaseFile));
   const backupStorage = join(temporaryPath, 'storage');
@@ -121,7 +175,20 @@ export function createBackupSnapshotAt(input: {
     renameSync(temporaryPath, destination);
     return manifest;
   } catch (error) {
-    rmSync(temporaryPath, { recursive: true, force: true });
+    try {
+      (
+        input.removeTemporaryPath ??
+        ((path: string) => rmSync(path, { recursive: true, force: true }))
+      )(temporaryPath);
+    } catch (cleanupError) {
+      attachBackupSecondaryFailures(error, [
+        {
+          step: 'cleanup-temporary',
+          resource: temporaryPath,
+          error: cleanupError,
+        },
+      ]);
+    }
     throw error;
   }
 }
