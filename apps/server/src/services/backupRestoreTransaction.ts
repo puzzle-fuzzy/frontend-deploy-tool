@@ -21,6 +21,11 @@ import {
   runtimePathsOverlap,
 } from '../utils/runtimeResourcePath';
 import {
+  isMissingPathError,
+  lstatIfPresent,
+  pathEntryExistsNoFollow,
+} from './backupFileSafety';
+import {
   assertDatabaseAuxiliariesAbsent,
   captureBackupPayload,
   ensureRollbackManifest,
@@ -37,9 +42,6 @@ import { DATABASE_AUXILIARY_SUFFIXES } from './backupTypes';
 import {
   fingerprintBackupPayload,
   fingerprintRuntimeResource,
-  isMissingPathError,
-  lstatIfPresent,
-  pathEntryExistsNoFollow,
   verifyStagedBackupPayload,
 } from './backupVerification';
 import {

@@ -27,11 +27,15 @@ import { basename, dirname, join } from 'node:path';
 import { createId } from '../utils/id';
 import type { RuntimeResourceLayout } from '../utils/runtimeResourcePath';
 import { safeJoin } from '../utils/safePath';
+import {
+  assertSingleLinkRegularFile,
+  BACKUP_DATABASE_SNAPSHOT_UNSAFE,
+  BACKUP_SOURCE_UNSAFE,
+  pathEntryExistsNoFollow,
+  sameCapturedIdentity,
+} from './backupFileSafety';
 import type { BackupManifest, BackupVerificationReport } from './backupTypes';
 import { DATABASE_AUXILIARY_SUFFIXES } from './backupTypes';
-
-const BACKUP_DATABASE_SNAPSHOT_UNSAFE = 'BACKUP_DATABASE_SNAPSHOT_UNSAFE';
-const BACKUP_SOURCE_UNSAFE = 'BACKUP_SOURCE_UNSAFE';
 
 interface RestoreStageCaptureCallbacks {
   database(): void;
@@ -287,43 +291,6 @@ function captureDirectoryNoFollow(
   }
 }
 
-function assertSingleLinkRegularFile(
-  path: string,
-  stats: ReturnType<typeof fstatSync> & { nlink: bigint },
-  unsafeCode: string
-): void {
-  if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1n) {
-    throw new Error(
-      `[${unsafeCode}] Backup source must be a single-link regular file: ${path}`
-    );
-  }
-}
-
-function sameCapturedIdentity(
-  left: {
-    dev: bigint;
-    ino: bigint;
-    size: bigint;
-    mtimeNs: bigint;
-    ctimeNs: bigint;
-  },
-  right: {
-    dev: bigint;
-    ino: bigint;
-    size: bigint;
-    mtimeNs: bigint;
-    ctimeNs: bigint;
-  }
-): boolean {
-  return (
-    left.dev === right.dev &&
-    left.ino === right.ino &&
-    left.size === right.size &&
-    left.mtimeNs === right.mtimeNs &&
-    left.ctimeNs === right.ctimeNs
-  );
-}
-
 export function assertDatabaseAuxiliariesAbsent(databaseFile: string): void {
   for (const suffix of DATABASE_AUXILIARY_SUFFIXES) {
     if (pathEntryExistsNoFollow(`${databaseFile}${suffix}`)) {
@@ -534,28 +501,5 @@ export function ensureRollbackManifest(
     join(rollbackPath, 'manifest.json'),
     JSON.stringify(manifest, null, 2),
     'utf8'
-  );
-}
-
-function pathEntryExistsNoFollow(path: string): boolean {
-  return lstatIfPresent(path) !== undefined;
-}
-
-function lstatIfPresent(
-  path: string
-): ReturnType<typeof lstatSync> | undefined {
-  try {
-    return lstatSync(path);
-  } catch (error) {
-    if (isMissingPathError(error)) return undefined;
-    throw error;
-  }
-}
-
-function isMissingPathError(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    'code' in error &&
-    (error as Error & { code?: string }).code === 'ENOENT'
   );
 }
