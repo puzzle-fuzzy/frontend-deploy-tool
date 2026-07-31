@@ -158,8 +158,10 @@ Bun test, Biome, GitHub Actions.
 - Modify: `apps/server/src/services/backupService.ts`
 - Modify: `apps/server/src/services/backupTypes.ts`
 - Modify: `apps/server/tests/services/backupService.test.ts`
+- Modify: `apps/server/tests/services/backupRestoreSafety.test.ts` (only the
+  five stale post-fixture sidecar assertions described below)
 
-**Ownership:** The implementer owns only these six files. Other agents may be
+**Ownership:** The implementer owns only these seven files. Other agents may be
 reviewing the same checkout; do not revert or overwrite their work.
 
 **Interfaces:**
@@ -684,6 +686,44 @@ test('backup rejects unsafe temporary identifiers before output mutation', () =>
 });
 ```
 
+**GREEN-phase characterization correction:** `createRestoreFixture()` creates
+its backup through the production `createBackup`, so this task intentionally
+leaves the two released SQLite ownership sidecar files available for reuse.
+The focused restore-safety gate previously had five stale assertions that those
+fixture sidecars did not exist. Do not unlink them: unlinking a released lock
+database would create a sidecar replacement race. In only these tests, replace
+the original-pair absence assertions with `true` and then prove the pair can be
+reacquired and released immediately:
+
+- `restore rejects rollback control roots equal to or above live storage before mutation`;
+- `restore rejects a live-storage ancestor of the rollback root without mutation`;
+- `restore rejects dangling control symlinks before ownership or mutation`;
+- `verify and restore reject a symlinked backup database before ownership or mutation`;
+- `restore revalidates and cleans a replaced database stage before moving live state`.
+
+Add this helper and call it at each replaced assertion site:
+
+```ts
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
+
+function assertRuntimeOwnershipAvailable(fixture: {
+  databaseFile: string;
+  storageDir: string;
+}): void {
+  expect(existsSync(`${fixture.databaseFile}.runtime-lock.sqlite`)).toBe(true);
+  expect(existsSync(`${fixture.storageDir}.runtime-lock.sqlite`)).toBe(true);
+  const ownership = acquireRuntimeOwnership(
+    fixture.databaseFile,
+    fixture.storageDir
+  );
+  ownership.release();
+}
+```
+
+Keep assertions for sidecars derived from deliberately unsafe alternate
+`storageDir` values as `false`; only the original fixture pair is persistent.
+This correction changes no restore implementation or restore failure ordering.
+
 - [ ] **Step 2: Run the new tests and confirm RED**
 
 ```bash
@@ -976,7 +1016,8 @@ git add apps/server/src/services/backupFailure.ts \
   apps/server/src/services/backupService.ts \
   apps/server/src/services/backupTypes.ts \
   apps/server/tests/services/backupFailure.test.ts \
-  apps/server/tests/services/backupService.test.ts
+  apps/server/tests/services/backupService.test.ts \
+  apps/server/tests/services/backupRestoreSafety.test.ts
 git commit -m "feat: enforce offline backup ownership"
 ```
 
