@@ -681,10 +681,83 @@ test('does not replace existing SQLite data with legacy JSON', () => {
     legacyDataFile,
   });
   repository.save(createData('SQLite Project'));
-  writeFileSync(legacyDataFile, JSON.stringify(createData('Legacy Project')));
+  writeFileSync(
+    legacyDataFile,
+    JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects: 'not-an-array',
+    })
+  );
 
   expect(repository.load().projects[0]?.name).toBe('SQLite Project');
   expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
+});
+
+test('invalid deploykit_state preflight leaves SQLite bytes and auxiliaries untouched', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  database.exec(`
+    CREATE TABLE deploykit_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      schema_version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  database
+    .query(
+      `INSERT INTO deploykit_state
+        (id, schema_version, payload, updated_at)
+       VALUES (1, 9, ?, ?)`
+    )
+    .run(
+      JSON.stringify({
+        schemaVersion: CURRENT_SCHEMA_VERSION,
+        projects: 'not-an-array',
+        users: [],
+        history: [],
+        artifactAudits: [],
+        artifactAuditJobs: [],
+      }),
+      '2026-07-24T00:00:00.000Z'
+    );
+  database.close();
+  const original = readFileSync(databaseFile);
+
+  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
+    'Document schema v9 failed validation'
+  );
+
+  expect(readFileSync(databaseFile)).toEqual(original);
+  expect(existsSync(`${databaseFile}.pre-relational-v1.bak`)).toBe(false);
+  expect(existsSync(`${databaseFile}-wal`)).toBe(false);
+  expect(existsSync(`${databaseFile}-shm`)).toBe(false);
+});
+
+test('invalid legacy JSON preflight creates no backup or SQLite target', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const legacyDataFile = join(tempDir, 'data.json');
+  const original = Buffer.from(
+    JSON.stringify({
+      schemaVersion: CURRENT_SCHEMA_VERSION,
+      projects: 'not-an-array',
+      users: [],
+      history: [],
+      artifactAudits: [],
+      artifactAuditJobs: [],
+    })
+  );
+  writeFileSync(legacyDataFile, original);
+
+  expect(() =>
+    createSqliteProjectRepository({ databaseFile, legacyDataFile }).load()
+  ).toThrow('Document schema v9 failed validation');
+
+  expect(readFileSync(legacyDataFile)).toEqual(original);
+  expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
+  expect(existsSync(databaseFile)).toBe(false);
+  expect(existsSync(`${databaseFile}-wal`)).toBe(false);
+  expect(existsSync(`${databaseFile}-shm`)).toBe(false);
 });
 
 test('migrates an older document payload once and keeps a database backup', () => {

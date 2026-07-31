@@ -1,5 +1,11 @@
 import { Database } from 'bun:sqlite';
-import { copyFileSync, existsSync, mkdirSync } from 'node:fs';
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+} from 'node:fs';
 import { dirname } from 'node:path';
 import type {
   ApiTokenScope,
@@ -31,7 +37,6 @@ import {
   type ArtifactAuditJobRow,
   rowToArtifactAuditJob,
 } from './artifactAuditJobMapper';
-import { createJsonProjectRepository } from './jsonProjectRepository';
 import type {
   CommitVersionUploadInput,
   CommitVersionUploadResult,
@@ -51,6 +56,29 @@ import {
 interface LegacyStateRow {
   payload: string;
 }
+
+type DatabaseInitializationPreflight =
+  | { kind: 'existing' }
+  | { kind: 'empty'; data: Data }
+  | { kind: 'legacy-state'; data: Data }
+  | { kind: 'legacy-file'; data: Data; sourceFile: string };
+
+const EXISTING_DATABASE_PREFLIGHT = { kind: 'existing' } as const;
+
+const RELATIONAL_DOMAIN_TABLES = [
+  'users',
+  'projects',
+  'versions',
+  'artifact_audit_jobs',
+  'artifact_audits',
+  'project_members',
+  'audit_events',
+  'releases',
+  'sessions',
+  'project_api_tokens',
+  'api_token_security_events',
+  'ci_idempotency_records',
+] as const;
 
 interface UserRow {
   id: string;
@@ -155,12 +183,25 @@ export function createSqliteProjectRepository({
   databaseFile,
   legacyDataFile,
 }: SqliteProjectRepositoryOptions): ProjectRepository {
+  let initializationComplete = false;
+
   const withDatabase = <T>(work: (database: Database) => T): T => {
+    const preflight = initializationComplete
+      ? EXISTING_DATABASE_PREFLIGHT
+      : preflightDatabaseInitialization(databaseFile, legacyDataFile);
+    if (preflight.kind === 'legacy-file') {
+      copyFileSync(
+        preflight.sourceFile,
+        `${preflight.sourceFile}.sqlite-migration.bak`
+      );
+    }
+
     mkdirSync(dirname(databaseFile), { recursive: true });
     const database = new Database(databaseFile, { create: true });
     try {
       configureSqlite(database);
-      initializeDatabase(database, databaseFile, legacyDataFile);
+      initializeDatabase(database, databaseFile, preflight);
+      initializationComplete = true;
       return work(database);
     } finally {
       database.close();
@@ -353,10 +394,74 @@ function readCiTokenState(
   };
 }
 
+function preflightDatabaseInitialization(
+  databaseFile: string,
+  legacyDataFile?: string
+): DatabaseInitializationPreflight {
+  if (!pathExists(databaseFile)) {
+    return preflightLegacyFile(legacyDataFile);
+  }
+
+  const database = new Database(databaseFile, { readonly: true });
+  try {
+    const relationalVersion = getRelationalSchemaVersion(database);
+    if (relationalVersion > 0 || hasAnyRelationalDomainTable(database)) {
+      return EXISTING_DATABASE_PREFLIGHT;
+    }
+
+    const legacyRow = hasTable(database, 'deploykit_state')
+      ? database
+          .query<LegacyStateRow, []>(
+            'SELECT payload FROM deploykit_state WHERE id = 1'
+          )
+          .get()
+      : null;
+    if (legacyRow) {
+      return {
+        kind: 'legacy-state',
+        data: migrate(JSON.parse(legacyRow.payload)).data,
+      };
+    }
+  } finally {
+    database.close();
+  }
+
+  return preflightLegacyFile(legacyDataFile);
+}
+
+function preflightLegacyFile(
+  legacyDataFile?: string
+): DatabaseInitializationPreflight {
+  if (!legacyDataFile || !pathExists(legacyDataFile)) {
+    return { kind: 'empty', data: createEmptyData() };
+  }
+  return {
+    kind: 'legacy-file',
+    data: migrate(JSON.parse(readFileSync(legacyDataFile, 'utf-8'))).data,
+    sourceFile: legacyDataFile,
+  };
+}
+
+function hasAnyRelationalDomainTable(database: Database): boolean {
+  return RELATIONAL_DOMAIN_TABLES.some((table) => hasTable(database, table));
+}
+
+function pathExists(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
+}
+
 function initializeDatabase(
   database: Database,
   databaseFile: string,
-  legacyDataFile?: string
+  preflight: DatabaseInitializationPreflight
 ): void {
   if (hasRelationalMigration(database)) return;
   const relationalVersion = getRelationalSchemaVersion(database);
@@ -369,43 +474,19 @@ function initializeDatabase(
     return;
   }
 
-  const hasAnyRelationalTable = [
-    'users',
-    'projects',
-    'versions',
-    'artifact_audit_jobs',
-    'artifact_audits',
-    'project_members',
-    'audit_events',
-    'releases',
-    'sessions',
-    'project_api_tokens',
-    'api_token_security_events',
-    'ci_idempotency_records',
-  ].some((table) => hasTable(database, table));
-  if (hasAnyRelationalTable) {
+  if (hasAnyRelationalDomainTable(database)) {
     throw new Error(
       'Relational SQLite schema is incomplete; restore the pre-migration backup'
     );
   }
 
-  const legacyRow = hasTable(database, 'deploykit_state')
-    ? database
-        .query<LegacyStateRow, []>(
-          'SELECT payload FROM deploykit_state WHERE id = 1'
-        )
-        .get()
-    : null;
-
-  if (legacyRow) {
+  if (preflight.kind === 'legacy-state') {
     createDatabaseBackup(database, databaseFile);
   }
 
-  const initialData = legacyRow
-    ? migrate(JSON.parse(legacyRow.payload) as unknown).data
-    : legacyDataFile && existsSync(legacyDataFile)
-      ? importLegacyData(legacyDataFile)
-      : createEmptyData();
+  if (preflight.kind === 'existing') {
+    throw new Error('Database initialization state changed after preflight');
+  }
 
   const migrateDatabase = database.transaction((data: Data) => {
     createRelationalSchema(database);
@@ -420,7 +501,7 @@ function initializeDatabase(
         .run(version, appliedAt);
     }
   });
-  migrateDatabase.immediate(initialData);
+  migrateDatabase.immediate(preflight.data);
 }
 
 function createDatabaseBackup(
@@ -1095,9 +1176,4 @@ function insertAuditEvent(database: Database, event: HistoryEvent): void {
         event.timestamp
       );
   }
-}
-
-function importLegacyData(legacyDataFile: string): Data {
-  copyFileSync(legacyDataFile, `${legacyDataFile}.sqlite-migration.bak`);
-  return createJsonProjectRepository(legacyDataFile).load();
 }

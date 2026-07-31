@@ -113,6 +113,47 @@ const legacyDataSchema = z.object({
   artifactAuditJobs: z.array(artifactAuditJobSchema).default([]),
 });
 
+const persistedV9AuditPolicyFieldsSchema = z.object({
+  maxJavaScriptBytes: z.number(),
+  maxStylesheetBytes: z.number(),
+  maxFontBytes: z.number(),
+});
+
+const persistedV9RequiredFieldsSchema = z.object({
+  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+  projects: z.array(
+    z.object({
+      members: z.array(z.unknown()),
+      auditPolicy: persistedV9AuditPolicyFieldsSchema,
+    })
+  ),
+  artifactAudits: z.array(
+    z.object({
+      policy: persistedV9AuditPolicyFieldsSchema,
+      context: settingsSchema,
+      summary: z.object({
+        assetBytes: z.object({
+          javascript: z.number(),
+          stylesheet: z.number(),
+          font: z.number(),
+          image: z.number(),
+        }),
+      }),
+      checks: z.array(
+        z.object({
+          ruleVersion: z.number(),
+        })
+      ),
+    })
+  ),
+  artifactAuditJobs: z.array(
+    z.object({
+      policy: persistedV9AuditPolicyFieldsSchema,
+      context: settingsSchema,
+    })
+  ),
+});
+
 export function createEmptyData(): Data {
   return {
     schemaVersion: CURRENT_SCHEMA_VERSION,
@@ -148,8 +189,9 @@ export function migrate(raw: unknown): MigrationResult {
   }
 
   if (declaredVersion === CURRENT_SCHEMA_VERSION) {
+    const requiredFields = persistedV9RequiredFieldsSchema.safeParse(raw);
     const current = dataSchema.safeParse(raw);
-    if (!current.success) {
+    if (!requiredFields.success || !current.success) {
       throw new Error(
         `Document schema v${CURRENT_SCHEMA_VERSION} failed validation`
       );

@@ -41,6 +41,73 @@ const v0Payload = {
   history: [],
 };
 
+function createCurrentAuditData() {
+  const data = migrate(v0Payload).data;
+  const project = data.projects[0];
+  const version = project.versions[0];
+  const policy = { ...project.auditPolicy };
+  data.artifactAudits.push({
+    id: 'report-1',
+    projectId: project.id,
+    versionId: version.id,
+    artifactChecksum: version.checksum,
+    status: 'warning',
+    score: 90,
+    createdAt: '2026-07-30T00:01:00.000Z',
+    createdBy: 'system',
+    engineVersion: 1,
+    policy: { ...policy },
+    context: { spaMode: false, routingType: 'path' },
+    summary: {
+      totalBytes: 10,
+      fileCount: 1,
+      largestFiles: [{ path: 'index.html', size: 10 }],
+      extensions: [{ extension: '.html', bytes: 10, count: 1 }],
+      assetBytes: {
+        javascript: 0,
+        stylesheet: 0,
+        font: 0,
+        image: 0,
+      },
+    },
+    checks: [
+      {
+        id: 'seo.title',
+        ruleVersion: 1,
+        category: 'seo',
+        severity: 'warning',
+        passed: false,
+        message: 'Title is missing',
+      },
+    ],
+  });
+  data.artifactAuditJobs.push({
+    id: 'job-1',
+    projectId: project.id,
+    versionId: version.id,
+    requestedBy: 'system',
+    status: 'succeeded',
+    priority: 0,
+    attempts: 1,
+    maxAttempts: 3,
+    nextRunAt: '2026-07-30T00:00:00.000Z',
+    lockedBy: null,
+    lockedUntil: null,
+    artifactChecksum: version.checksum,
+    engineVersion: 1,
+    policy: { ...policy },
+    context: { spaMode: false, routingType: 'path' },
+    reportId: 'report-1',
+    errorCode: null,
+    errorMessage: null,
+    createdAt: '2026-07-30T00:00:00.000Z',
+    updatedAt: '2026-07-30T00:01:00.000Z',
+    startedAt: '2026-07-30T00:00:05.000Z',
+    completedAt: '2026-07-30T00:01:00.000Z',
+  });
+  return data;
+}
+
 test('migrate derives activeVersionId from the per-version active flag (v0 -> current)', () => {
   const { data, migrated } = migrate(v0Payload);
 
@@ -267,16 +334,24 @@ test('migrate rejects decoded values outside the supported document schemas', ()
       artifactAuditJobs: [],
     })
   ).toThrow('Document schema v9 failed validation');
-  expect(() =>
-    migrate({
-      schemaVersion: CURRENT_SCHEMA_VERSION + 1,
-      projects: [],
-      users: [],
-      history: [],
-      artifactAudits: [],
-      artifactAuditJobs: [],
-    })
-  ).toThrow('Unsupported document schema version 10');
+});
+
+test('migrate accepts supported declared versions and rejects every version boundary', () => {
+  const current = createCurrentAuditData();
+  for (const schemaVersion of [1, 2, 3, 4, 5, 6, 7, 8]) {
+    const migrated = migrate({ ...current, schemaVersion });
+    expect(migrated.data.schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
+    expect(migrated.migrated).toBe(true);
+  }
+
+  for (const schemaVersion of [-1, 1.5, CURRENT_SCHEMA_VERSION + 1]) {
+    expect(() => migrate({ ...current, schemaVersion })).toThrow(
+      `Unsupported document schema version ${schemaVersion}`
+    );
+  }
+  expect(() => migrate({ ...current, schemaVersion: '9' })).toThrow(
+    'Document schema migration failed'
+  );
 });
 
 test('repository backs up and persists a migrated v0 file on first load', () => {
@@ -384,6 +459,83 @@ test('repository rejects an unknown document version without writing', () => {
   const repo = createJsonProjectRepository(dataFile);
 
   expect(() => repo.load()).toThrow('Unsupported document schema version 10');
+  expect(readFileSync(dataFile)).toEqual(original);
+  expect(existsSync(`${dataFile}.bak`)).toBe(false);
+});
+
+test('repository rejects a v8-shaped document mislabeled as v9 without writing', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const current = createCurrentAuditData();
+  const project = current.projects[0];
+  const {
+    members: _members,
+    auditPolicy: currentProjectPolicy,
+    ...projectWithoutCurrentFields
+  } = project;
+  const {
+    maxJavaScriptBytes: _projectJavaScript,
+    maxStylesheetBytes: _projectStylesheet,
+    maxFontBytes: _projectFont,
+    ...legacyProjectPolicy
+  } = currentProjectPolicy;
+  const report = current.artifactAudits[0];
+  const {
+    policy: currentReportPolicy,
+    context: _reportContext,
+    summary: currentSummary,
+    checks: currentChecks,
+    ...reportWithoutCurrentFields
+  } = report;
+  const {
+    maxJavaScriptBytes: _reportJavaScript,
+    maxStylesheetBytes: _reportStylesheet,
+    maxFontBytes: _reportFont,
+    ...legacyReportPolicy
+  } = currentReportPolicy;
+  const { assetBytes: _assetBytes, ...legacySummary } = currentSummary;
+  const [{ ruleVersion: _ruleVersion, ...legacyCheck }] = currentChecks;
+  const job = current.artifactAuditJobs[0];
+  const {
+    policy: currentJobPolicy,
+    context: _jobContext,
+    ...jobWithoutCurrentFields
+  } = job;
+  const {
+    maxJavaScriptBytes: _jobJavaScript,
+    maxStylesheetBytes: _jobStylesheet,
+    maxFontBytes: _jobFont,
+    ...legacyJobPolicy
+  } = currentJobPolicy;
+  const original = Buffer.from(
+    JSON.stringify({
+      ...current,
+      projects: [
+        {
+          ...projectWithoutCurrentFields,
+          auditPolicy: legacyProjectPolicy,
+        },
+      ],
+      artifactAudits: [
+        {
+          ...reportWithoutCurrentFields,
+          policy: legacyReportPolicy,
+          summary: legacySummary,
+          checks: [legacyCheck],
+        },
+      ],
+      artifactAuditJobs: [
+        {
+          ...jobWithoutCurrentFields,
+          policy: legacyJobPolicy,
+        },
+      ],
+    })
+  );
+  writeFileSync(dataFile, original);
+
+  const repo = createJsonProjectRepository(dataFile);
+
+  expect(() => repo.load()).toThrow('Document schema v9 failed validation');
   expect(readFileSync(dataFile)).toEqual(original);
   expect(existsSync(`${dataFile}.bak`)).toBe(false);
 });
