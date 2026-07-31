@@ -43,7 +43,7 @@ DeployKit 是一个单进程的静态前端产物部署平台：一个 Bun + Hon
 | `domain/` | 纯领域规则，无 I/O | `project.ts`（slug/设置/审计策略）、`version.ts`（显式发布状态）、`artifactAudit.ts`（发布门禁）、`history.ts`（追加事件与不透明游标）、`session.ts`（会话身份类型）、`apiToken.ts`（自动化凭据记录） |
 | `utils/` | 基础工具 | `id.ts`（nanoid）、`mime.ts`、`safePath.ts`（`safeJoin` 路径遍历防护） |
 | `repositories/` | 持久化 | `projectRepository.ts`（原子 `mutate` / CI upload commit 契约）、`sqliteProjectRepository.ts`（默认 SQLite 文档仓储，WAL + `IMMEDIATE` 事务）、`apiTokenRepository.ts`（SQLite/内存 Token 与安全事件）、`jsonProjectRepository.ts`（仅隔离测试）；旧 `data.json` 由 SQLite 初始化器导入 |
-| `services/` | 用例 | `projectService`、`apiTokenService`（项目 Token 生命周期与鉴权）、`versionService`（交互式/CI 上传、发布、回滚、删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）、`backupService`（备份验证恢复）、`metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
+| `services/` | 用例 | `projectService`、`apiTokenService`（项目 Token 生命周期与鉴权）、`versionService`（交互式/CI 上传、发布、回滚、删除）、`artifactService`（解压/扁平化/大小/缓存服务）、`artifactAuditEngine`/`artifactAuditService`（静态审计与同步兼容）、`artifactAuditJobService`（持久化队列/租约/重试/原子完成）、`artifactAuditExecutor`/`artifactAuditWorker`（隔离子进程与单任务调度）、`artifactRecovery`（两阶段删除与中断恢复）、`runtimeOwnership`（本机单实例所有权）、`artifactIntegrityService`（显式完整性检查）、`storageReconciler`/`storageGarbageCollector`（对账与保留策略）；备份边界拆为唯一公共 facade `backupService`，以及 server-private 的 `backupTypes`（内部类型）、`backupSnapshot`（快照/负载捕获）、`backupVerification`（校验）和 `backupRestoreTransaction`（恢复事务）；另有 `metrics`（低基数进程指标）、`deployResolver`（纯函数解析 `/deploy/*`）；`contracts.ts` 存放 **Bun 无关**的服务接口 |
 | `workers/` | 隔离进程入口 | `artifactAuditProcess.ts` 只接受一份严格 JSON 输入并输出一份经过 schema 校验的结果；不承载 HTTP、会话或数据库连接 |
 | `routes/` | HTTP 适配 | session 管理面的 `projects` / `versions` / `apiTokens` / `artifactAudits` / `history`，经 `middleware/apiToken.ts` 鉴权的独立 `ciVersions`，以及依赖 artifactService 的 `deploy` |
 | `app.ts` | 组合根 | `createApp(config)` 返回不争用所有权的测试应用；先挂载 `/api/ci/*` 的 Token 路由与终止 404，再挂载 session 管理 API；`createDeployKitRuntime(config)` 先获取运行时所有权，再组合相同 Hono app 与 durable audit Worker |
@@ -335,14 +335,37 @@ apps/server/
 
 ### 备份与恢复
 
-`bun run ops -- backup` 使用 `VACUUM INTO` 生成一致 SQLite 快照，复制完整
-存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、元数据计数和
-产物计数。schema v6 清单强制记录 Token、安全事件和 CI 幂等记录三项计数；
-v5/v6 备份仍可验证和恢复，并在恢复后的真实 runtime 启动时迁移到当前 v7。
-`verify` 在恢复前检查 SQLite 完整性/外键、清单计数、符号链接、版本入口和
-checksum；历史 v5/v6 会在一次性副本上复用生产 migration 和 relational
-hydrator，当前 v7 直接通过同一 project/report/job domain validation。JSON
-语法正确但 domain 无效的策略、context、summary/check 也会 fail closed。
+备份实现保持以下单向 import/use DAG：
+
+```text
+backupService facade
+  -> backupTypes
+  -> backupSnapshot -> backupTypes
+  -> backupVerification -> backupSnapshot + backupTypes
+  -> backupRestoreTransaction -> backupVerification + backupSnapshot + backupTypes
+```
+
+箭头只表示单向 import/use；facade 直接依赖 `backupTypes`，三个内部实现模块
+也各自依赖 `backupTypes`。`backupTypes`、`backupSnapshot`、
+`backupVerification` 和 `backupRestoreTransaction` 都不会反向 import facade。
+这些内部模块仅属于 server，不进入 `contracts.ts`、`api.ts`、
+`@deploykit/shared` 或前端依赖的 Bun-free Hono 类型图；外部调用只经
+`backupService` facade。
+
+`bun run ops -- backup` 使用 `VACUUM INTO` 生成 SQLite 自身内部一致的快照，
+完成后再复制存储树，并以版本化 `manifest.json` 记录 schema、数据库文件名、
+元数据计数和产物计数。这两个步骤是不同捕获时点：当前 `createBackup` 不获取
+runtime ownership，因此不承诺 SQLite 与存储树处于同一个时间点。schema v6
+清单强制记录 Token、安全事件和 CI 幂等记录三项计数；v5/v6 备份仍可验证和
+恢复，并在恢复后的真实 runtime 启动时迁移到当前 v7。
+
+`verify` 在恢复前检查 SQLite 完整性和外键、清单计数、符号链接、版本入口及
+checksum，并执行部分领域 hydration。历史 v5/v6 会在一次性副本上复用生产
+migration 和 relational hydrator，当前 v7 直接复用同一 hydrator；其已覆盖的
+策略、context、summary/check 等 JSON 字段即使语法正确但 domain 无效，也会
+fail closed。
+当前 verifier 不会逐条验证所有历史 `releases` 和 `audit_events` 行，不能把
+表级计数与部分 hydration 表述为完整历史语义验证。
 
 恢复必须在服务停止后使用 `--force`。restore 自身还会获取同一 runtime
 ownership；活跃服务存在时即使传入 `--force` 也拒绝，避免用确认参数绕过互斥。
@@ -379,6 +402,13 @@ operation 才会尽力清理。rollback 可能包含完整数据库、产物以�
 storage 内的备份副本，属于敏感数据：父目录必须仅由受信服务账号写入并限制
 读取权限，运维在验证恢复后负责按保留策略清理。原本缺失的数据库、auxiliary
 或存储仍保持缺失；这些 auxiliary 只用于失败回滚与审计，不会从备份安装。
+
+`backupRestoreTransaction` 必须保持为一个整体事务单元。可变的 control path
+binding、逐资源 move progress 与 runtime ownership 共同约束 stage、install、
+rollback 的顺序；失败后的 compensation、quarantine、cleanup 和 secondary
+failures 又依赖同一组实时状态决定何者可恢复、何者必须保留，以及哪一个初始
+错误保持权威。把这些步骤拆成彼此独立的服务会分散状态机的顺序与所有权判断，
+使跳过补偿、误删唯一 rollback 副本或覆盖初始错误更难被局部接口阻止。
 
 ## 前端结构（packages/client/src）
 

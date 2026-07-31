@@ -60,7 +60,7 @@ Keeping these outside this plan prevents a module move from being mixed with an 
 - `backupService.ts` re-exports only the four existing public DTO/service types and continues exporting `createBackupService()`.
 - No runtime import from `backupTypes.ts` may point to `backupService.ts`.
 
-- [ ] **Step 1: Confirm the characterization baseline and clean tree**
+- [x] **Step 1: Confirm the characterization baseline and clean tree**
 
 ```bash
 git status --short --branch
@@ -70,7 +70,7 @@ bun test apps/server/tests/services/backupService.test.ts \
 
 Expected: clean `main`, 105 passing tests.
 
-- [ ] **Step 2: Move the exact type and constant declarations**
+- [x] **Step 2: Move the exact type and constant declarations**
 
 Create the leaf with the existing declarations and no behavior:
 
@@ -113,7 +113,7 @@ export interface BackupManifest {
 
 Move the remaining interfaces byte-for-byte from `backupService.ts`; do not redesign hook parameters or filesystem adapter options.
 
-- [ ] **Step 3: Re-export the unchanged public facade types**
+- [x] **Step 3: Re-export the unchanged public facade types**
 
 `backupService.ts` must retain this source compatibility:
 
@@ -128,7 +128,7 @@ export type {
 
 Import the internal config/dependency types with `import type`; do not export them from the facade.
 
-- [ ] **Step 4: Run the task gates**
+- [x] **Step 4: Run the task gates**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts \
@@ -140,7 +140,7 @@ git diff --check
 
 Expected: 105 passing tests, typecheck/Biome/diff-check pass, no runtime behavior diff.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/services/backupTypes.ts \
@@ -165,7 +165,7 @@ git commit -m "refactor: extract backup service contracts"
 - Produces internal primitives needed by later modules: `captureBackupPayload`, `assertDatabaseAuxiliariesAbsent`, `inspectDatabase`, `inspectTree`, `countDeployableVersions`, `parseManifest`, and `ensureRollbackManifest`.
 - Consumes only `backupTypes.ts`, repository/schema inspection dependencies, artifact checksum/path helpers, and filesystem/SQLite APIs. It must not import `backupService.ts` or `backupVerification.ts`.
 
-- [ ] **Step 1: Record the creation/capture contract before moving code**
+- [x] **Step 1: Record the creation/capture contract before moving code**
 
 Confirm that the existing tests cover self-describing creation, source/stage swaps, symlink/hard-link rejection, sidecars, cleanup, and target non-publication:
 
@@ -176,7 +176,7 @@ bun test apps/server/tests/services/backupService.test.ts \
 
 Expected: 105 passing tests.
 
-- [ ] **Step 2: Move snapshot creation behind one callback boundary**
+- [x] **Step 2: Move snapshot creation behind one callback boundary**
 
 Use this exact orchestration contract:
 
@@ -191,11 +191,11 @@ export function createBackupSnapshotAt(input: {
 
 The function owns destination-exists rejection, parent creation, temporary path creation, SQLite `VACUUM INTO`, storage copy, manifest construction/write, verification callback, atomic rename, and unpublished temporary cleanup. Preserve the existing field order, error strings, and synchronous ordering.
 
-- [ ] **Step 3: Move safe capture and shared payload inspection verbatim**
+- [x] **Step 3: Move safe capture and shared payload inspection verbatim**
 
 Move the current no-follow file/directory capture functions, single-link and identity checks, auxiliary rejection, manifest parsing, SQLite/tree inspection/count helpers, and rollback-manifest writer. Export only the named primitives required by verification/restore; keep raw FD/hash-independent helpers private.
 
-- [ ] **Step 4: Rewire `createBackupService().createBackup`**
+- [x] **Step 4: Rewire `createBackupService().createBackup`**
 
 The facade still resolves and validates the runtime layout first, then calls `createBackupSnapshotAt` with:
 
@@ -205,7 +205,7 @@ verifyPreparedBackup: (path) => verifyBackupAt(path, dependencies),
 
 At this checkpoint `verifyBackupAt` may still live in `backupService.ts`; no reverse import is allowed.
 
-- [ ] **Step 5: Run the task gates and inspect the dependency direction**
+- [x] **Step 5: Run the task gates and inspect the dependency direction**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts \
@@ -219,7 +219,7 @@ git diff --check
 
 Expected: 105 passing tests; the final `rg` emits no matches.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/server/src/services/backupSnapshot.ts \
@@ -245,7 +245,7 @@ git commit -m "refactor: extract backup snapshot boundary"
 - Produces `verifyStagedBackupPayload(manifestPath, databaseFile, storageDir, dependencies): VerifiedBackupPayload` and `fingerprintBackupPayload(...)` for restore.
 - Imports safe capture/parse/inspection primitives from `backupSnapshot.ts`; neither `backupSnapshot.ts` nor `backupTypes.ts` may import it.
 
-- [ ] **Step 1: Lock the verification ordering with existing characterization tests**
+- [x] **Step 1: Lock the verification ordering with existing characterization tests**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts
@@ -253,15 +253,15 @@ bun test apps/server/tests/services/backupService.test.ts
 
 Expected: all backup service tests pass, including v5/v6 migration dry-run, v7 domain hydration, cleanup fail-closed, and corruption cases.
 
-- [ ] **Step 2: Move verification entry points and helpers verbatim**
+- [x] **Step 2: Move verification entry points and helpers verbatim**
 
 Move the detailed verifier, staged verifier, migration temporary-root lifecycle, production schema upgrade/hydration, integrity/foreign-key/count/artifact checks, framed fingerprinting, version checks, and count comparison. Preserve the current validation order and exact errors/warnings. Do not broaden manifest compatibility or add full release/audit verification in this task.
 
-- [ ] **Step 3: Rewire the facade and restore imports**
+- [x] **Step 3: Rewire the facade and restore imports**
 
 `backupService.ts` imports `verifyBackupAt` and `verifyBackupDetailedAt`. Restore code still in the facade file imports `verifyStagedBackupPayload` and `fingerprintBackupPayload` until Task 4 moves the transaction.
 
-- [ ] **Step 4: Run focused and production gates**
+- [x] **Step 4: Run focused and production gates**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts \
@@ -278,7 +278,7 @@ git diff --check
 
 Expected: all focused tests pass; the dependency-direction `rg` emits no matches.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/services/backupVerification.ts \
@@ -304,16 +304,17 @@ git commit -m "refactor: extract backup verification boundary"
 - The function owns operation ID/layout/preflight, ownership acquisition/release, stage binding/capture, final verification, live move/install, rollback/compensation, cleanup, quarantine, and secondary-failure attachment.
 - All binding/progress/recovery types remain private to this module.
 
-- [ ] **Step 1: Re-run the restore safety baseline**
+- [x] **Step 1: Re-run the restore safety baseline**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts \
   apps/server/tests/services/backupRestoreSafety.test.ts
 ```
 
-Expected: 105 passing tests.
+Expected: 106 passing tests, including the fail-closed `ENOTDIR` regression
+added during Task 3 review.
 
-- [ ] **Step 2: Move the complete restore state machine as one unit**
+- [x] **Step 2: Move the complete restore state machine as one unit**
 
 Use this facade boundary:
 
@@ -330,7 +331,7 @@ export function restoreVerifiedBackup(input: {
 
 Inside it, preserve the current post-initial-verification sequence beginning with operation layout/preflight and ending with ownership release. Move every restore binding, stage, move/EXDEV, commit-classification, rollback/recovery, cleanup, digest, quarantine, and secondary-error helper with it. Do not expose `RestoreControlBinding`, `RuntimeMoveProgress`, or recovery helpers.
 
-- [ ] **Step 3: Reduce `backupService.ts` to the public facade**
+- [x] **Step 3: Reduce `backupService.ts` to the public facade**
 
 The facade retains force confirmation, runtime-layout validation, initial detailed verification, `afterInitialBackupVerified`, and delegation:
 
@@ -347,7 +348,7 @@ return restoreVerifiedBackup({
 
 Keep the initial verification before the restore module acquires ownership. `backupService.ts` must contain no restore binding, filesystem move, hash, migration, or SQLite implementation helpers after this step.
 
-- [ ] **Step 4: Run safety, full-server, and dependency gates**
+- [x] **Step 4: Run safety, full-server, and dependency gates**
 
 ```bash
 bun test apps/server/tests/services/backupService.test.ts \
@@ -363,9 +364,9 @@ bun biome check apps/server/src/services apps/server/tests/services
 git diff --check
 ```
 
-Expected: 105 focused tests and the full server suite pass; the reverse-import `rg` emits no matches.
+Expected: 106 focused tests and the full server suite pass; the reverse-import `rg` emits no matches.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/server/src/services/backupRestoreTransaction.ts \
@@ -388,7 +389,7 @@ git commit -m "refactor: extract backup restore transaction"
 - Documents the facade/internal DAG and the reason restore control/recovery remain one transaction unit.
 - Records the two deferred correctness decisions without claiming that module extraction solved them.
 
-- [ ] **Step 1: Update architecture documentation**
+- [x] **Step 1: Update architecture documentation**
 
 In the backend service table and backup section, document:
 
@@ -402,11 +403,11 @@ all internal modules -> backupTypes
 
 State that these are server-private modules and do not enter the Bun-free API type graph.
 
-- [ ] **Step 2: Record the correctness follow-ups**
+- [x] **Step 2: Record the correctness follow-ups**
 
 Add concise roadmap entries for choosing an enforced offline or truly quiesced online backup contract, and for verifying every release/audit row plus exact round-trip state. Do not mark either complete.
 
-- [ ] **Step 3: Run complete local gates**
+- [x] **Step 3: Run complete local gates**
 
 ```bash
 bun run check
@@ -418,11 +419,19 @@ git status --short --branch
 
 Expected: all workspaces pass check, secret scan, typecheck, tests, build/package, and high-severity dependency audit.
 
-- [ ] **Step 4: Run independent whole-range review**
+- [x] **Step 4: Run independent whole-range review**
 
 Review from the recorded starting commit. Require both spec-compliance and code-quality approval, with special attention to import cycles, operation ordering, error identity, stage cleanup, and restore compensation. Fix all Critical/Important findings and re-run covering tests before re-review.
 
-- [ ] **Step 5: Commit documentation and review fixes**
+The whole-range review found one `ENOTDIR` behavior drift in the private
+snapshot missing-path helper. Commit `8c5cdc9` restored the original
+`ENOENT`-only contract and added a real-filesystem auxiliary-path regression;
+both independent re-reviews approved the corrected range. Duplicate read-only
+helpers and the restore transaction's redundant initial `verification` input
+remain non-blocking follow-up maintenance, outside this behavior-preserving
+move.
+
+- [x] **Step 5: Commit documentation and review fixes**
 
 ```bash
 git add docs/architecture.md docs/backend-hardening-roadmap.md \

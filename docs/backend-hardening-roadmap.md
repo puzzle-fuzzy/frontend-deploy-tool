@@ -59,8 +59,9 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 ### 阶段 3：存储可靠性和运维
 
-状态：已于 2026-07-30 完成。两阶段删除、事务容量、保守 GC、持久化完整性
-状态和备份/验证/恢复命令均已通过全仓验证与真实命令行恢复演练。
+状态：两阶段删除、事务容量、保守 GC、持久化完整性、恢复命令、文件事务与
+当前验证基线已于 2026-07-30 完成；完整备份一致性和历史语义正确性门槛仍未
+完成。
 
 - 项目/版本删除先进入回收区，再提交元数据，失败可恢复。
 - 真实 runtime 分别对规范化 SQLite 与存储路径持有 SQLite sidecar 内核事务锁；
@@ -95,10 +96,11 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 - 增加全局、用户、项目容量配额及并发上传配额。
 - 为 staging、recovery、孤儿目录增加带保留期的垃圾回收。
 - 增加校验和巡检和明确的损坏状态。
-- 提供一致性备份、恢复、校验命令和恢复演练文档。
+- 提供可验证的 SQLite 快照与存储树备份、恢复、校验命令和恢复演练文档。
 
-完成门槛：在注入文件操作失败时无静默数据丢失；备份恢复后项目、版本、
-当前发布和审计事件一致。
+已验证基线：在注入文件操作失败时无静默数据丢失；备份恢复后 SQLite 内项目、
+版本、当前发布和审计事件可读取，存储树通过清单计数、版本入口和 checksum
+校验。
 
 验证证据：`bun run verify` 通过（server 232、client 40、desktop 23）；
 隔离 SQLite/WAL 演练恢复后项目、版本、线上指针、审计和 session 均一致，
@@ -108,6 +110,17 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 产物、active pointer 与历史不变；双启动 fail closed。后续 review 加固验证
 同库/异存储、异库/同存储互斥、SIGKILL 自动释放、hard-link/存储重叠拒绝，
 以及 v1/v2/v3/v4 与 symlink/身份/checksum 恢复分支。
+
+完整正确性门槛（未完成）：SQLite 与 storage 必须来自同一一致性时点；
+`releases`、`audit_events` 必须逐条通过语义验证；production schema 必须通过
+精确 round-trip 状态断言。为达到该门槛，以下事项继续 pending：
+
+- [ ] 在 enforced offline 备份与真正 quiesced online 备份之间选择并实现一致性
+  契约；当前 `VACUUM INTO` 仅保证 SQLite 快照自身一致，随后复制的存储树属于
+  另一个捕获时点，`createBackup` 不获取 runtime ownership。
+- [ ] 逐条验证 `releases`、`audit_events`，并增加 production schema 精确
+  round-trip 状态断言；当前 verifier 已覆盖 SQLite 完整性、外键、表级计数与
+  部分 domain hydration，但未验证每一条历史发布和审计行。
 
 ### 阶段 4：可观测性、交付和静态服务
 
