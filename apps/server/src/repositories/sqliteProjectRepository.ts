@@ -39,6 +39,7 @@ import type {
 import {
   apiTokenScopeSchema,
   artifactAuditReportSchema,
+  projectSchema,
 } from '@deploykit/shared';
 import {
   decodeHistoryCursor,
@@ -207,7 +208,7 @@ interface SequencedAuditRow extends AuditRow {
   sequence: number;
 }
 
-interface ArtifactAuditRow {
+export interface ArtifactAuditRow {
   id: string;
   project_id: string;
   version_id: string;
@@ -950,7 +951,7 @@ function preflightRequiresMigration(
   );
 }
 
-function loadRelationalData(database: Database): Data {
+export function loadRelationalData(database: Database): Data {
   const users = database
     .query<UserRow, []>(
       `SELECT id, name, email, password_hash, role, created_at, updated_at
@@ -1005,31 +1006,33 @@ function loadRelationalData(database: Database): Data {
     membersByProject.set(row.project_id, members);
   }
 
-  const projects = projectRows.map<Project>((row) => ({
-    id: row.id,
-    name: row.name,
-    slug: row.slug,
-    description: row.description,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    versions: versionsByProject.get(row.id) ?? [],
-    activeVersionId: row.active_version_id,
-    settings: {
-      spaMode: row.spa_mode === 1,
-      routingType: row.routing_type,
-    },
-    auditPolicy: {
-      enforcement: row.audit_enforcement,
-      maxTotalBytes: row.audit_max_total_bytes,
-      maxFileBytes: row.audit_max_file_bytes,
-      maxFileCount: row.audit_max_file_count,
-      maxJavaScriptBytes: row.audit_max_javascript_bytes,
-      maxStylesheetBytes: row.audit_max_stylesheet_bytes,
-      maxFontBytes: row.audit_max_font_bytes,
-    },
-    createdBy: row.created_by,
-    members: membersByProject.get(row.id) ?? [],
-  }));
+  const projects = projectRows.map<Project>((row) =>
+    projectSchema.parse({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      description: row.description,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+      versions: versionsByProject.get(row.id) ?? [],
+      activeVersionId: row.active_version_id,
+      settings: {
+        spaMode: row.spa_mode === 1,
+        routingType: row.routing_type,
+      },
+      auditPolicy: {
+        enforcement: row.audit_enforcement,
+        maxTotalBytes: row.audit_max_total_bytes,
+        maxFileBytes: row.audit_max_file_bytes,
+        maxFileCount: row.audit_max_file_count,
+        maxJavaScriptBytes: row.audit_max_javascript_bytes,
+        maxStylesheetBytes: row.audit_max_stylesheet_bytes,
+        maxFontBytes: row.audit_max_font_bytes,
+      },
+      createdBy: row.created_by,
+      members: membersByProject.get(row.id) ?? [],
+    })
+  );
 
   const history = database
     .query<AuditRow, []>(
@@ -1120,7 +1123,9 @@ function rowToHistoryEvent(row: AuditRow): HistoryEvent {
   };
 }
 
-function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
+export function rowToArtifactAuditReport(
+  row: ArtifactAuditRow
+): ArtifactAuditReport {
   return artifactAuditReportSchema.parse({
     id: row.id,
     projectId: row.project_id,
@@ -1131,10 +1136,10 @@ function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
     createdAt: row.created_at,
     createdBy: row.created_by,
     engineVersion: row.engine_version,
-    policy: JSON.parse(row.policy_json) as ArtifactAuditReport['policy'],
-    context: JSON.parse(row.context_json) as ArtifactAuditReport['context'],
-    summary: JSON.parse(row.summary_json) as ArtifactAuditReport['summary'],
-    checks: JSON.parse(row.checks_json) as ArtifactAuditReport['checks'],
+    policy: JSON.parse(row.policy_json),
+    context: JSON.parse(row.context_json),
+    summary: JSON.parse(row.summary_json),
+    checks: JSON.parse(row.checks_json),
   });
 }
 

@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  renameSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -287,6 +288,375 @@ describe('createBackupService', () => {
         .get()?.count;
       restored.close();
       expect(idempotencyCount).toBe(1);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('verifies generated v6 report and job snapshots through production migration hydration', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-v6-domain-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-v6-domain');
+      const service = createBackupService(fixture);
+      service.createBackup(backupDir);
+      downgradeBackupToSchemaV6(backupDir);
+      const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+      const sourceBytes = readFileSync(backupDatabase);
+      const sourceManifestBytes = readFileSync(
+        join(backupDir, 'manifest.json')
+      );
+
+      expect(service.verifyBackup(backupDir)).toMatchObject({
+        valid: true,
+        errors: [],
+      });
+      expect(readFileSync(backupDatabase)).toEqual(sourceBytes);
+      expect(readFileSync(join(backupDir, 'manifest.json'))).toEqual(
+        sourceManifestBytes
+      );
+      expectDatabaseAuxiliariesAbsent(backupDatabase);
+
+      service.restoreBackup(backupDir, { force: true });
+      const ownership = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      let loaded: Data;
+      try {
+        loaded = createSqliteProjectRepository({
+          databaseFile: fixture.databaseFile,
+          migrationGuard: ownership.migrationGuard,
+        }).load();
+      } finally {
+        ownership.release();
+      }
+      expect(loaded.projects[0].auditPolicy).toMatchObject({
+        maxJavaScriptBytes: 10 * 1024 * 1024,
+        maxStylesheetBytes: 2 * 1024 * 1024,
+        maxFontBytes: 10 * 1024 * 1024,
+      });
+      expect(loaded.artifactAudits[0]).toMatchObject({
+        context: { spaMode: false, routingType: 'path' },
+        summary: {
+          assetBytes: {
+            javascript: 0,
+            stylesheet: 0,
+            font: 0,
+            image: 0,
+          },
+        },
+        checks: [{ id: 'seo.title', ruleVersion: 1 }],
+      });
+      expect(loaded.artifactAuditJobs[0]).toMatchObject({
+        context: { spaMode: false, routingType: 'path' },
+      });
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('rejects a drifted v6 migration target before ownership or live mutation', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-v6-drift-'));
+    let ownershipAcquisitions = 0;
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-v6-drift');
+      createBackupService(fixture).createBackup(backupDir);
+      downgradeBackupToSchemaV6(backupDir);
+      const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+      const database = new Database(backupDatabase);
+      database.exec(
+        'ALTER TABLE projects ADD COLUMN audit_max_javascript_bytes TEXT'
+      );
+      database.close();
+      checkpointDatabase(backupDatabase);
+      const sourceBytes = readFileSync(backupDatabase);
+      const manifestBytes = readFileSync(join(backupDir, 'manifest.json'));
+      const liveBytes = readFileSync(fixture.databaseFile);
+      const service = createBackupService(fixture, {
+        acquireOwnership() {
+          ownershipAcquisitions += 1;
+          throw new Error('drifted backup must not own runtime');
+        },
+      });
+
+      const verification = service.verifyBackup(backupDir);
+      expect(verification.valid).toBe(false);
+      expect(verification.errors.join('\n')).toContain(
+        'BACKUP_MIGRATION_PREFLIGHT_FAILED'
+      );
+      expect(verification.errors.join('\n')).toContain(
+        'audit_max_javascript_bytes'
+      );
+      expect(() => service.restoreBackup(backupDir, { force: true })).toThrow(
+        'BACKUP_MIGRATION_PREFLIGHT_FAILED'
+      );
+      expect(ownershipAcquisitions).toBe(0);
+      expect(readFileSync(backupDatabase)).toEqual(sourceBytes);
+      expect(readFileSync(join(backupDir, 'manifest.json'))).toEqual(
+        manifestBytes
+      );
+      expect(readFileSync(fixture.databaseFile)).toEqual(liveBytes);
+      expectDatabaseAuxiliariesAbsent(backupDatabase);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  for (const schemaVersion of [6, 7] as const) {
+    const corruptions = [
+      ['artifact_audits', 'policy_json', '{', '{"enforcement":"bogus"}'],
+      ['artifact_audit_jobs', 'policy_json', '{', '{"enforcement":"bogus"}'],
+      ['artifact_audits', 'summary_json', '{', '{"totalBytes":-1}'],
+      ['artifact_audits', 'checks_json', '{', '[{"id":1}]'],
+      ...(schemaVersion === 7
+        ? [
+            [
+              'artifact_audits',
+              'context_json',
+              '{',
+              '{"spaMode":"false","routingType":"path"}',
+            ],
+            [
+              'artifact_audit_jobs',
+              'context_json',
+              '{',
+              '{"spaMode":"false","routingType":"path"}',
+            ],
+          ]
+        : []),
+    ] as const;
+
+    for (const [table, column, invalidJson, invalidDomain] of corruptions) {
+      for (const [kind, value] of [
+        ['invalid JSON', invalidJson],
+        ['domain-invalid JSON', invalidDomain],
+      ] as const) {
+        test(`rejects ${kind} ${table}.${column} in schema v${schemaVersion} without source or live mutation`, () => {
+          const tempDir = mkdtempSync(
+            join(tmpdir(), `deploykit-backup-v${schemaVersion}-corrupt-`)
+          );
+          let ownershipAcquisitions = 0;
+          try {
+            const fixture = createFixture(tempDir);
+            const backupDir = join(tempDir, 'backups', 'backup-corrupt');
+            createBackupService(fixture).createBackup(backupDir);
+            if (schemaVersion === 6) downgradeBackupToSchemaV6(backupDir);
+            const backupDatabase = join(
+              backupDir,
+              'database',
+              'deploykit.sqlite'
+            );
+            const database = new Database(backupDatabase);
+            database.query(`UPDATE ${table} SET ${column} = ?`).run(value);
+            database.close();
+            checkpointDatabase(backupDatabase);
+
+            const sourceDatabaseBytes = readFileSync(backupDatabase);
+            const sourceManifestBytes = readFileSync(
+              join(backupDir, 'manifest.json')
+            );
+            const liveDatabaseBytes = readFileSync(fixture.databaseFile);
+            const liveArtifactPath = join(
+              fixture.storageDir,
+              'p1',
+              'v1',
+              'index.html'
+            );
+            const liveArtifactBytes = readFileSync(liveArtifactPath);
+            const service = createBackupService(fixture, {
+              acquireOwnership() {
+                ownershipAcquisitions += 1;
+                throw new Error('invalid backup must not acquire ownership');
+              },
+            });
+
+            const verification = service.verifyBackup(backupDir);
+            expect(verification.valid).toBe(false);
+            expect(verification.errors.join('\n')).toContain(
+              schemaVersion === 6
+                ? 'BACKUP_MIGRATION_PREFLIGHT_FAILED'
+                : 'Backup database inspection failed'
+            );
+            expect(() =>
+              service.restoreBackup(backupDir, { force: true })
+            ).toThrow('Backup verification failed');
+            expect(ownershipAcquisitions).toBe(0);
+            expect(readFileSync(backupDatabase)).toEqual(sourceDatabaseBytes);
+            expect(readFileSync(join(backupDir, 'manifest.json'))).toEqual(
+              sourceManifestBytes
+            );
+            expect(readFileSync(fixture.databaseFile)).toEqual(
+              liveDatabaseBytes
+            );
+            expect(readFileSync(liveArtifactPath)).toEqual(liveArtifactBytes);
+            expectDatabaseAuxiliariesAbsent(backupDatabase);
+          } finally {
+            rmSync(tempDir, { recursive: true, force: true });
+          }
+        });
+      }
+    }
+  }
+
+  for (const [table, column, value] of [
+    ['projects', 'routing_type', 'invalid-routing'],
+    ['versions', 'source_type', 'invalid-source'],
+  ] as const) {
+    test(`current v7 backup hydrates ${table}.${column} through projectSchema`, () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-project-'));
+      let ownershipAcquisitions = 0;
+      try {
+        const fixture = createFixture(tempDir);
+        const backupDir = join(tempDir, 'backups', 'backup-domain');
+        createBackupService(fixture).createBackup(backupDir);
+        const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+        const database = new Database(backupDatabase);
+        database.exec('PRAGMA ignore_check_constraints = ON');
+        database.query(`UPDATE ${table} SET ${column} = ?`).run(value);
+        database.close();
+        checkpointDatabase(backupDatabase);
+        const sourceBytes = readFileSync(backupDatabase);
+        const liveBytes = readFileSync(fixture.databaseFile);
+        const service = createBackupService(fixture, {
+          acquireOwnership() {
+            ownershipAcquisitions += 1;
+            throw new Error('domain-invalid backup must not own runtime');
+          },
+        });
+
+        expect(service.verifyBackup(backupDir).valid).toBe(false);
+        expect(() => service.restoreBackup(backupDir, { force: true })).toThrow(
+          'Backup verification failed'
+        );
+        expect(ownershipAcquisitions).toBe(0);
+        expect(readFileSync(backupDatabase)).toEqual(sourceBytes);
+        expect(readFileSync(fixture.databaseFile)).toEqual(liveBytes);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  test('restore rejects a coherent source swap after initial verification without live mutation', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-swap-'));
+    let ownershipAcquisitions = 0;
+    let ownershipReleases = 0;
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-original');
+      const replacementDir = join(tempDir, 'backups', 'backup-replacement');
+      createBackupService(fixture).createBackup(backupDir);
+      fixture.repository.mutate((data) => {
+        data.projects[0].name = 'Swapped payload';
+      });
+      createBackupService(fixture).createBackup(replacementDir);
+      const liveDatabaseBytes = readFileSync(fixture.databaseFile);
+      const liveArtifactPath = join(
+        fixture.storageDir,
+        'p1',
+        'v1',
+        'index.html'
+      );
+      const liveArtifactBytes = readFileSync(liveArtifactPath);
+
+      const service = createBackupService(fixture, {
+        afterInitialBackupVerified(path) {
+          expect(path).toBe(backupDir);
+          rmSync(backupDir, { recursive: true, force: true });
+          renameSync(replacementDir, backupDir);
+        },
+        acquireOwnership() {
+          ownershipAcquisitions += 1;
+          return {
+            release() {
+              ownershipReleases += 1;
+            },
+          };
+        },
+      });
+
+      expect(() => service.restoreBackup(backupDir, { force: true })).toThrow(
+        'RESTORE_BACKUP_SOURCE_CHANGED'
+      );
+      expect(ownershipAcquisitions).toBe(1);
+      expect(ownershipReleases).toBe(1);
+      expect(readFileSync(fixture.databaseFile)).toEqual(liveDatabaseBytes);
+      expect(readFileSync(liveArtifactPath)).toEqual(liveArtifactBytes);
+      expect(existsSync(join(tempDir, '.deploykit-rollback'))).toBe(false);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('validation temporary roots and SQLite auxiliaries are removed on success and failure', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-cleanup-'));
+    const roots: string[] = [];
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-cleanup');
+      createBackupService(fixture).createBackup(backupDir);
+      downgradeBackupToSchemaV6(backupDir);
+      const service = createBackupService(fixture, {
+        createTemporaryRoot(prefix) {
+          const root = mkdtempSync(join(tempDir, prefix));
+          roots.push(root);
+          return root;
+        },
+      });
+
+      expect(service.verifyBackup(backupDir).valid).toBe(true);
+      const database = new Database(
+        join(backupDir, 'database', 'deploykit.sqlite')
+      );
+      database.query('UPDATE artifact_audits SET summary_json = ?').run('{');
+      database.close();
+      checkpointDatabase(join(backupDir, 'database', 'deploykit.sqlite'));
+      expect(service.verifyBackup(backupDir).valid).toBe(false);
+
+      expect(roots.length).toBeGreaterThanOrEqual(4);
+      for (const root of roots) {
+        expect(existsSync(root)).toBe(false);
+        for (const temporaryDatabase of [
+          join(root, 'backup', 'database', 'deploykit.sqlite'),
+          join(root, 'deploykit.sqlite'),
+        ]) {
+          expect(existsSync(temporaryDatabase)).toBe(false);
+          for (const suffix of ['-journal', '-wal', '-shm']) {
+            expect(existsSync(`${temporaryDatabase}${suffix}`)).toBe(false);
+          }
+        }
+      }
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('temporary cleanup failure makes verification fail closed', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-cleanup-failure-')
+    );
+    try {
+      const fixture = createFixture(tempDir);
+      const backupDir = join(tempDir, 'backups', 'backup-cleanup-failure');
+      createBackupService(fixture).createBackup(backupDir);
+      const verification = createBackupService(fixture, {
+        createTemporaryRoot(prefix) {
+          return mkdtempSync(join(tempDir, prefix));
+        },
+        cleanupTemporaryRoot() {
+          throw new Error('injected cleanup failure');
+        },
+      }).verifyBackup(backupDir);
+
+      expect(verification.valid).toBe(false);
+      expect(verification.errors.join('\n')).toContain(
+        'BACKUP_VALIDATION_CLEANUP_FAILED'
+      );
+      expect(verification.errors.join('\n')).toContain(
+        'injected cleanup failure'
+      );
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
@@ -821,6 +1191,61 @@ function downgradeBackupToSchemaV5(backupDir: string): void {
   delete manifest.metadataCounts.apiTokens;
   delete manifest.metadataCounts.apiTokenSecurityEvents;
   delete manifest.metadataCounts.ciIdempotencyRecords;
+  writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+}
+
+function downgradeBackupToSchemaV6(backupDir: string): void {
+  const manifestPath = join(backupDir, 'manifest.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    schemaVersion: number;
+  };
+  const backupDatabase = join(backupDir, 'database', 'deploykit.sqlite');
+  const database = new Database(backupDatabase);
+  try {
+    const legacyPolicy = JSON.stringify({
+      enforcement: 'advisory',
+      maxTotalBytes: 50 * 1024 * 1024,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxFileCount: 1_000,
+    });
+    database
+      .query('UPDATE artifact_audits SET policy_json = ?')
+      .run(legacyPolicy);
+    database
+      .query('UPDATE artifact_audit_jobs SET policy_json = ?')
+      .run(legacyPolicy);
+    database
+      .query('UPDATE artifact_audits SET summary_json = ?, checks_json = ?')
+      .run(
+        JSON.stringify({
+          totalBytes: 19,
+          fileCount: 1,
+          largestFiles: [{ path: 'index.html', size: 19 }],
+          extensions: [{ extension: '.html', bytes: 19, count: 1 }],
+        }),
+        JSON.stringify([
+          {
+            id: 'seo.title',
+            category: 'seo',
+            severity: 'warning',
+            passed: false,
+            message: 'Title missing',
+          },
+        ])
+      );
+    database.exec(`
+      ALTER TABLE projects DROP COLUMN audit_max_javascript_bytes;
+      ALTER TABLE projects DROP COLUMN audit_max_stylesheet_bytes;
+      ALTER TABLE projects DROP COLUMN audit_max_font_bytes;
+      ALTER TABLE artifact_audits DROP COLUMN context_json;
+      ALTER TABLE artifact_audit_jobs DROP COLUMN context_json;
+      DELETE FROM schema_migrations WHERE version >= 7;
+    `);
+  } finally {
+    database.close();
+  }
+  checkpointDatabase(backupDatabase);
+  manifest.schemaVersion = 6;
   writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
 }
 

@@ -1,19 +1,33 @@
 import { Database } from 'bun:sqlite';
 import {
-  copyFileSync,
+  O_CREAT,
+  O_EXCL,
+  O_NOFOLLOW,
+  O_RDONLY,
+  O_WRONLY,
+} from 'node:constants';
+import { createHash } from 'node:crypto';
+import {
+  closeSync,
   cpSync,
   existsSync,
+  fstatSync,
+  fsyncSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  openSync,
   readdirSync,
   readFileSync,
+  readSync,
   renameSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { loadRelationalData } from '../repositories/sqliteProjectRepository';
 import {
   configureSqlite,
   getRelationalSchemaVersion,
@@ -98,12 +112,23 @@ interface BackupServiceDependencies {
     storageDir: string
   ) => RuntimeOwnership;
   createOperationId?: () => string;
+  afterInitialBackupVerified?: (backupPath: string) => void;
+  afterRestorePayloadStaged?: (
+    manifestStage: string,
+    databaseStage: string,
+    storageStage: string
+  ) => void;
+  createTemporaryRoot?: (prefix: string) => string;
+  cleanupTemporaryRoot?: (temporaryRoot: string) => void;
 }
 
 const DATABASE_AUXILIARY_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
 type DatabaseAuxiliarySuffix = (typeof DATABASE_AUXILIARY_SUFFIXES)[number];
 const BACKUP_DATABASE_SNAPSHOT_UNSAFE = 'BACKUP_DATABASE_SNAPSHOT_UNSAFE';
+const BACKUP_SOURCE_UNSAFE = 'BACKUP_SOURCE_UNSAFE';
 const BACKUP_MIGRATION_PREFLIGHT_FAILED = 'BACKUP_MIGRATION_PREFLIGHT_FAILED';
+const BACKUP_VALIDATION_CLEANUP_FAILED = 'BACKUP_VALIDATION_CLEANUP_FAILED';
+const RESTORE_BACKUP_SOURCE_CHANGED = 'RESTORE_BACKUP_SOURCE_CHANGED';
 const RESTORE_CONTROL_LAYOUT_UNSAFE = 'RESTORE_CONTROL_LAYOUT_UNSAFE';
 const RESTORE_DATABASE_STAGE_UNSAFE = 'RESTORE_DATABASE_STAGE_UNSAFE';
 
@@ -154,6 +179,12 @@ interface RestoreOperationLayout {
   rollbackStorage: string;
   databaseStage: string;
   storageStage: string;
+  manifestStage: string;
+}
+
+interface VerifiedBackupPayload {
+  report: BackupVerificationReport;
+  fingerprint?: string;
 }
 
 const defaultRestoreFileSystem: RestoreFileSystem = {
@@ -259,7 +290,7 @@ export function createBackupService(
           'utf8'
         );
 
-        const verification = verifyBackupAt(temporaryPath);
+        const verification = verifyBackupAt(temporaryPath, dependencies);
         if (!verification.valid) {
           throw new Error(
             `Backup verification failed: ${verification.errors.join('; ')}`
@@ -274,7 +305,7 @@ export function createBackupService(
     },
 
     verifyBackup(backupPath) {
-      return verifyBackupAt(backupPath);
+      return verifyBackupAt(backupPath, dependencies);
     },
 
     restoreBackup(backupPath, options) {
@@ -286,12 +317,21 @@ export function createBackupService(
       if (!options.force) {
         throw new Error('Restore requires an explicit force flag');
       }
-      const verification = verifyBackupAt(backupPath);
-      if (!verification.valid || !verification.manifest) {
+      const initialVerification = verifyBackupDetailedAt(
+        backupPath,
+        dependencies
+      );
+      const verification = initialVerification.report;
+      if (
+        !verification.valid ||
+        !verification.manifest ||
+        !initialVerification.fingerprint
+      ) {
         throw new Error(
           `Backup verification failed: ${verification.errors.join('; ')}`
         );
       }
+      dependencies.afterInitialBackupVerified?.(backupPath);
 
       const restoreFileSystem =
         dependencies.restoreFileSystem ?? defaultRestoreFileSystem;
@@ -309,18 +349,26 @@ export function createBackupService(
       let report: BackupRestoreReport | undefined;
       let primaryError: Error | undefined;
       try {
+        assertRestoreControlLayoutSafe(layout, operation);
+        const stagedVerification = prepareRestorePayload({
+          backupPath,
+          dependencies,
+          expectedFingerprint: initialVerification.fingerprint,
+          operation,
+        });
         report = executeRestore({
           backupPath,
           dependencies,
           layout,
-          manifest: verification.manifest,
           now,
           operation,
           restoreFileSystem,
-          verification,
+          verification: stagedVerification,
+          expectedFingerprint: initialVerification.fingerprint,
         });
       } catch (error) {
         primaryError = asError(error);
+        cleanupPreparedRestore(operation, primaryError);
       }
 
       try {
@@ -349,49 +397,47 @@ function executeRestore({
   backupPath,
   dependencies,
   layout,
-  manifest,
   now,
   operation,
   restoreFileSystem,
   verification,
+  expectedFingerprint,
 }: {
   backupPath: string;
   dependencies: BackupServiceDependencies;
   layout: RuntimeResourceLayout;
-  manifest: BackupManifest;
   now: () => Date;
   operation: RestoreOperationLayout;
   restoreFileSystem: RestoreFileSystem;
   verification: BackupVerificationReport;
+  expectedFingerprint: string;
 }): BackupRestoreReport {
   const moveProgress = createRuntimeMoveProgress();
   let preRestoreState: RuntimeStatePresence | undefined;
 
   try {
-    mkdirSync(dirname(operation.databaseStage), { recursive: true });
-    // Both backup sources are fully staged into control paths that were
-    // validated outside the live runtime layout before any live resource moves.
-    // This also makes a backup located inside storage safe for this operation.
-    restoreFileSystem.copy(
-      join(backupPath, 'database', manifest.databaseFile),
+    dependencies.afterRestorePayloadStaged?.(
+      operation.manifestStage,
       operation.databaseStage,
-      {
-        errorOnExist: true,
-        force: false,
-        preserveTimestamps: true,
-      }
+      operation.storageStage
     );
-    restoreFileSystem.copy(
-      join(backupPath, manifest.storageDirectory),
+    const finalVerification = verifyStagedBackupPayload(
+      operation.manifestStage,
+      operation.databaseStage,
       operation.storageStage,
-      {
-        errorOnExist: true,
-        force: false,
-        recursive: true,
-        preserveTimestamps: true,
-      }
+      dependencies
     );
-
+    if (!finalVerification.report.valid || !finalVerification.fingerprint) {
+      throw new Error(
+        `Backup verification failed: ${finalVerification.report.errors.join('; ')}`
+      );
+    }
+    if (finalVerification.fingerprint !== expectedFingerprint) {
+      throw new Error(
+        `[${RESTORE_BACKUP_SOURCE_CHANGED}] Staged backup payload changed before restore`
+      );
+    }
+    verification = finalVerification.report;
     assertRestoreDatabaseStageSafe(operation.databaseStage);
     assertRuntimeResourceLeavesSafe(layout);
     preRestoreState = captureRuntimeStatePresence(layout);
@@ -429,6 +475,7 @@ function executeRestore({
     mkdirSync(dirname(layout.storageDir), { recursive: true });
     restoreFileSystem.rename(operation.storageStage, layout.storageDir);
     dependencies.afterRestoredStateInstalled?.(operation.rollbackPath);
+    restoreFileSystem.remove(operation.manifestStage, { force: true });
   } catch (error) {
     const primaryError = asError(error);
     const secondaryFailures: RestoreSecondaryFailure[] = [];
@@ -459,6 +506,14 @@ function executeRestore({
       { recursive: true, force: true },
       'cleanup-stage',
       'storage-stage',
+      secondaryFailures
+    );
+    removeBestEffort(
+      restoreFileSystem,
+      operation.manifestStage,
+      { force: true },
+      'cleanup-stage',
+      'manifest-stage',
       secondaryFailures
     );
     if (!hasPublishedRollback(moveProgress)) {
@@ -507,6 +562,7 @@ function createRestoreOperationLayout(
       dirname(layout.storageDir),
       `.${basename(layout.storageDir)}.restore-${operationId}`
     ),
+    manifestStage: `${layout.databaseFile}.manifest-${operationId}`,
   };
 }
 
@@ -528,6 +584,7 @@ function assertRestoreControlLayoutSafe(
     ['rollback-operation', operation.rollbackPath],
     ['database-stage', operation.databaseStage],
     ['storage-stage', operation.storageStage],
+    ['manifest-stage', operation.manifestStage],
   ] as const) {
     if (pathEntryExistsNoFollow(controlPath)) {
       throw new Error(
@@ -551,6 +608,7 @@ function assertRestoreControlLayoutSafe(
     ['rollback-storage', operation.rollbackStorage],
     ['database-stage', operation.databaseStage],
     ['storage-stage', operation.storageStage],
+    ['manifest-stage', operation.manifestStage],
   ] as const;
 
   for (const [controlName, controlPath] of controlPaths) {
@@ -594,23 +652,330 @@ function hasPublishedRollback(progress: RuntimeMoveProgress): boolean {
   );
 }
 
-function verifyBackupAt(backupPath: string): BackupVerificationReport {
+function prepareRestorePayload({
+  backupPath,
+  dependencies,
+  expectedFingerprint,
+  operation,
+}: {
+  backupPath: string;
+  dependencies: BackupServiceDependencies;
+  expectedFingerprint: string;
+  operation: RestoreOperationLayout;
+}): BackupVerificationReport {
+  captureBackupPayload(backupPath, {
+    databaseStage: operation.databaseStage,
+    manifestStage: operation.manifestStage,
+    storageStage: operation.storageStage,
+  });
+  const staged = verifyStagedBackupPayload(
+    operation.manifestStage,
+    operation.databaseStage,
+    operation.storageStage,
+    dependencies
+  );
+  if (!staged.report.valid || !staged.fingerprint) {
+    throw new Error(
+      `Backup verification failed: ${staged.report.errors.join('; ')}`
+    );
+  }
+  if (staged.fingerprint !== expectedFingerprint) {
+    throw new Error(
+      `[${RESTORE_BACKUP_SOURCE_CHANGED}] Backup payload changed after initial verification`
+    );
+  }
+  return staged.report;
+}
+
+function cleanupPreparedRestore(
+  operation: RestoreOperationLayout,
+  primaryError: Error
+): void {
+  const failures: RestoreSecondaryFailure[] = [];
+  for (const [path, recursive] of [
+    [operation.databaseStage, false],
+    [operation.storageStage, true],
+    [operation.manifestStage, false],
+  ] as const) {
+    try {
+      rmSync(path, { recursive, force: true });
+      if (pathEntryExistsNoFollow(path)) {
+        throw new Error(`Restore stage cleanup failed: ${path}`);
+      }
+    } catch (error) {
+      failures.push({
+        step: 'cleanup-stage',
+        resource: path,
+        error,
+      });
+    }
+  }
+  attachRestoreSecondaryFailures(primaryError, failures);
+}
+
+function captureBackupPayload(
+  backupPath: string,
+  stages: {
+    manifestStage: string;
+    databaseStage?: string;
+    databaseStageDirectory?: string;
+    storageStage: string;
+  }
+): void {
+  captureRegularFileNoFollow(
+    join(backupPath, 'manifest.json'),
+    stages.manifestStage
+  );
+  const manifest = parseManifest(
+    JSON.parse(readFileSync(stages.manifestStage, 'utf8'))
+  );
+  const sourceDatabase = join(backupPath, 'database', manifest.databaseFile);
+  assertDatabaseAuxiliariesAbsent(sourceDatabase);
+  const databaseStage =
+    stages.databaseStage ??
+    join(stages.databaseStageDirectory ?? '', manifest.databaseFile);
+  captureRegularFileNoFollow(
+    sourceDatabase,
+    databaseStage,
+    BACKUP_DATABASE_SNAPSHOT_UNSAFE
+  );
+  assertDatabaseAuxiliariesAbsent(sourceDatabase);
+  captureDirectoryNoFollow(
+    join(backupPath, manifest.storageDirectory),
+    stages.storageStage
+  );
+}
+
+function captureRegularFileNoFollow(
+  source: string,
+  target: string,
+  unsafeCode = BACKUP_SOURCE_UNSAFE
+): void {
+  let sourceDescriptor: number;
+  try {
+    const pathStats = lstatSync(source, { bigint: true });
+    assertSingleLinkRegularFile(source, pathStats, unsafeCode);
+    sourceDescriptor = openSync(source, O_RDONLY | O_NOFOLLOW);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      'code' in error &&
+      (error.code === 'ELOOP' || error.code === 'EMLINK')
+    ) {
+      throw new Error(
+        `[${unsafeCode}] Backup source must not be a symbolic link: ${source}`
+      );
+    }
+    throw error;
+  }
+  let targetDescriptor: number | undefined;
+  try {
+    const before = fstatSync(sourceDescriptor, { bigint: true });
+    assertSingleLinkRegularFile(source, before, unsafeCode);
+    mkdirSync(dirname(target), { recursive: true, mode: 0o700 });
+    targetDescriptor = openSync(
+      target,
+      O_CREAT | O_EXCL | O_NOFOLLOW | O_WRONLY,
+      0o600
+    );
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let totalBytes = 0n;
+    while (true) {
+      const bytesRead = readSync(
+        sourceDescriptor,
+        chunk,
+        0,
+        chunk.length,
+        null
+      );
+      if (bytesRead === 0) break;
+      let offset = 0;
+      while (offset < bytesRead) {
+        const written = writeSync(
+          targetDescriptor,
+          chunk,
+          offset,
+          bytesRead - offset
+        );
+        if (written === 0) {
+          throw new Error(`Backup stage write stalled: ${target}`);
+        }
+        offset += written;
+      }
+      totalBytes += BigInt(bytesRead);
+    }
+    fsyncSync(targetDescriptor);
+    const after = fstatSync(sourceDescriptor, { bigint: true });
+    assertSingleLinkRegularFile(source, after, unsafeCode);
+    if (!sameCapturedIdentity(before, after) || totalBytes !== after.size) {
+      throw new Error(`Backup source changed while reading: ${source}`);
+    }
+    const pathStats = lstatSync(source, { bigint: true });
+    if (pathStats.isSymbolicLink() || !sameCapturedIdentity(after, pathStats)) {
+      throw new Error(`Backup source changed while reading: ${source}`);
+    }
+  } finally {
+    if (targetDescriptor !== undefined) closeSync(targetDescriptor);
+    closeSync(sourceDescriptor);
+  }
+}
+
+function captureDirectoryNoFollow(source: string, target: string): void {
+  const before = lstatSync(source, { bigint: true });
+  if (before.isSymbolicLink() || !before.isDirectory()) {
+    throw new Error(
+      `Backup storage must be a non-symbolic directory: ${source}`
+    );
+  }
+  mkdirSync(target, { recursive: false, mode: 0o700 });
+  for (const entry of readdirSync(source).sort()) {
+    const sourceEntry = join(source, entry);
+    const targetEntry = join(target, entry);
+    const stats = lstatSync(sourceEntry, { bigint: true });
+    if (stats.isSymbolicLink()) {
+      throw new Error(
+        `Backup contains unsupported symbolic link: ${sourceEntry}`
+      );
+    }
+    if (stats.isDirectory()) {
+      captureDirectoryNoFollow(sourceEntry, targetEntry);
+    } else if (stats.isFile()) {
+      captureRegularFileNoFollow(sourceEntry, targetEntry);
+    } else {
+      throw new Error(`Backup contains unsupported file type: ${sourceEntry}`);
+    }
+  }
+  const after = lstatSync(source, { bigint: true });
+  if (
+    after.isSymbolicLink() ||
+    !after.isDirectory() ||
+    !sameCapturedIdentity(before, after)
+  ) {
+    throw new Error(`Backup storage changed while reading: ${source}`);
+  }
+}
+
+function assertSingleLinkRegularFile(
+  path: string,
+  stats: ReturnType<typeof fstatSync> & { nlink: bigint },
+  unsafeCode: string
+): void {
+  if (!stats.isFile() || stats.isSymbolicLink() || stats.nlink !== 1n) {
+    throw new Error(
+      `[${unsafeCode}] Backup source must be a single-link regular file: ${path}`
+    );
+  }
+}
+
+function sameCapturedIdentity(
+  left: {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+  },
+  right: {
+    dev: bigint;
+    ino: bigint;
+    size: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+  }
+): boolean {
+  return (
+    left.dev === right.dev &&
+    left.ino === right.ino &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs &&
+    left.ctimeNs === right.ctimeNs
+  );
+}
+
+function assertDatabaseAuxiliariesAbsent(databaseFile: string): void {
+  for (const suffix of DATABASE_AUXILIARY_SUFFIXES) {
+    if (pathEntryExistsNoFollow(`${databaseFile}${suffix}`)) {
+      throw new Error(
+        `[${BACKUP_DATABASE_SNAPSHOT_UNSAFE}] Database snapshot must not include ${suffix}`
+      );
+    }
+  }
+}
+
+function verifyBackupAt(
+  backupPath: string,
+  dependencies: BackupServiceDependencies
+): BackupVerificationReport {
+  return verifyBackupDetailedAt(backupPath, dependencies).report;
+}
+
+function verifyBackupDetailedAt(
+  backupPath: string,
+  dependencies: BackupServiceDependencies
+): VerifiedBackupPayload {
+  let temporaryRoot: string | undefined;
+  let result: VerifiedBackupPayload = {
+    report: { valid: false, errors: [], warnings: [], manifest: null },
+  };
+  try {
+    temporaryRoot = createValidationTemporaryRoot(dependencies);
+    const capturedRoot = join(temporaryRoot, 'backup');
+    const manifestStage = join(capturedRoot, 'manifest.json');
+    captureBackupPayload(backupPath, {
+      databaseStageDirectory: join(capturedRoot, 'database'),
+      manifestStage,
+      storageStage: join(capturedRoot, 'storage'),
+    });
+    const manifest = parseManifest(
+      JSON.parse(readFileSync(manifestStage, 'utf8'))
+    );
+    result = verifyStagedBackupPayload(
+      manifestStage,
+      join(capturedRoot, 'database', manifest.databaseFile),
+      join(capturedRoot, manifest.storageDirectory),
+      dependencies
+    );
+  } catch (error) {
+    result.report.errors.push(
+      `Backup capture failed: ${error instanceof Error ? error.message : String(error)}`
+    );
+  } finally {
+    if (temporaryRoot) {
+      try {
+        cleanupValidationTemporaryRoot(temporaryRoot, dependencies);
+      } catch (error) {
+        result.report.errors.push(
+          `[${BACKUP_VALIDATION_CLEANUP_FAILED}] Temporary validation cleanup failed: ${migrationPreflightErrorMessage(
+            error,
+            temporaryRoot
+          )}`
+        );
+      }
+    }
+  }
+  result.report.valid = result.report.errors.length === 0;
+  if (!result.report.valid) delete result.fingerprint;
+  return result;
+}
+
+function verifyStagedBackupPayload(
+  manifestPath: string,
+  databaseFile: string,
+  storageDir: string,
+  dependencies: BackupServiceDependencies
+): VerifiedBackupPayload {
   const errors: string[] = [];
   const warnings: string[] = [];
   let manifest: BackupManifest | null = null;
   try {
-    manifest = parseManifest(
-      JSON.parse(readFileSync(join(backupPath, 'manifest.json'), 'utf8'))
-    );
+    manifest = parseManifest(JSON.parse(readFileSync(manifestPath, 'utf8')));
   } catch (error) {
     errors.push(
       `Invalid backup manifest: ${error instanceof Error ? error.message : String(error)}`
     );
-    return { valid: false, errors, warnings, manifest };
+    return { report: { valid: false, errors, warnings, manifest } };
   }
 
-  const databaseFile = join(backupPath, 'database', manifest.databaseFile);
-  const storageDir = join(backupPath, manifest.storageDirectory);
   if (
     manifest.schemaVersion < 5 ||
     manifest.schemaVersion > RELATIONAL_SCHEMA_VERSION
@@ -622,7 +987,9 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
   const databaseSnapshotError = inspectBackupDatabaseSnapshot(databaseFile);
   if (databaseSnapshotError) errors.push(databaseSnapshotError);
   if (!existsSync(storageDir)) errors.push('Artifact storage is missing');
-  if (errors.length > 0) return { valid: false, errors, warnings, manifest };
+  if (errors.length > 0) {
+    return { report: { valid: false, errors, warnings, manifest } };
+  }
 
   try {
     const database = new Database(databaseFile, { readonly: true });
@@ -645,6 +1012,9 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
         );
       }
       metadata = inspectOpenDatabase(database);
+      if (metadata.schemaVersion === RELATIONAL_SCHEMA_VERSION) {
+        loadRelationalData(database);
+      }
     } finally {
       database.close();
     }
@@ -657,7 +1027,11 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
       metadata.schemaVersion === manifest.schemaVersion &&
       manifest.schemaVersion < RELATIONAL_SCHEMA_VERSION
     ) {
-      const migrationError = verifyBackupMigration(databaseFile, manifest);
+      const migrationError = verifyBackupMigration(
+        databaseFile,
+        manifest,
+        dependencies
+      );
       if (migrationError) errors.push(migrationError);
     }
 
@@ -683,25 +1057,44 @@ function verifyBackupAt(backupPath: string): BackupVerificationReport {
     );
   }
 
-  return { valid: errors.length === 0, errors, warnings, manifest };
+  const report = {
+    valid: errors.length === 0,
+    errors,
+    warnings,
+    manifest,
+  };
+  return {
+    report,
+    ...(report.valid
+      ? {
+          fingerprint: fingerprintBackupPayload(
+            manifestPath,
+            databaseFile,
+            storageDir
+          ),
+        }
+      : {}),
+  };
 }
 
 function verifyBackupMigration(
   sourceDatabaseFile: string,
-  manifest: BackupManifest
+  manifest: BackupManifest,
+  dependencies: BackupServiceDependencies
 ): string | undefined {
   let temporaryRoot: string | undefined;
   let failure: unknown;
   let cleanupFailure: unknown;
   try {
-    temporaryRoot = mkdtempSync(
-      join(tmpdir(), 'deploykit-backup-migration-preflight-')
+    temporaryRoot = createValidationTemporaryRoot(
+      dependencies,
+      'deploykit-backup-migration-preflight-'
     );
     const temporaryDatabaseFile = join(
       temporaryRoot,
       basename(sourceDatabaseFile)
     );
-    copyFileSync(sourceDatabaseFile, temporaryDatabaseFile);
+    captureRegularFileNoFollow(sourceDatabaseFile, temporaryDatabaseFile);
 
     const database = new Database(temporaryDatabaseFile);
     try {
@@ -723,9 +1116,8 @@ function verifyBackupMigration(
           `migration ended at schema v${migratedVersion}, expected v${RELATIONAL_SCHEMA_VERSION}`
         );
       }
-      // Re-query every relational table used by backup metadata. This catches
-      // a claimed migration version whose table set is missing or malformed.
-      inspectOpenDatabase(database);
+      // Use the exact production hydrator after the exact production migration.
+      loadRelationalData(database);
 
       const integrityRows = database
         .query<{ integrity_check: string }, []>('PRAGMA integrity_check')
@@ -757,7 +1149,7 @@ function verifyBackupMigration(
   } finally {
     if (temporaryRoot) {
       try {
-        rmSync(temporaryRoot, { recursive: true, force: true });
+        cleanupValidationTemporaryRoot(temporaryRoot, dependencies);
       } catch (error) {
         cleanupFailure = error;
       }
@@ -775,6 +1167,130 @@ function verifyBackupMigration(
       )}`
     : '';
   return `[${BACKUP_MIGRATION_PREFLIGHT_FAILED}] Schema v${manifest.schemaVersion} migration dry-run to v${RELATIONAL_SCHEMA_VERSION} failed: ${failureMessage}${cleanupMessage}`;
+}
+
+function createValidationTemporaryRoot(
+  dependencies: BackupServiceDependencies,
+  prefix = 'deploykit-backup-validation-'
+): string {
+  const temporaryRoot = dependencies.createTemporaryRoot
+    ? dependencies.createTemporaryRoot(prefix)
+    : mkdtempSync(join(tmpdir(), prefix));
+  const stats = lstatSync(temporaryRoot);
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(
+      'Backup validation temporary root must be a real directory'
+    );
+  }
+  if (readdirSync(temporaryRoot).length > 0) {
+    throw new Error('Backup validation temporary root must be empty');
+  }
+  return temporaryRoot;
+}
+
+function cleanupValidationTemporaryRoot(
+  temporaryRoot: string,
+  dependencies: BackupServiceDependencies
+): void {
+  (
+    dependencies.cleanupTemporaryRoot ??
+    ((path) => {
+      rmSync(path, { recursive: true, force: true });
+    })
+  )(temporaryRoot);
+  if (pathEntryExistsNoFollow(temporaryRoot)) {
+    throw new Error('temporary root still exists after cleanup');
+  }
+}
+
+function fingerprintBackupPayload(
+  manifestPath: string,
+  databaseFile: string,
+  storageDir: string
+): string {
+  const hash = createHash('sha256');
+  hashFileFrame(hash, 'manifest', manifestPath);
+  hashFileFrame(hash, 'database', databaseFile);
+  hashDirectory(storageDir, '', hash);
+  return hash.digest('hex');
+}
+
+function hashDirectory(
+  directory: string,
+  relativePath: string,
+  hash: ReturnType<typeof createHash>
+): void {
+  for (const entry of readdirSync(directory).sort()) {
+    const path = join(directory, entry);
+    const relativeEntry = relativePath ? `${relativePath}/${entry}` : entry;
+    const stats = lstatSync(path);
+    if (stats.isSymbolicLink()) {
+      throw new Error(`Cannot fingerprint symbolic link: ${relativeEntry}`);
+    }
+    if (stats.isDirectory()) {
+      hashFrame(hash, 'directory', Buffer.from(relativeEntry));
+      hashDirectory(path, relativeEntry, hash);
+    } else if (stats.isFile()) {
+      hashFrame(hash, 'file-path', Buffer.from(relativeEntry));
+      hashFileFrame(hash, 'file-bytes', path);
+    } else {
+      throw new Error(`Cannot fingerprint unsupported file: ${relativeEntry}`);
+    }
+  }
+}
+
+function hashFrame(
+  hash: ReturnType<typeof createHash>,
+  domain: string,
+  payload: Buffer
+): void {
+  const domainBytes = Buffer.from(domain);
+  hash.update(createHashFrameHeader(domainBytes, BigInt(payload.byteLength)));
+  hash.update(domainBytes);
+  hash.update(payload);
+}
+
+function hashFileFrame(
+  hash: ReturnType<typeof createHash>,
+  domain: string,
+  path: string
+): void {
+  const descriptor = openSync(path, O_RDONLY | O_NOFOLLOW);
+  try {
+    const stats = fstatSync(descriptor, { bigint: true });
+    assertSingleLinkRegularFile(path, stats, BACKUP_SOURCE_UNSAFE);
+    const domainBytes = Buffer.from(domain);
+    hash.update(createHashFrameHeader(domainBytes, stats.size));
+    hash.update(domainBytes);
+    const chunk = Buffer.allocUnsafe(1024 * 1024);
+    let totalBytes = 0n;
+    while (true) {
+      const bytesRead = readSync(descriptor, chunk, 0, chunk.length, null);
+      if (bytesRead === 0) break;
+      hash.update(chunk.subarray(0, bytesRead));
+      totalBytes += BigInt(bytesRead);
+    }
+    const after = fstatSync(descriptor, { bigint: true });
+    if (!sameCapturedIdentity(stats, after) || totalBytes !== after.size) {
+      throw new Error(`Staged backup changed while hashing: ${path}`);
+    }
+    const pathStats = lstatSync(path, { bigint: true });
+    if (pathStats.isSymbolicLink() || !sameCapturedIdentity(after, pathStats)) {
+      throw new Error(`Staged backup path changed while hashing: ${path}`);
+    }
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function createHashFrameHeader(
+  domainBytes: Buffer,
+  payloadLength: bigint
+): Buffer {
+  const header = Buffer.allocUnsafe(12);
+  header.writeUInt32BE(domainBytes.byteLength, 0);
+  header.writeBigUInt64BE(payloadLength, 4);
+  return header;
 }
 
 function migrationPreflightErrorMessage(

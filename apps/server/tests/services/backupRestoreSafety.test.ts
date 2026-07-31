@@ -1,7 +1,9 @@
+import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
 import {
   cpSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -38,6 +40,81 @@ interface RestoreDependencies {
   acquireOwnership?: () => { release(): void };
   afterDatabaseInstalled?: () => void;
   afterRestoredStateInstalled?: () => void;
+  afterRestorePayloadStaged?: (
+    manifestStage: string,
+    databaseStage: string,
+    storageStage: string
+  ) => void;
+  afterInitialBackupVerified?: (backupPath: string) => void;
+}
+
+for (const [source, mutate] of [
+  [
+    'manifest',
+    (fixture: ReturnType<typeof createRestoreFixture>) => {
+      const manifestPath = join(fixture.backupDir, 'manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+        createdAt: string;
+      };
+      manifest.createdAt = '2026-07-31T23:59:59.999Z';
+      writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+    },
+  ],
+  [
+    'database',
+    (fixture: ReturnType<typeof createRestoreFixture>) => {
+      const database = new Database(
+        join(fixture.backupDir, 'database', basename(fixture.databaseFile))
+      );
+      database.exec('PRAGMA user_version = 42');
+      database.close();
+    },
+  ],
+  [
+    'storage',
+    (fixture: ReturnType<typeof createRestoreFixture>) => {
+      writeFileSync(
+        join(fixture.backupDir, 'storage', 'marker.txt'),
+        'staged storage'
+      );
+    },
+  ],
+] as const) {
+  test(`restore rejects an independent ${source} swap after initial verification`, () => {
+    const fixture = createRestoreFixture();
+    let ownershipAttempts = 0;
+    let releases = 0;
+    try {
+      const databaseBytes = readFileSync(fixture.databaseFile);
+      const storageBytes = readFileSync(fixture.storageMarker);
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          afterInitialBackupVerified() {
+            mutate(fixture);
+          },
+          acquireOwnership: () => {
+            ownershipAttempts += 1;
+            return {
+              release() {
+                releases += 1;
+              },
+            };
+          },
+        })
+      );
+
+      expect(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      ).toThrow('RESTORE_BACKUP_SOURCE_CHANGED');
+      expect(ownershipAttempts).toBe(1);
+      expect(releases).toBe(1);
+      expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+      expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+    } finally {
+      fixture.cleanup();
+    }
+  });
 }
 
 test('EXDEV partial storage copy never publishes rollback or replaces the live source', () => {
@@ -706,7 +783,41 @@ test('verify and restore reject a symlinked backup database before ownership or 
   }
 });
 
-test('restore rejects and cleans a symlinked database stage before moving live state', () => {
+test('verify and restore reject hard-linked backup storage before ownership or mutation', () => {
+  const fixture = createRestoreFixture();
+  const backupMarker = join(fixture.backupDir, 'storage', 'marker.txt');
+  const externalMarker = join(dirname(fixture.backupDir), 'external-marker');
+  let ownershipAttempts = 0;
+  try {
+    const databaseBytes = readFileSync(fixture.databaseFile);
+    const storageBytes = readFileSync(fixture.storageMarker);
+    renameSync(backupMarker, externalMarker);
+    linkSync(externalMarker, backupMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => {
+          ownershipAttempts += 1;
+          return { release() {} };
+        },
+      })
+    );
+
+    const verification = service.verifyBackup(fixture.backupDir);
+    expect(verification.valid).toBe(false);
+    expect(verification.errors.join('\n')).toContain('BACKUP_SOURCE_UNSAFE');
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('BACKUP_SOURCE_UNSAFE');
+    expect(ownershipAttempts).toBe(0);
+    expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('restore revalidates and cleans a replaced database stage before moving live state', () => {
   const fixture = createRestoreFixture();
   const fixedNow = new Date('2026-07-30T12:34:56.789Z');
   const operationId = 'database-stage-symlink';
@@ -738,23 +849,20 @@ test('restore rejects and cleans a symlinked database stage before moving live s
             },
           };
         },
-        restoreFileSystem: {
-          rename: renameSync,
-          copy(source, target, options) {
-            if (target === databaseStage) {
-              symlinkSync(source, target);
-              return;
-            }
-            cpSync(source, target, options);
-          },
-          remove: rmSync,
+        afterRestorePayloadStaged(_manifestStage, stagedDatabase) {
+          expect(stagedDatabase).toBe(databaseStage);
+          rmSync(stagedDatabase, { force: true });
+          symlinkSync(
+            join(fixture.backupDir, 'database', basename(fixture.databaseFile)),
+            stagedDatabase
+          );
         },
       })
     );
 
     expect(() =>
       service.restoreBackup(fixture.backupDir, { force: true })
-    ).toThrow('RESTORE_DATABASE_STAGE_UNSAFE');
+    ).toThrow('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
     expect(ownershipAttempts).toBe(1);
     expect(releaseAttempts).toBe(1);
     expect(lstatSync(fixture.databaseFile).isSymbolicLink()).toBe(false);
