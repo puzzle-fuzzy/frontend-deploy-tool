@@ -859,7 +859,7 @@ describe('createBackupService', () => {
     }
   });
 
-  test('restores an absent database when storage installation fails after database install', () => {
+  test('preserves an unknown active-stage storage target and retains rollback', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-'));
     let rollbackPath = '';
     try {
@@ -891,12 +891,18 @@ describe('createBackupService', () => {
         expect(existsSync(`${fixture.databaseFile}${suffix}`)).toBe(false);
       }
       expect(
-        readFileSync(join(fixture.storageDir, 'p1', 'v1', 'index.html'), 'utf8')
-      ).toBe('<html>pre-restore storage</html>');
-      expect(existsSync(join(fixture.storageDir, 'install-blocker'))).toBe(
-        false
-      );
+        existsSync(join(fixture.storageDir, 'p1', 'v1', 'index.html'))
+      ).toBe(false);
+      expect(
+        readFileSync(join(fixture.storageDir, 'install-blocker'), 'utf8')
+      ).toBe('blocked');
       expect(existsSync(join(rollbackPath, 'storage'))).toBe(true);
+      expect(
+        readFileSync(
+          join(rollbackPath, 'storage', 'p1', 'v1', 'index.html'),
+          'utf8'
+        )
+      ).toBe('<html>pre-restore storage</html>');
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }
