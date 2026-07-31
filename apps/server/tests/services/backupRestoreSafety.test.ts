@@ -40,14 +40,15 @@ interface RestoreDependencies {
   restoreFileSystem?: RestoreFileSystem;
   acquireOwnership?: () => { release(): void };
   afterCurrentStateMoved?: (rollbackPath: string) => void;
-  afterDatabaseInstalled?: () => void;
-  afterRestoredStateInstalled?: () => void;
+  afterDatabaseInstalled?: (rollbackPath: string) => void;
+  afterRestoredStateInstalled?: (rollbackPath: string) => void;
   afterRestorePayloadStaged?: (
     manifestStage: string,
     databaseStage: string,
     storageStage: string
   ) => void;
   afterInitialBackupVerified?: (backupPath: string) => void;
+  afterRestoreStorageStageCreated?: (storageStage: string) => void;
 }
 
 for (const [source, mutate] of [
@@ -1370,6 +1371,9 @@ test('post-move rollback operation replacement is never read or cleaned as trust
       service.restoreBackup(fixture.backupDir, { force: true })
     );
     expect(thrown.message).toContain('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(secondaryMessages(thrown).join('\n')).toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
     for (const [path, bytes] of externalSentinels) {
       expect(readFileSync(path).toString('hex')).toBe(bytes.toString('hex'));
     }
@@ -1381,6 +1385,586 @@ test('post-move rollback operation replacement is never read or cleaned as trust
     expect(
       readFileSync(join(retainedRollback, 'storage', 'marker.txt'), 'utf8')
     ).toBe('live storage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a regular database replacement after install is preserved and cannot commit', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'installed-database-replacement';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const retainedInstalled = `${fixture.databaseFile}.trusted-installed`;
+  const replacementBytes = Buffer.from('untrusted replacement database');
+  try {
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterDatabaseInstalled() {
+          renameSync(fixture.databaseFile, retainedInstalled);
+          writeFileSync(fixture.databaseFile, replacementBytes, { flag: 'wx' });
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown.message).toContain('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(secondaryMessages(thrown).join('\n')).toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
+    expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(existsSync(retainedInstalled)).toBe(true);
+    expect(
+      existsSync(
+        join(
+          dirname(fixture.databaseFile),
+          '.deploykit-rollback',
+          operationName,
+          'database',
+          basename(fixture.databaseFile)
+        )
+      )
+    ).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a regular storage replacement after install is preserved and cannot commit', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'installed-storage-replacement';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const retainedInstalled = `${fixture.storageDir}.trusted-installed`;
+  const replacementMarker = join(fixture.storageDir, 'external-sentinel.txt');
+  try {
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoredStateInstalled() {
+          renameSync(fixture.storageDir, retainedInstalled);
+          mkdirSync(fixture.storageDir);
+          writeFileSync(replacementMarker, 'untrusted replacement storage');
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown.message).toContain('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(secondaryMessages(thrown).join('\n')).toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
+    expect(readFileSync(replacementMarker, 'utf8')).toBe(
+      'untrusted replacement storage'
+    );
+    expect(readFileSync(join(retainedInstalled, 'marker.txt'), 'utf8')).toBe(
+      'backup storage'
+    );
+    expect(
+      readFileSync(
+        join(
+          dirname(fixture.databaseFile),
+          '.deploykit-rollback',
+          operationName,
+          'storage',
+          'marker.txt'
+        ),
+        'utf8'
+      )
+    ).toBe('live storage');
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+for (const activeResource of ['database', 'storage'] as const) {
+  test(`an unrelated ${activeResource} target is preserved while its restore stage is active`, () => {
+    const fixture = createRestoreFixture();
+    const primaryError = new Error(
+      `fail with unrelated active ${activeResource} target`
+    );
+    const replacementBytes = Buffer.from(
+      `unrelated active ${activeResource} target`
+    );
+    const replacementMarker = join(
+      fixture.storageDir,
+      'unrelated-active-target.txt'
+    );
+    let rollbackPath = '';
+    try {
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          acquireOwnership: () => ({ release() {} }),
+          afterCurrentStateMoved(currentRollbackPath) {
+            if (activeResource !== 'database') return;
+            rollbackPath = currentRollbackPath;
+            writeFileSync(fixture.databaseFile, replacementBytes, {
+              flag: 'wx',
+            });
+            throw primaryError;
+          },
+          afterDatabaseInstalled(currentRollbackPath) {
+            if (activeResource !== 'storage') return;
+            rollbackPath = currentRollbackPath;
+            mkdirSync(fixture.storageDir);
+            writeFileSync(replacementMarker, replacementBytes);
+            throw primaryError;
+          },
+        })
+      );
+
+      const thrown = captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      );
+      expect(thrown).toBe(primaryError);
+      expect(secondaryMessages(thrown).join('\n')).toContain(
+        'RESTORE_CONTROL_LAYOUT_UNSAFE'
+      );
+      if (activeResource === 'database') {
+        expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+        expect(
+          existsSync(
+            join(rollbackPath, 'database', basename(fixture.databaseFile))
+          )
+        ).toBe(true);
+      } else {
+        expect(readFileSync(replacementMarker)).toEqual(replacementBytes);
+        expect(
+          readFileSync(join(rollbackPath, 'storage', 'marker.txt'), 'utf8')
+        ).toBe('live storage');
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+for (const installResource of ['database', 'storage'] as const) {
+  test(`install never overwrites an unrelated ${installResource} target created by a completed hook`, () => {
+    const fixture = createRestoreFixture();
+    const replacementBytes = Buffer.from(
+      `unrelated ${installResource} install target`
+    );
+    const replacementMarker = join(
+      fixture.storageDir,
+      'unrelated-install-target.txt'
+    );
+    let rollbackPath = '';
+    try {
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          acquireOwnership: () => ({ release() {} }),
+          afterCurrentStateMoved(currentRollbackPath) {
+            if (installResource !== 'database') return;
+            rollbackPath = currentRollbackPath;
+            writeFileSync(fixture.databaseFile, replacementBytes, {
+              flag: 'wx',
+            });
+          },
+          afterDatabaseInstalled(currentRollbackPath) {
+            if (installResource !== 'storage') return;
+            rollbackPath = currentRollbackPath;
+            mkdirSync(fixture.storageDir);
+            writeFileSync(replacementMarker, replacementBytes);
+          },
+        })
+      );
+
+      const thrown = captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      );
+      expect(thrown.message).toContain('RESTORE_CONTROL_LAYOUT_UNSAFE');
+      if (installResource === 'database') {
+        expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+        expect(
+          existsSync(
+            join(rollbackPath, 'database', basename(fixture.databaseFile))
+          )
+        ).toBe(true);
+      } else {
+        expect(readFileSync(replacementMarker)).toEqual(replacementBytes);
+        expect(
+          readFileSync(join(rollbackPath, 'storage', 'marker.txt'), 'utf8')
+        ).toBe('live storage');
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+test('auxiliary recovery preserves an unrelated active target', () => {
+  const fixture = createRestoreFixture();
+  const auxiliaryPath = `${fixture.databaseFile}-wal`;
+  const originalAuxiliary = Buffer.from('original rollback wal');
+  const replacementAuxiliary = Buffer.from('unrelated replacement wal');
+  const primaryError = new Error('fail with unrelated auxiliary target');
+  let rollbackPath = '';
+  try {
+    removeDatabaseAuxiliaries(fixture.databaseFile);
+    writeFileSync(auxiliaryPath, originalAuxiliary);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterCurrentStateMoved(currentRollbackPath) {
+          rollbackPath = currentRollbackPath;
+          writeFileSync(auxiliaryPath, replacementAuxiliary, { flag: 'wx' });
+          throw primaryError;
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(primaryError);
+    expect(secondaryMessages(thrown).join('\n')).toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
+    expect(readFileSync(auxiliaryPath)).toEqual(replacementAuxiliary);
+    expect(
+      readFileSync(
+        join(rollbackPath, 'database', `${basename(fixture.databaseFile)}-wal`)
+      )
+    ).toEqual(originalAuxiliary);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('recovery never overwrites a replacement created during target removal', () => {
+  const fixture = createRestoreFixture();
+  const primaryError = new Error('fail after restored state installation');
+  const replacementBytes = Buffer.from('replacement created during removal');
+  let rollbackPath = '';
+  try {
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoredStateInstalled(currentRollbackPath) {
+          rollbackPath = currentRollbackPath;
+          throw primaryError;
+        },
+        restoreFileSystem: {
+          rename: renameSync,
+          copy: cpSync,
+          remove(target, options) {
+            rmSync(target, options);
+            if (target === fixture.databaseFile) {
+              writeFileSync(target, replacementBytes, { flag: 'wx' });
+            }
+          },
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(primaryError);
+    expect(secondaryMessages(thrown).join('\n')).toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
+    expect(readFileSync(fixture.databaseFile)).toEqual(replacementBytes);
+    expect(
+      existsSync(join(rollbackPath, 'database', basename(fixture.databaseFile)))
+    ).toBe(true);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('a database install rename that commits and throws is recovered as installed identity', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'database-install-commit-throw';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  const commitError = new Error('database install committed then threw');
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        restoreFileSystem: {
+          rename(source, target) {
+            renameSync(source, target);
+            if (source === databaseStage) throw commitError;
+          },
+          copy: cpSync,
+          remove: rmSync,
+        },
+      })
+    );
+
+    const thrown = captureError(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    );
+    expect(thrown).toBe(commitError);
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(secondaryMessages(thrown).join('\n')).not.toContain(
+      'RESTORE_CONTROL_LAYOUT_UNSAFE'
+    );
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('final fingerprint runs after manifest stage cleanup and before commit', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'manifest-cleanup-fingerprint';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const manifestStage = `${fixture.databaseFile}.manifest-${operationName}`;
+  let cleanupRemovals = 0;
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        restoreFileSystem: {
+          rename: renameSync,
+          copy: cpSync,
+          remove(target, options) {
+            rmSync(target, options);
+            if (target === manifestStage) {
+              cleanupRemovals += 1;
+              writeFileSync(fixture.storageMarker, 'cleanup-window mutation');
+            }
+          },
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_BACKUP_SOURCE_CHANGED');
+    expect(cleanupRemovals).toBe(1);
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(existsSync(manifestStage)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('same-inode database stage mutation after current-state move never installs', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'database-stage-content-mutation';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const injected = Buffer.from('same inode injected database bytes');
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterCurrentStateMoved() {
+          writeFileSync(databaseStage, injected);
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_BACKUP_SOURCE_CHANGED');
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(existsSync(databaseStage)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('same-inode storage stage mutation after database install never installs', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'storage-stage-content-mutation';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const storageStage = join(
+    dirname(fixture.storageDir),
+    `.${basename(fixture.storageDir)}.restore-${operationName}`
+  );
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterDatabaseInstalled() {
+          writeFileSync(
+            join(storageStage, 'marker.txt'),
+            'same inode mutation'
+          );
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_BACKUP_SOURCE_CHANGED');
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test('database stage sidecars remain forbidden after database installation', () => {
+  const fixture = createRestoreFixture();
+  const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+  const operationId = 'late-database-stage-sidecar';
+  const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+  const databaseStageWal = `${fixture.databaseFile}.restore-${operationName}-wal`;
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        now: () => fixedNow,
+        createOperationId: () => operationId,
+        acquireOwnership: () => ({ release() {} }),
+        afterDatabaseInstalled() {
+          writeFileSync(databaseStageWal, 'late untrusted wal');
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(existsSync(databaseStageWal)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+for (const rollbackResource of ['database', 'storage'] as const) {
+  test(`same-inode rollback ${rollbackResource} mutation is quarantined instead of restored`, () => {
+    const fixture = createRestoreFixture();
+    const primaryError = new Error(
+      `fail after mutating rollback ${rollbackResource}`
+    );
+    let rollbackResourcePath = '';
+    try {
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          acquireOwnership: () => ({ release() {} }),
+          afterCurrentStateMoved(rollbackPath) {
+            rollbackResourcePath =
+              rollbackResource === 'database'
+                ? join(rollbackPath, 'database', basename(fixture.databaseFile))
+                : join(rollbackPath, 'storage', 'marker.txt');
+            writeFileSync(
+              rollbackResourcePath,
+              `mutated rollback ${rollbackResource}`
+            );
+            throw primaryError;
+          },
+        })
+      );
+
+      const thrown = captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      );
+      expect(thrown).toBe(primaryError);
+      expect(secondaryMessages(thrown).join('\n')).toContain(
+        'RESTORE_ROLLBACK_INCOMPLETE'
+      );
+      expect(readFileSync(rollbackResourcePath, 'utf8')).toBe(
+        `mutated rollback ${rollbackResource}`
+      );
+      if (rollbackResource === 'database') {
+        expect(existsSync(fixture.databaseFile)).toBe(false);
+        expect(readFileSync(fixture.storageMarker, 'utf8')).toBe(
+          'live storage'
+        );
+      } else {
+        expect(existsSync(fixture.storageDir)).toBe(false);
+        expect(existsSync(fixture.databaseFile)).toBe(true);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+test('storage capture binds its new stage before a replacement can fail later capture', () => {
+  const fixture = createRestoreFixture();
+  const retainedStage = join(
+    dirname(fixture.storageDir),
+    'retained-storage-stage'
+  );
+  let replacementStage = '';
+  let hookCalls = 0;
+  try {
+    const originalDatabase = readFileSync(fixture.databaseFile);
+    const originalStorage = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        acquireOwnership: () => ({ release() {} }),
+        afterRestoreStorageStageCreated(storageStage) {
+          hookCalls += 1;
+          replacementStage = storageStage;
+          renameSync(storageStage, retainedStage);
+          mkdirSync(storageStage);
+          writeFileSync(
+            join(storageStage, 'external-sentinel.txt'),
+            'external replacement storage stage'
+          );
+        },
+      })
+    );
+
+    expect(() =>
+      service.restoreBackup(fixture.backupDir, { force: true })
+    ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+    expect(hookCalls).toBe(1);
+    expect(readFileSync(fixture.databaseFile)).toEqual(originalDatabase);
+    expect(readFileSync(fixture.storageMarker)).toEqual(originalStorage);
+    expect(
+      readFileSync(join(replacementStage, 'external-sentinel.txt'), 'utf8')
+    ).toBe('external replacement storage stage');
+    expect(readdirSync(retainedStage)).toEqual([]);
   } finally {
     fixture.cleanup();
   }
