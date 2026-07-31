@@ -852,6 +852,13 @@ with a secondary recovery failure instead of recursively removed. Bind each
 successfully created manifest/database/storage stage immediately, so failure
 while capturing a later stage never falls back to deleting an unbound path.
 
+Inode identity alone does not bind mutable file or directory contents. Recompute
+the framed manifest/database/storage fingerprint after every post-move or
+post-install hook using the active stage or installed target paths for that
+phase, and once more immediately before final commit. Any in-place database
+write or storage-tree mutation must fail and compensate; a restore must never
+return success merely because the same inode now contains different bytes.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
