@@ -825,6 +825,14 @@ identities, and every intermediate parent after post-stage hooks and
 immediately before pre-state capture or live moves. A late rollback
 root/operation symlink must fail before moving live data.
 
+The same identity boundary applies to failure cleanup. Once any bound parent or
+leaf no longer matches, cleanup must not follow the original string path into a
+replacement tree. It may unlink only a directly observed leaf symlink without
+traversing it; otherwise it retains/quarantines the uncertain operation for
+manual recovery. Cover database-stage and storage-stage parent replacement
+with external same-name sentinels and prove those external files/directories
+remain byte-for-byte untouched.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
