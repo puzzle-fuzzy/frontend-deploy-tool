@@ -342,6 +342,7 @@ git commit -m "feat: version artifact audit snapshots"
 - Modify: `apps/server/src/services/artifactAuditService.ts`
 - Modify: `apps/server/src/services/artifactAuditJobService.ts`
 - Modify: `apps/server/src/services/artifactAuditWorker.ts`
+- Modify: `apps/server/src/workers/artifactAuditProcess.ts`
 - Test: `apps/server/tests/services/artifactAuditEngine.test.ts`
 - Test: `apps/server/tests/services/artifactAuditService.test.ts`
 - Test: `apps/server/tests/services/artifactAuditJobService.test.ts`
