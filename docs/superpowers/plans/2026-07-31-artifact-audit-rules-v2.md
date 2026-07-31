@@ -108,6 +108,7 @@ title-length or bundle-size heuristics into universal blocking rules.
 - Modify: `apps/server/src/repositories/artifactAuditJobMapper.ts`
 - Modify: `apps/server/src/repositories/sqliteArtifactAuditJobRepository.ts`
 - Modify: `apps/server/src/repositories/aggregateArtifactAuditJobRepository.ts`
+- Modify: `apps/server/src/repositories/jsonProjectRepository.ts`
 - Modify: `apps/server/src/services/artifactAuditWorker.ts`
 - Test: `packages/shared/tests/domain-types.test-d.ts`
 - Test: `apps/server/tests/services/projectDomain.test.ts`
@@ -240,6 +241,11 @@ then assert startup:
   default asset budgets;
 - reaches schema v7 with `integrity_check=ok` and no FK violations;
 - preserves engine v1 reports/jobs as readable historic data.
+
+For the document v8→v9 migration, assert that an existing malformed/unreadable
+JSON file fails startup instead of becoming an empty repository, and that a
+backup copy failure aborts before any v9 write while preserving the source
+bytes. Only an actually absent data file may create empty document data.
 
 - [ ] **Step 5: Implement persistence and snapshot comparison**
 
