@@ -114,13 +114,13 @@ Bun test, Biome, GitHub Actions.
 **Ownership:** The implementer owns only these two files for this task. Other
 agents may be reviewing the repository; do not revert or overwrite their work.
 
-- [ ] **Step 1: Preserve the facade's initial verification gate**
+- [x] **Step 1: Preserve the facade's initial verification gate**
 
 Keep `initialVerification.report` in `backupService.ts` for the existing
 validity, manifest, error, and fingerprint checks. Keep the
 `afterInitialBackupVerified` hook in the same position.
 
-- [ ] **Step 2: Remove only the unused transport**
+- [x] **Step 2: Remove only the unused transport**
 
 Delete `verification` from the `restoreVerifiedBackup` call and input type. In
 the transaction, replace the reassignment with a new local:
@@ -139,7 +139,7 @@ Pass that prepared report unchanged to `executeRestore`. Keep
 `BackupVerificationReport` imported because `executeRestore` still uses the
 type and its final staged verification still replaces the local report.
 
-- [ ] **Step 3: Run focused gates**
+- [x] **Step 3: Run focused gates**
 
 ```bash
 bun --filter @deploykit/server test \
@@ -154,7 +154,7 @@ git diff --check
 
 Expected: 107 focused tests and typecheck/Biome/diff-check all pass.
 
-- [ ] **Step 4: Independent review and commit**
+- [x] **Step 4: Independent review and commit**
 
 Review specifically for hook/ownership/operation-ID ordering and any remaining
 read of the removed input. Fix all Critical/Important findings before commit.
@@ -179,7 +179,7 @@ git commit -m "refactor: remove redundant restore verification input"
 edit the database-inspection leaf or documentation in this task, and do not
 revert concurrent work.
 
-- [ ] **Step 1: Write direct boundary regressions first**
+- [x] **Step 1: Write direct boundary regressions first**
 
 Add focused tests that prove:
 
@@ -202,7 +202,7 @@ module does not exist:
 bun test apps/server/tests/services/backupFileSafety.test.ts
 ```
 
-- [ ] **Step 2: Add the dependency-free filesystem leaf**
+- [x] **Step 2: Add the dependency-free filesystem leaf**
 
 Move the seven listed file-safety entities verbatim into
 `backupFileSafety.ts`. It may import filesystem types/functions only. Preserve
@@ -237,14 +237,14 @@ export function pathEntryExistsNoFollow(path: string): boolean;
 export function isMissingPathError(error: unknown): boolean;
 ```
 
-- [ ] **Step 3: Rewire all three consumers**
+- [x] **Step 3: Rewire all three consumers**
 
 Import the shared constants/helpers into snapshot and verification, delete
 their duplicate definitions, and change restore's three low-level helper
 imports from `backupVerification` to `backupFileSafety`. Keep fingerprint and
 staged-verification imports pointed at `backupVerification`.
 
-- [ ] **Step 4: Run regression and duplicate checks**
+- [x] **Step 4: Run regression and duplicate checks**
 
 ```bash
 bun test apps/server/tests/services/backupFileSafety.test.ts
@@ -264,7 +264,7 @@ git diff --check
 Expected: the new direct suite passes, all 107 characterization tests pass,
 and each extracted filesystem entity has exactly one production definition.
 
-- [ ] **Step 5: Independent review and commit**
+- [x] **Step 5: Independent review and commit**
 
 Review for `ENOENT`/`ENOTDIR` drift, symlink/hard-link semantics, identity-field
 loss, import cycles, and accidental verifier/restore ordering changes.
@@ -283,18 +283,47 @@ git commit -m "refactor: centralize backup file safety primitives"
 **Files:**
 
 - Create: `apps/server/src/services/backupDatabaseInspection.ts`
+- Create: `apps/server/tests/services/backupDatabaseInspection.test.ts`
 - Modify: `apps/server/src/services/backupSnapshot.ts`
 - Modify: `apps/server/src/services/backupVerification.ts`
 
-**Ownership:** The implementer owns only these three files for this task. Do
+**Ownership:** The implementer owns only these four files for this task. Do
 not touch restore control flow or public exports, and do not revert concurrent
 work.
 
-- [ ] **Step 1: Characterize the shared SQL contract**
+- [ ] **Step 1: Write a direct SQL-contract test first**
 
 Before editing, run the focused suites and retain their 107-pass baseline. In
-particular, existing tests cover schema v5/v6/v7 hydration, all manifest count
-keys, a drifted `apiTokens` count, and version artifact verification.
+particular, existing tests cover schema v5/v6/v7 hydration and end-to-end
+manifest verification, but they cannot by themselves catch a shared SQL alias
+bug that makes snapshot creation and verification agree on the same wrong
+result.
+
+Create two in-memory tests using minimal queried table shapes and deliberately
+distinct counts:
+
+1. schema 6 uses counts `1..11` for `users`, `projects`, `versions`,
+   `artifact_audits`, `artifact_audit_jobs`, `audit_events`, `releases`,
+   `sessions`, `project_api_tokens`, `api_token_security_events`, and
+   `ci_idempotency_records`; assert the exact alias-to-count object and seed
+   version rows out of order so the result must be ordered by
+   `project_id, sort_order`;
+2. schema 5 creates only the eight base tables and asserts the exact eight-key
+   result plus absence of all three v6 keys. This proves the conditional branch
+   does not query missing v6 tables.
+
+After `inspectOpenDatabase` returns, run `SELECT 1` on the caller-owned
+database to prove the open-database helper does not close it. Keep the
+file-wrapper's readonly/finally behavior covered by existing create/rollback
+integration because observing close semantics portably would add brittle test
+machinery.
+
+Run the direct test before adding the leaf and confirm it fails because the
+module does not exist:
+
+```bash
+bun test apps/server/tests/services/backupDatabaseInspection.test.ts
+```
 
 - [ ] **Step 2: Move the shared database inspection verbatim**
 
@@ -330,6 +359,7 @@ integrity/foreign-key checks and migration validation.
 - [ ] **Step 4: Run characterization and structure gates**
 
 ```bash
+bun test apps/server/tests/services/backupDatabaseInspection.test.ts
 bun --filter @deploykit/server test \
   tests/services/backupService.test.ts \
   tests/services/backupRestoreSafety.test.ts
@@ -337,14 +367,16 @@ bun run --filter @deploykit/server typecheck
 bun x biome check \
   apps/server/src/services/backupDatabaseInspection.ts \
   apps/server/src/services/backupSnapshot.ts \
-  apps/server/src/services/backupVerification.ts
+  apps/server/src/services/backupVerification.ts \
+  apps/server/tests/services/backupDatabaseInspection.test.ts
 rg -n "interface VersionIntegrityRow|function inspectOpenDatabase" \
   apps/server/src/services
 git diff --check
 ```
 
-Expected: 107 focused tests pass; the two database entities have one
-production definition; there are no circular imports or public exports.
+Expected: the direct SQL-contract suite and all 107 focused tests pass; the two
+database entities have one production definition; there are no circular
+imports or public exports.
 
 - [ ] **Step 5: Independent review and commit**
 
@@ -354,7 +386,8 @@ and the private module DAG before committing.
 ```bash
 git add apps/server/src/services/backupDatabaseInspection.ts \
   apps/server/src/services/backupSnapshot.ts \
-  apps/server/src/services/backupVerification.ts
+  apps/server/src/services/backupVerification.ts \
+  apps/server/tests/services/backupDatabaseInspection.test.ts
 git commit -m "refactor: centralize backup database inspection"
 ```
 
@@ -434,8 +467,10 @@ the tracked worktree is clean, and report the exact commit and workflow URLs.
   facade still performs the same initial gate and hook before ownership.
 - The nine duplicated snapshot/verifier entities have one production
   definition each, divided into cohesive filesystem and SQLite leaves.
-- Direct tests lock `ENOENT`, `ENOTDIR`, dangling-symlink, hard-link, and
-  captured-identity semantics.
+- Direct tests lock `ENOENT`, `ENOTDIR`, `EACCES`, dangling-symlink, hard-link,
+  and captured-identity semantics.
+- Direct SQLite tests lock every count alias, schema-v5/v6 key branching, and
+  version-row ordering independently from snapshot/verifier agreement.
 - All 107 pre-existing backup characterization tests still pass, and all new
   tests pass.
 - No public API/package export, manifest, SQL, error, operation ordering, or
