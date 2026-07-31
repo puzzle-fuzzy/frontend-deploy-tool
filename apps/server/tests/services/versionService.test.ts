@@ -659,6 +659,81 @@ describe('createVersionService', () => {
     }
   });
 
+  test('reassesses audit freshness inside the release mutation', () => {
+    const storageDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-version-service-')
+    );
+    const demoProject = project();
+    demoProject.activeVersionId = null;
+    demoProject.versions = [version('candidate')];
+    demoProject.auditPolicy.enforcement = 'blocking';
+    writeArtifact(storageDir, demoProject.versions[0]);
+    const candidate = demoProject.versions[0];
+    const data: Data = {
+      schemaVersion: 5,
+      projects: [demoProject],
+      users: [],
+      history: [],
+      artifactAudits: [
+        {
+          id: 'report-1',
+          projectId: demoProject.id,
+          versionId: candidate.id,
+          artifactChecksum: candidate.checksum,
+          status: 'passed',
+          score: 100,
+          createdAt: '2026-07-30T00:00:00.000Z',
+          createdBy: 'user-1',
+          engineVersion: 2,
+          policy: structuredClone(demoProject.auditPolicy),
+          context: structuredClone(demoProject.settings),
+          summary: {
+            totalBytes: candidate.size,
+            fileCount: candidate.fileCount,
+            largestFiles: [],
+            extensions: [],
+            assetBytes: {
+              javascript: 0,
+              stylesheet: 0,
+              font: 0,
+              image: 0,
+            },
+          },
+          checks: [],
+        },
+      ],
+      artifactAuditJobs: [],
+    };
+    const repo: ProjectRepository = {
+      load: () => structuredClone(data),
+      save: () => {},
+      mutate: (operation) => {
+        data.projects[0].settings.routingType = 'path';
+        return operation(data);
+      },
+    };
+
+    try {
+      expect(() =>
+        createVersionService(repo, config(storageDir)).publishVersion(
+          'p1',
+          'candidate',
+          'user-1',
+          { expectedActiveVersionId: null }
+        )
+      ).toThrow(
+        expect.objectContaining({
+          code: ErrorCode.AUDIT_REQUIRED,
+          status: 409,
+        })
+      );
+      expect(data.projects[0].activeVersionId).toBeNull();
+      expect(data.history).toEqual([]);
+    } finally {
+      rmSync(storageDir, { recursive: true, force: true });
+    }
+  });
+
   test('rejects failed and archived versions as publish targets', () => {
     for (const status of ['failed', 'archived'] as const) {
       const storageDir = mkdtempSync(

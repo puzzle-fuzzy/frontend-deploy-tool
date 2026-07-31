@@ -2,6 +2,7 @@ import type {
   ApiTokenMetadata,
   ApiTokenScope,
   ApiTokenSecurityEvent,
+  ArtifactAuditAssessment,
   ArtifactAuditJob,
   ArtifactAuditJobPage,
   ArtifactAuditPolicyUpdate,
@@ -205,6 +206,10 @@ export interface ArtifactAuditService {
     actorId: string
   ): ArtifactAuditReport;
   getArtifactAudit(projectId: string, versionId: string): ArtifactAuditReport;
+  getArtifactAuditAssessment(
+    projectId: string,
+    versionId: string
+  ): ArtifactAuditAssessment;
 }
 
 export interface ArtifactAuditJobApiService {

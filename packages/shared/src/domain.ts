@@ -420,6 +420,34 @@ export type ArtifactAuditExtension = z.infer<
 >;
 export type ArtifactAuditSummary = z.infer<typeof artifactAuditSummarySchema>;
 export type ArtifactAuditReport = z.infer<typeof artifactAuditReportSchema>;
+export type ArtifactAuditStaleReason =
+  | 'checksum_changed'
+  | 'engine_changed'
+  | 'rule_config_changed'
+  | 'context_changed';
+export type ArtifactAuditReleaseAssessment =
+  | { allowed: true; reason: 'advisory' | 'current_report' }
+  | { allowed: false; reason: 'audit_required' | 'audit_blocked' };
+export interface ArtifactAuditAssessmentBase {
+  currentEngineVersion: number;
+  release: ArtifactAuditReleaseAssessment;
+}
+export type ArtifactAuditAssessment =
+  | (ArtifactAuditAssessmentBase & {
+      report: null;
+      freshness: 'missing';
+      staleReasons: [];
+    })
+  | (ArtifactAuditAssessmentBase & {
+      report: ArtifactAuditReport;
+      freshness: 'stale';
+      staleReasons: [ArtifactAuditStaleReason, ...ArtifactAuditStaleReason[]];
+    })
+  | (ArtifactAuditAssessmentBase & {
+      report: ArtifactAuditReport;
+      freshness: 'current';
+      staleReasons: [];
+    });
 export type ArtifactAuditJobStatus = z.infer<
   typeof artifactAuditJobStatusSchema
 >;

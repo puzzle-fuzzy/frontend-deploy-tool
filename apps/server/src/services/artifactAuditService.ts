@@ -6,6 +6,7 @@ import type {
   ArtifactAuditReport,
   ArtifactAuditStatus,
 } from '@deploykit/shared';
+import { assessArtifactAudit } from '../domain/artifactAudit';
 import {
   hasSameArtifactAuditContext,
   hasSameArtifactAuditPolicy,
@@ -212,6 +213,31 @@ export function createArtifactAuditService(
         );
       }
       return report;
+    },
+
+    getArtifactAuditAssessment(projectId, versionId) {
+      const data = repo.load();
+      const project = data.projects.find(
+        (candidate) => candidate.id === projectId
+      );
+      if (!project) {
+        throw new ApiError(
+          ErrorCode.PROJECT_NOT_FOUND,
+          'Project not found',
+          404
+        );
+      }
+      const version = project.versions.find(
+        (candidate) => candidate.id === versionId
+      );
+      if (!version) {
+        throw new ApiError(
+          ErrorCode.VERSION_NOT_FOUND,
+          'Version not found',
+          404
+        );
+      }
+      return assessArtifactAudit(data, project, version);
     },
   };
 }

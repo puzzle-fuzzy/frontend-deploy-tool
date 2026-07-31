@@ -20,6 +20,22 @@ export function createArtifactAuditRoutes(deps: {
     deps;
 
   return new Hono<AppEnv>()
+    .get('/api/projects/:id/versions/:versionId/audit-assessment', (c) => {
+      const projectId = parseIdParam(c.req.param('id'));
+      const versionId = parseIdParam(c.req.param('versionId'));
+      const actor = c.get('user');
+      if (!actor) {
+        throw new ApiError(
+          ErrorCode.UNAUTHORIZED,
+          'Authentication required',
+          401
+        );
+      }
+      projectService.getProjectForActor(projectId, actor);
+      return c.json(
+        artifactAuditService.getArtifactAuditAssessment(projectId, versionId)
+      );
+    })
     .get('/api/projects/:id/versions/:versionId/audit', (c) => {
       const projectId = parseIdParam(c.req.param('id'));
       const versionId = parseIdParam(c.req.param('versionId'));

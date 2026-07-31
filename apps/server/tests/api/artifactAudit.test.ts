@@ -4,6 +4,7 @@ import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+  ArtifactAuditAssessment,
   ArtifactAuditJob,
   ArtifactAuditPolicy,
   ArtifactAuditPolicyUpdate,
@@ -598,6 +599,132 @@ describe('artifact audit API', () => {
       project.activeVersionId
     );
     expect(released.status).toBe(200);
+  });
+
+  test('returns scoped missing, current, stale, and historic-engine assessments', async () => {
+    const missing = await createUploadedVersion('assessment-missing');
+    const assessmentPath = `/api/projects/${missing.project.id}/versions/${missing.versionId}/audit-assessment`;
+
+    const unauthenticated = await app.request(assessmentPath);
+    expect(unauthenticated.status).toBe(401);
+
+    const registration = await app.request('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Assessment Outsider',
+        email: 'assessment-outsider@example.com',
+        password: 'assessment-outsider-password',
+      }),
+    });
+    expect(registration.status).toBe(200);
+    const outsiderToken = await loginAs(
+      app,
+      'assessment-outsider@example.com',
+      'assessment-outsider-password'
+    );
+    const forbidden = await app.request(
+      assessmentPath,
+      withBearer(undefined, outsiderToken)
+    );
+    expect(forbidden.status).toBe(403);
+
+    const missingResponse = await app.request(
+      assessmentPath,
+      withBearer(undefined, token)
+    );
+    expect(missingResponse.status).toBe(200);
+    expect((await missingResponse.json()) as ArtifactAuditAssessment).toEqual({
+      report: null,
+      freshness: 'missing',
+      staleReasons: [],
+      currentEngineVersion: 2,
+      release: { allowed: true, reason: 'advisory' },
+    });
+
+    const other = await createUploadedVersion('assessment-other');
+    const otherAudit = await app.request(
+      `/api/projects/${other.project.id}/versions/${other.versionId}/audit`,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(otherAudit.status).toBe(201);
+    const crossProject = await app.request(
+      `/api/projects/${missing.project.id}/versions/${other.versionId}/audit-assessment`,
+      withBearer(undefined, token)
+    );
+    expect(crossProject.status).toBe(404);
+    expect((await crossProject.json()).error.code).toBe('VERSION_NOT_FOUND');
+
+    const current = await createUploadedVersion('assessment-current');
+    const currentPath = `/api/projects/${current.project.id}/versions/${current.versionId}/audit-assessment`;
+    const currentAudit = await app.request(
+      `/api/projects/${current.project.id}/versions/${current.versionId}/audit`,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(currentAudit.status).toBe(201);
+    const currentAssessment = await app.request(
+      currentPath,
+      withBearer(undefined, token)
+    );
+    expect(currentAssessment.status).toBe(200);
+    expect(await currentAssessment.json()).toMatchObject({
+      freshness: 'current',
+      staleReasons: [],
+      release: { allowed: true, reason: 'advisory' },
+      report: {
+        projectId: current.project.id,
+        versionId: current.versionId,
+        engineVersion: 2,
+      },
+    });
+
+    await updatePolicy(current.project.id, {
+      ...current.project.auditPolicy,
+      enforcement: 'blocking',
+      maxFontBytes: current.project.auditPolicy.maxFontBytes - 1,
+    });
+    const staleAssessment = await app.request(
+      currentPath,
+      withBearer(undefined, token)
+    );
+    expect(staleAssessment.status).toBe(200);
+    expect(await staleAssessment.json()).toMatchObject({
+      freshness: 'stale',
+      staleReasons: ['rule_config_changed'],
+      release: { allowed: false, reason: 'audit_required' },
+    });
+
+    const historic = await createUploadedVersion('assessment-engine-v1');
+    const historicAudit = await app.request(
+      `/api/projects/${historic.project.id}/versions/${historic.versionId}/audit`,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(historicAudit.status).toBe(201);
+    const repo = createSqliteProjectRepository({
+      databaseFile: join(tempDir, 'deploykit.sqlite'),
+      legacyDataFile: join(tempDir, 'data.json'),
+    });
+    repo.mutate((data) => {
+      const report = data.artifactAudits.find(
+        (candidate) =>
+          candidate.projectId === historic.project.id &&
+          candidate.versionId === historic.versionId
+      );
+      if (!report) throw new Error('historic report fixture missing');
+      report.engineVersion = 1;
+    });
+    const historicAssessment = await app.request(
+      `/api/projects/${historic.project.id}/versions/${historic.versionId}/audit-assessment`,
+      withBearer(undefined, token)
+    );
+    expect(historicAssessment.status).toBe(200);
+    expect(await historicAssessment.json()).toMatchObject({
+      currentEngineVersion: 2,
+      freshness: 'stale',
+      staleReasons: ['engine_changed'],
+      release: { allowed: true, reason: 'advisory' },
+      report: { engineVersion: 1 },
+    });
   });
 
   test('keeps report reads project-scoped and audit writes member-scoped', async () => {

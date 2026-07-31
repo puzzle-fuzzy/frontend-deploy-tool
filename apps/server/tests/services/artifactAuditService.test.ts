@@ -3,12 +3,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
+  ArtifactAuditAssessment,
   ArtifactAuditReport,
   Data,
   Project,
   Version,
 } from '@deploykit/shared';
-import { assertArtifactAuditAllowsRelease } from '../../src/domain/artifactAudit';
+import {
+  assertArtifactAuditAllowsRelease,
+  assessArtifactAudit,
+} from '../../src/domain/artifactAudit';
 import { createEmptyData } from '../../src/domain/schema';
 import { ErrorCode } from '../../src/errors';
 import { createJsonProjectRepository } from '../../src/repositories/jsonProjectRepository';
@@ -179,44 +183,166 @@ describe('createArtifactAuditService', () => {
 });
 
 describe('assertArtifactAuditAllowsRelease', () => {
-  test('advisory policy never introduces an audit release gate', () => {
+  test('returns the complete freshness and release matrix', () => {
     const { data, project, version } = createInMemoryData();
-    expect(() =>
-      assertArtifactAuditAllowsRelease(data, project, version)
-    ).not.toThrow();
-  });
+    const missing: ArtifactAuditAssessment = assessArtifactAudit(
+      data,
+      project,
+      version
+    );
+    expect(missing).toEqual({
+      report: null,
+      freshness: 'missing',
+      staleReasons: [],
+      currentEngineVersion: ARTIFACT_AUDIT_ENGINE_VERSION,
+      release: { allowed: true, reason: 'advisory' },
+    });
 
-  test('blocking policy requires a current report with current budgets and engine', () => {
-    const { data, project, version } = createInMemoryData();
     project.auditPolicy.enforcement = 'blocking';
-
-    expect(() =>
-      assertArtifactAuditAllowsRelease(data, project, version)
-    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_REQUIRED }));
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      freshness: 'missing',
+      release: { allowed: false, reason: 'audit_required' },
+    });
 
     const report = reportFixture(project, version);
     data.artifactAudits.push(report);
-    expect(() =>
-      assertArtifactAuditAllowsRelease(data, project, version)
-    ).not.toThrow();
+    for (const status of ['passed', 'warning'] as const) {
+      report.status = status;
+      expect(assessArtifactAudit(data, project, version)).toMatchObject({
+        report,
+        freshness: 'current',
+        staleReasons: [],
+        release: { allowed: true, reason: 'current_report' },
+      });
+    }
 
-    report.policy.maxTotalBytes -= 1;
-    expect(() =>
-      assertArtifactAuditAllowsRelease(data, project, version)
-    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_REQUIRED }));
+    report.status = 'failed';
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      freshness: 'current',
+      release: { allowed: false, reason: 'audit_blocked' },
+    });
+
+    project.auditPolicy.enforcement = 'advisory';
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      freshness: 'current',
+      release: { allowed: true, reason: 'advisory' },
+    });
   });
 
-  test('blocking policy rejects a current report with error findings', () => {
+  test('selects the current report by both project and version id', () => {
+    const { data, project, version } = createInMemoryData();
+    const otherProject = projectFixture('project-2', version.id);
+    data.projects.push(otherProject);
+    data.artifactAudits.push(
+      reportFixture(otherProject, otherProject.versions[0])
+    );
+
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      report: null,
+      freshness: 'missing',
+      staleReasons: [],
+    });
+  });
+
+  test('compares every scan input while excluding enforcement', () => {
+    const mutations: Array<{
+      name: string;
+      reason: ArtifactAuditAssessment['staleReasons'][number];
+      mutate: (report: ArtifactAuditReport, project: Project) => void;
+    }> = [
+      {
+        name: 'checksum',
+        reason: 'checksum_changed',
+        mutate: (report) => {
+          report.artifactChecksum = 'old-checksum';
+        },
+      },
+      {
+        name: 'engine',
+        reason: 'engine_changed',
+        mutate: (report) => {
+          report.engineVersion = 1;
+        },
+      },
+      ...(
+        [
+          'maxTotalBytes',
+          'maxFileBytes',
+          'maxFileCount',
+          'maxJavaScriptBytes',
+          'maxStylesheetBytes',
+          'maxFontBytes',
+        ] as const
+      ).map((field) => ({
+        name: field,
+        reason: 'rule_config_changed' as const,
+        mutate: (report: ArtifactAuditReport) => {
+          report.policy[field] -= 1;
+        },
+      })),
+      {
+        name: 'spa mode',
+        reason: 'context_changed',
+        mutate: (report) => {
+          report.context.spaMode = true;
+        },
+      },
+      {
+        name: 'routing type',
+        reason: 'context_changed',
+        mutate: (report) => {
+          report.context.routingType = 'hash';
+        },
+      },
+    ];
+
+    for (const scenario of mutations) {
+      const { data, project, version } = createInMemoryData();
+      const report = reportFixture(project, version);
+      data.artifactAudits.push(report);
+      scenario.mutate(report, project);
+      expect(assessArtifactAudit(data, project, version)).toMatchObject({
+        freshness: 'stale',
+        staleReasons: [scenario.reason],
+      });
+    }
+
+    const { data, project, version } = createInMemoryData();
+    const report = reportFixture(project, version);
+    data.artifactAudits.push(report);
+    report.policy.enforcement = 'blocking';
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      freshness: 'current',
+      staleReasons: [],
+      release: { allowed: true, reason: 'advisory' },
+    });
+  });
+
+  test('orders multiple stale reasons and requires a fresh scan before blocking findings', () => {
     const { data, project, version } = createInMemoryData();
     project.auditPolicy.enforcement = 'blocking';
-    data.artifactAudits.push({
-      ...reportFixture(project, version),
-      status: 'failed',
+    const report = reportFixture(project, version);
+    report.status = 'failed';
+    report.artifactChecksum = 'old-checksum';
+    report.engineVersion = 1;
+    report.policy.maxFontBytes -= 1;
+    report.context.routingType = 'hash';
+    data.artifactAudits.push(report);
+
+    expect(assessArtifactAudit(data, project, version)).toMatchObject({
+      freshness: 'stale',
+      staleReasons: [
+        'checksum_changed',
+        'engine_changed',
+        'rule_config_changed',
+        'context_changed',
+      ],
+      release: { allowed: false, reason: 'audit_required' },
     });
 
     expect(() =>
       assertArtifactAuditAllowsRelease(data, project, version)
-    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_BLOCKED }));
+    ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_REQUIRED }));
   });
 });
 
