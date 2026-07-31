@@ -873,7 +873,10 @@ committing, resolve source/target identities and transition to `installed`
 before compensation. On success, keep database and storage `installed` while
 manifest/auxiliary cleanup runs, then perform the final exact-identity and
 content-fingerprint check, consume both bindings, mark committed, and return in
-that order. Cleanup failure must still compensate.
+that order. Immediately before consumption, reassert that the installed live
+database has no `-journal`, `-wal`, or `-shm`; cleanup callbacks must not be
+able to introduce a sidecar after the earlier staged checks. Cleanup failure or
+a late live sidecar must still compensate.
 
 Enforce the active-target rule for database, storage, and every SQLite
 auxiliary; helpers without an installed-stage binding must not bypass it.
