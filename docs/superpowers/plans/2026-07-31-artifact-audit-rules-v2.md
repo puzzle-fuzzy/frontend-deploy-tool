@@ -979,7 +979,7 @@ git diff --check
 git status -sb
 ```
 
-- [ ] **Step 4: Fetch and push main without force**
+- [x] **Step 4: Fetch and push main without force**
 
 ```bash
 git fetch origin main
@@ -987,7 +987,7 @@ git merge-base --is-ancestor origin/main HEAD
 git push origin main
 ```
 
-- [ ] **Step 5: Wait for CI and CodeQL**
+- [x] **Step 5: Wait for CI and CodeQL**
 
 Confirm both workflows complete successfully for the exact pushed SHA, then
 verify local `HEAD`, `origin/main`, and `git ls-remote` agree.
