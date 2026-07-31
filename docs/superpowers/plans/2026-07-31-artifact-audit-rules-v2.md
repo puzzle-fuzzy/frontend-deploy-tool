@@ -391,6 +391,8 @@ Cover:
   target warning without throwing or leaking the artifact path;
 - `alt=""` passes while an absent `alt` warns;
 - `javascript:` anchors warn;
+- browser-equivalent entity/control encodings of `javascript:` also warn, and
+  entity-encoded external base URLs remain external;
 - static file/directory links warn only when missing;
 - SPA and extensionless routes are skipped;
 - 100,000 distinct extensions collapse into a deterministic Top-50 plus
