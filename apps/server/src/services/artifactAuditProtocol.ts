@@ -1,9 +1,9 @@
 import {
-  artifactAuditCheckSchema,
+  artifactAuditCategorySchema,
   artifactAuditContextSchema,
   artifactAuditPolicySchema,
+  artifactAuditSeveritySchema,
   artifactAuditStatusSchema,
-  artifactAuditSummarySchema,
 } from '@deploykit/shared';
 import { z } from 'zod';
 import {
@@ -20,13 +20,76 @@ export const artifactAuditExecutionInputSchema = z
   })
   .strict();
 
+const artifactAuditProcessFileSchema = z
+  .object({
+    path: z.string(),
+    size: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const artifactAuditProcessExtensionSchema = z
+  .object({
+    extension: z.string(),
+    bytes: z.number().int().nonnegative(),
+    count: z.number().int().nonnegative(),
+  })
+  .strict();
+
+const artifactAuditProcessAssetBytesSchema = z
+  .object({
+    javascript: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(10 * 1024 * 1024 * 1024),
+    stylesheet: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(10 * 1024 * 1024 * 1024),
+    font: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(10 * 1024 * 1024 * 1024),
+    image: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(10 * 1024 * 1024 * 1024),
+  })
+  .strict();
+
+const artifactAuditProcessSummarySchema = z
+  .object({
+    totalBytes: z.number().int().nonnegative(),
+    fileCount: z.number().int().nonnegative(),
+    largestFiles: z.array(artifactAuditProcessFileSchema),
+    extensions: z.array(artifactAuditProcessExtensionSchema),
+    assetBytes: artifactAuditProcessAssetBytesSchema,
+  })
+  .strict();
+
+const artifactAuditProcessCheckSchema = z
+  .object({
+    id: z.string(),
+    ruleVersion: z.number().int().positive(),
+    category: artifactAuditCategorySchema,
+    severity: artifactAuditSeveritySchema,
+    passed: z.boolean(),
+    message: z.string(),
+    actual: z.union([z.string(), z.number(), z.boolean()]).optional(),
+    expected: z.string().optional(),
+  })
+  .strict();
+
 export const artifactAuditExecutionResultSchema = z
   .object({
     artifactChecksum: z.string().min(1).max(256),
     status: artifactAuditStatusSchema,
     score: z.number().int().min(0).max(100),
-    summary: artifactAuditSummarySchema,
-    checks: z.array(artifactAuditCheckSchema).max(1_000),
+    summary: artifactAuditProcessSummarySchema,
+    checks: z.array(artifactAuditProcessCheckSchema).max(1_000),
   })
   .strict()
   .superRefine((result, context) => {

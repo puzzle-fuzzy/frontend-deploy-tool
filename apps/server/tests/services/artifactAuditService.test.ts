@@ -14,6 +14,7 @@ import { ErrorCode } from '../../src/errors';
 import { createJsonProjectRepository } from '../../src/repositories/jsonProjectRepository';
 import {
   ARTIFACT_AUDIT_ENGINE_VERSION,
+  ArtifactAuditInspectionError,
   auditArtifactDirectory,
 } from '../../src/services/artifactAuditEngine';
 import { createArtifactAuditService } from '../../src/services/artifactAuditService';
@@ -115,6 +116,41 @@ describe('createArtifactAuditService', () => {
       service.runArtifactAudit('project-1', 'version-1', 'owner-1')
     ).toThrow(expect.objectContaining({ code: ErrorCode.AUDIT_FAILED }));
     expect(repo.load().artifactAudits).toEqual([]);
+  });
+
+  test('maps only typed inspection failures to the safe synchronous AUDIT_FAILED contract', () => {
+    const { repo, artifactDir } = createFixture();
+    const service = createArtifactAuditService(repo, storageDir, {
+      audit() {
+        const error = new ArtifactAuditInspectionError('AUDIT_ARTIFACT_UNSAFE');
+        error.message = `unsafe entry at ${artifactDir}`;
+        throw error;
+      },
+    });
+
+    expect(() =>
+      service.runArtifactAudit('project-1', 'version-1', 'owner-1')
+    ).toThrow(
+      expect.objectContaining({
+        code: ErrorCode.AUDIT_FAILED,
+        message: 'Artifact contains an unsafe filesystem entry',
+        status: 409,
+      })
+    );
+  });
+
+  test('does not convert unexpected synchronous engine exceptions', () => {
+    const { repo, artifactDir } = createFixture();
+    const unexpected = new Error(`unexpected engine failure at ${artifactDir}`);
+    const service = createArtifactAuditService(repo, storageDir, {
+      audit() {
+        throw unexpected;
+      },
+    });
+
+    expect(() =>
+      service.runArtifactAudit('project-1', 'version-1', 'owner-1')
+    ).toThrow(unexpected);
   });
 
   test('passes the snapshotted routing context into the synchronous engine', () => {

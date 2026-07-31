@@ -16,9 +16,11 @@ import { ApiError, ErrorCode } from '../errors';
 import type { ProjectRepository } from '../repositories/projectRepository';
 import { createId } from '../utils/id';
 import {
+  ArtifactAuditInspectionError,
   type ArtifactAuditResult,
   auditArtifactDirectory,
 } from './artifactAuditEngine';
+import { ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES } from './artifactAuditProtocol';
 import { checksumDirectory } from './artifactService';
 import type { ArtifactAuditService } from './contracts';
 
@@ -75,7 +77,19 @@ export function createArtifactAuditService(
       }
       const policy = structuredClone(project.auditPolicy);
       const context = structuredClone(project.settings);
-      const result = audit(artifactDir, version.checksum, policy, context);
+      let result: ArtifactAuditResult;
+      try {
+        result = audit(artifactDir, version.checksum, policy, context);
+      } catch (error) {
+        if (error instanceof ArtifactAuditInspectionError) {
+          throw new ApiError(
+            ErrorCode.AUDIT_FAILED,
+            ARTIFACT_AUDIT_PROCESS_ERROR_MESSAGES[error.code],
+            409
+          );
+        }
+        throw error;
+      }
       if (checksumDirectory(artifactDir) !== result.artifactChecksum) {
         throw new ApiError(
           ErrorCode.AUDIT_FAILED,

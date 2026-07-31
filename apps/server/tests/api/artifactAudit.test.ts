@@ -1,6 +1,6 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, spyOn, test } from 'bun:test';
 import { Buffer } from 'node:buffer';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type {
@@ -105,6 +105,74 @@ describe('artifact audit API', () => {
         }),
       ])
     );
+  });
+
+  test('keeps known and unexpected synchronous engine failures API-safe', async () => {
+    const known = await createUploadedVersion('audit-known-failure');
+    const knownArtifactDir = join(
+      tempDir,
+      'storage',
+      known.project.id,
+      known.versionId
+    );
+    symlinkSync(
+      join(knownArtifactDir, 'index.html'),
+      join(knownArtifactDir, 'unsafe-alias.html')
+    );
+    const knownResponse = await app.request(
+      `/api/projects/${known.project.id}/versions/${known.versionId}/audit`,
+      withBearer({ method: 'POST' }, token)
+    );
+    expect(knownResponse.status).toBe(409);
+    expect(await knownResponse.json()).toEqual({
+      error: {
+        code: 'AUDIT_FAILED',
+        message: 'Artifact contains an unsafe filesystem entry',
+      },
+    });
+
+    const unexpected = await createUploadedVersion('audit-unknown-failure');
+    const unexpectedArtifactDir = join(
+      tempDir,
+      'storage',
+      unexpected.project.id,
+      unexpected.versionId
+    );
+    const runtimeGlobal = globalThis as typeof globalThis & {
+      HTMLRewriter: typeof HTMLRewriter;
+    };
+    const originalHTMLRewriter = runtimeGlobal.HTMLRewriter;
+    const errorLog = spyOn(console, 'error').mockImplementation(() => {});
+    runtimeGlobal.HTMLRewriter = class {
+      on() {
+        return this;
+      }
+      transform() {
+        throw new Error(
+          `unexpected engine failure at ${unexpectedArtifactDir}`
+        );
+      }
+    } as unknown as typeof HTMLRewriter;
+    let unexpectedResponse: Response | undefined;
+    try {
+      unexpectedResponse = await app.request(
+        `/api/projects/${unexpected.project.id}/versions/${unexpected.versionId}/audit`,
+        withBearer({ method: 'POST' }, token)
+      );
+    } finally {
+      runtimeGlobal.HTMLRewriter = originalHTMLRewriter;
+      errorLog.mockRestore();
+    }
+    if (!unexpectedResponse) throw new Error('missing unexpected response');
+    expect(unexpectedResponse.status).toBe(500);
+    const unexpectedBody = await unexpectedResponse.json();
+    expect(unexpectedBody).toEqual({
+      error: {
+        code: 'INTERNAL_ERROR',
+        message: 'Internal Server Error',
+      },
+    });
+    expect(JSON.stringify(unexpectedBody)).not.toContain(unexpectedArtifactDir);
   });
 
   test('enqueues, deduplicates, polls, and completes a durable audit job', async () => {

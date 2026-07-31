@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test';
 import {
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -10,7 +11,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createSubprocessArtifactAuditExecutor } from '../../src/services/artifactAuditExecutor';
-import type { ArtifactAuditExecutionResult } from '../../src/services/artifactAuditProtocol';
+import {
+  type ArtifactAuditExecutionResult,
+  artifactAuditProcessEnvelopeSchema,
+} from '../../src/services/artifactAuditProtocol';
 import { checksumDirectory } from '../../src/services/artifactService';
 
 let tempDir: string;
@@ -122,8 +126,8 @@ describe('createSubprocessArtifactAuditExecutor', () => {
       spawn: async () => ({
         exitCode: 1,
         signalCode: null,
-        stdout: '',
-        stderr: `failed at ${artifactDir}/index.html`,
+        stdout: bytes(''),
+        stderr: bytes(`failed at ${artifactDir}/index.html`),
       }),
     });
 
@@ -157,8 +161,8 @@ describe('createSubprocessArtifactAuditExecutor', () => {
         spawn: async () => ({
           exitCode: 0,
           signalCode: null,
-          stdout,
-          stderr: '',
+          stdout: bytes(stdout),
+          stderr: bytes(''),
         }),
       });
 
@@ -183,8 +187,8 @@ describe('createSubprocessArtifactAuditExecutor', () => {
       spawn: async () => ({
         exitCode: 0,
         signalCode: null,
-        stdout,
-        stderr: '',
+        stdout: bytes(stdout),
+        stderr: bytes(''),
       }),
     });
 
@@ -196,11 +200,14 @@ describe('createSubprocessArtifactAuditExecutor', () => {
     });
   });
 
-  test('classifies a real Bun stdout maxBuffer overflow as terminal', async () => {
+  test('bounds a real Bun stdout overflow, kills it, and waits for cleanup', async () => {
     const processEntry = join(tempDir, 'overflow-process.ts');
+    const pidFile = join(tempDir, 'overflow.pid');
     writeFileSync(
       processEntry,
-      'process.stdout.write("x".repeat(16 * 1024 * 1024)); await Bun.sleep(1_000);'
+      `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(
+        pidFile
+      )}, String(process.pid)); for (;;) process.stdout.write("x".repeat(64 * 1024));`
     );
     const executor = createSubprocessArtifactAuditExecutor({
       processEntry,
@@ -215,6 +222,9 @@ describe('createSubprocessArtifactAuditExecutor', () => {
       message: 'Artifact audit subprocess returned an invalid result',
       retryable: false,
     });
+    const childPid = Number(readFileSync(pidFile, 'utf8'));
+    expect(Number.isSafeInteger(childPid)).toBe(true);
+    expect(isProcessAlive(childPid)).toBe(false);
   });
 
   test('does not infer stdout overflow from a generic maxBuffer failure', async () => {
@@ -252,6 +262,25 @@ describe('createSubprocessArtifactAuditExecutor', () => {
     });
   });
 
+  test('rejects invalid UTF-8 from a real child as terminal protocol output', async () => {
+    const processEntry = join(tempDir, 'invalid-utf8-process.ts');
+    writeFileSync(
+      processEntry,
+      'process.stdout.write(Uint8Array.from([123, 34, 111, 107, 34, 58, 195, 40, 125]));'
+    );
+    const executor = createSubprocessArtifactAuditExecutor({
+      processEntry,
+      timeoutMs: 5_000,
+    });
+
+    await expect(
+      executor.execute(inputFixture('checksum'), new AbortController().signal)
+    ).rejects.toMatchObject({
+      code: 'AUDIT_ENGINE_OUTPUT_INVALID',
+      retryable: false,
+    });
+  });
+
   test('redacts a real unexpected child crash as retryable infrastructure failure', async () => {
     const processEntry = join(tempDir, 'crash-process.ts');
     writeFileSync(
@@ -273,6 +302,162 @@ describe('createSubprocessArtifactAuditExecutor', () => {
       retryable: true,
     });
     await expect(promise).rejects.not.toThrow(artifactDir);
+  });
+
+  test('drains oversized stderr without deriving the public failure message from it', async () => {
+    const processEntry = join(tempDir, 'stderr-process.ts');
+    writeFileSync(
+      processEntry,
+      `process.stderr.write(${JSON.stringify(artifactDir)} + "x".repeat(16 * 1024 * 1024)); process.exit(1);`
+    );
+    const executor = createSubprocessArtifactAuditExecutor({
+      processEntry,
+      timeoutMs: 5_000,
+    });
+
+    const promise = executor.execute(
+      inputFixture('checksum'),
+      new AbortController().signal
+    );
+    await expect(promise).rejects.toMatchObject({
+      code: 'AUDIT_ENGINE_FAILED',
+      message: 'Artifact audit engine failed',
+      retryable: true,
+    });
+    await expect(promise).rejects.not.toThrow(artifactDir);
+  });
+
+  test('rejects unknown keys at every nested success-envelope layer', async () => {
+    const mutations: Array<(result: ArtifactAuditExecutionResult) => unknown> =
+      [
+        (result) => ({ ...result, unknownResult: true }),
+        (result) => ({
+          ...result,
+          summary: { ...result.summary, unknownSummary: true },
+        }),
+        (result) => ({
+          ...result,
+          summary: {
+            ...result.summary,
+            assetBytes: { ...result.summary.assetBytes, unknownAsset: true },
+          },
+        }),
+        (result) => ({
+          ...result,
+          summary: {
+            ...result.summary,
+            largestFiles: [
+              { ...result.summary.largestFiles[0], unknownFile: true },
+            ],
+          },
+        }),
+        (result) => ({
+          ...result,
+          summary: {
+            ...result.summary,
+            extensions: [
+              { ...result.summary.extensions[0], unknownExtension: true },
+            ],
+          },
+        }),
+        (result) => ({
+          ...result,
+          checks: [{ ...result.checks[0], unknownCheck: true }],
+        }),
+      ];
+
+    for (const mutate of mutations) {
+      const envelope = {
+        ok: true,
+        result: mutate(auditResultFixture()),
+      };
+      expect(
+        artifactAuditProcessEnvelopeSchema.safeParse(envelope).success
+      ).toBe(false);
+      const stdout = JSON.stringify(envelope);
+      const executor = createSubprocessArtifactAuditExecutor({
+        spawn: async () => ({
+          exitCode: 0,
+          signalCode: null,
+          stdout: bytes(stdout),
+          stderr: bytes(''),
+        }),
+      });
+      await expect(
+        executor.execute(inputFixture('checksum'), new AbortController().signal)
+      ).rejects.toMatchObject({
+        code: 'AUDIT_ENGINE_OUTPUT_INVALID',
+        retryable: false,
+      });
+    }
+  });
+
+  test('requires process output fields that historic schemas default', async () => {
+    const result = auditResultFixture();
+    const withoutAssetBytes = structuredClone(
+      result
+    ) as Partial<ArtifactAuditExecutionResult>;
+    if (withoutAssetBytes.summary) {
+      const summary = withoutAssetBytes.summary as Partial<
+        ArtifactAuditExecutionResult['summary']
+      >;
+      delete summary.assetBytes;
+    }
+    const withoutRuleVersion = structuredClone(result);
+    const check = withoutRuleVersion.checks[0] as Partial<
+      ArtifactAuditExecutionResult['checks'][number]
+    >;
+    delete check.ruleVersion;
+
+    for (const invalid of [withoutAssetBytes, withoutRuleVersion]) {
+      expect(
+        artifactAuditProcessEnvelopeSchema.safeParse({
+          ok: true,
+          result: invalid,
+        }).success
+      ).toBe(false);
+      const executor = createSubprocessArtifactAuditExecutor({
+        spawn: async () => ({
+          exitCode: 0,
+          signalCode: null,
+          stdout: bytes(JSON.stringify({ ok: true, result: invalid })),
+          stderr: bytes(''),
+        }),
+      });
+      await expect(
+        executor.execute(inputFixture('checksum'), new AbortController().signal)
+      ).rejects.toMatchObject({ code: 'AUDIT_ENGINE_OUTPUT_INVALID' });
+    }
+  });
+
+  test('configures defensive maxBuffer above the logical protocol limit', async () => {
+    let observed:
+      | { logical: number; defensive: number | undefined }
+      | undefined;
+    const executor = createSubprocessArtifactAuditExecutor({
+      maxOutputBytes: 1_024,
+      spawn: async (options) => {
+        observed = {
+          logical: options.maxOutputBytes,
+          defensive: options.maxBufferBytes,
+        };
+        return {
+          exitCode: 0,
+          signalCode: null,
+          stdout: bytes(
+            JSON.stringify({ ok: true, result: auditResultFixture() })
+          ),
+          stderr: bytes(''),
+        };
+      },
+    });
+
+    await executor.execute(
+      inputFixture('checksum'),
+      new AbortController().signal
+    );
+    expect(observed?.logical).toBe(1_024);
+    expect(observed?.defensive).toBeGreaterThan(1_024);
   });
 
   test('propagates abort without converting it into a retryable failure', async () => {
@@ -382,6 +567,28 @@ function auditResultFixture(): ArtifactAuditExecutionResult {
         image: 0,
       },
     },
-    checks: [],
+    checks: [
+      {
+        id: 'structure.checksum',
+        ruleVersion: 1,
+        category: 'structure',
+        severity: 'info',
+        passed: true,
+        message: 'Artifact checksum matches the uploaded version',
+      },
+    ],
   };
+}
+
+function bytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
 }

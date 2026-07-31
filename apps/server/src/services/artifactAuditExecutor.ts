@@ -9,6 +9,8 @@ import {
 } from './artifactAuditProtocol';
 
 const DEFAULT_MAX_OUTPUT_BYTES = 4 * 1024 * 1024;
+const STDERR_DIAGNOSTIC_BYTES = 2_048;
+const MAX_BUFFER_SLACK_BYTES = 64 * 1024;
 
 export interface ArtifactAuditExecutor {
   execute(
@@ -20,8 +22,10 @@ export interface ArtifactAuditExecutor {
 interface ArtifactAuditProcessResult {
   exitCode: number | null;
   signalCode: number | null;
-  stdout: string;
-  stderr: string;
+  stdout: Uint8Array;
+  stderr: Uint8Array;
+  stdoutExceeded?: boolean;
+  timedOut?: boolean;
 }
 
 interface ArtifactAuditSpawnOptions {
@@ -29,6 +33,7 @@ interface ArtifactAuditSpawnOptions {
   signal: AbortSignal;
   timeoutMs: number;
   maxOutputBytes: number;
+  maxBufferBytes: number;
   processEntry: string;
 }
 
@@ -60,6 +65,7 @@ export function createSubprocessArtifactAuditExecutor(
 ): ArtifactAuditExecutor {
   const timeoutMs = options.timeoutMs ?? 60_000;
   const maxOutputBytes = options.maxOutputBytes ?? DEFAULT_MAX_OUTPUT_BYTES;
+  const maxBufferBytes = maxOutputBytes + MAX_BUFFER_SLACK_BYTES;
   const processEntry =
     options.processEntry ??
     fileURLToPath(
@@ -69,7 +75,11 @@ export function createSubprocessArtifactAuditExecutor(
   if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) {
     throw new Error('Artifact audit timeout must be a positive integer');
   }
-  if (!Number.isSafeInteger(maxOutputBytes) || maxOutputBytes < 1) {
+  if (
+    !Number.isSafeInteger(maxOutputBytes) ||
+    maxOutputBytes < 1 ||
+    !Number.isSafeInteger(maxBufferBytes)
+  ) {
     throw new Error('Artifact audit output budget must be a positive integer');
   }
 
@@ -88,6 +98,7 @@ export function createSubprocessArtifactAuditExecutor(
           signal,
           timeoutMs,
           maxOutputBytes,
+          maxBufferBytes,
           processEntry,
         });
       } catch (error) {
@@ -97,16 +108,25 @@ export function createSubprocessArtifactAuditExecutor(
       }
       if (signal.aborted) throw abortError();
       if (
-        new TextEncoder().encode(processResult.stdout).byteLength >
-        maxOutputBytes
+        processResult.stdoutExceeded === true ||
+        processResult.stdout.byteLength > maxOutputBytes
       ) {
         throw invalidResultError();
       }
+      if (processResult.timedOut) throw infrastructureError();
       if (processResult.exitCode !== 0) throw infrastructureError();
 
+      let stdout: string;
+      try {
+        stdout = new TextDecoder('utf-8', { fatal: true }).decode(
+          processResult.stdout
+        );
+      } catch {
+        throw invalidResultError();
+      }
       let decoded: unknown;
       try {
-        decoded = JSON.parse(processResult.stdout);
+        decoded = JSON.parse(stdout);
       } catch {
         throw invalidResultError();
       }
@@ -128,6 +148,7 @@ async function spawnArtifactAuditProcess({
   signal,
   timeoutMs,
   maxOutputBytes,
+  maxBufferBytes,
   processEntry,
 }: ArtifactAuditSpawnOptions): Promise<ArtifactAuditProcessResult> {
   const subprocess = Bun.spawn({
@@ -135,27 +156,79 @@ async function spawnArtifactAuditProcess({
     stdin: new Blob([JSON.stringify(input)], { type: 'application/json' }),
     stdout: 'pipe',
     stderr: 'pipe',
-    signal,
-    timeout: timeoutMs,
     killSignal: 'SIGKILL',
-    maxBuffer: maxOutputBytes,
+    maxBuffer: maxBufferBytes,
     env: {
       PATH: process.env.PATH ?? '',
       DEPLOYKIT_AUDIT_PROCESS: '1',
     },
   });
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(subprocess.stdout).text(),
-    new Response(subprocess.stderr).text(),
-    subprocess.exited,
-  ]);
-  return {
-    exitCode,
-    signalCode:
-      typeof subprocess.signalCode === 'number' ? subprocess.signalCode : null,
-    stdout,
-    stderr: truncateDiagnostic(stderr),
+  let timedOut = false;
+  let settled = false;
+  const kill = () => {
+    if (settled) return;
+    try {
+      subprocess.kill('SIGKILL');
+    } catch {
+      // A concurrent exit is equivalent to successful cleanup.
+    }
   };
+  const abort = () => kill();
+  signal.addEventListener('abort', abort, { once: true });
+  if (signal.aborted) abort();
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    kill();
+  }, timeoutMs);
+  timeout.unref?.();
+
+  const stdoutPromise = readBoundedStream(
+    subprocess.stdout,
+    maxOutputBytes + 1,
+    maxOutputBytes,
+    kill
+  ).catch((error) => {
+    kill();
+    throw error;
+  });
+  const stderrPromise = readBoundedStream(
+    subprocess.stderr,
+    STDERR_DIAGNOSTIC_BYTES
+  ).catch((error) => {
+    kill();
+    throw error;
+  });
+  const exitPromise = subprocess.exited.catch((error) => {
+    kill();
+    throw error;
+  });
+
+  try {
+    const [stdoutResult, stderrResult, exitResult] = await Promise.allSettled([
+      stdoutPromise,
+      stderrPromise,
+      exitPromise,
+    ]);
+    if (stdoutResult.status === 'rejected') throw stdoutResult.reason;
+    if (stderrResult.status === 'rejected') throw stderrResult.reason;
+    if (exitResult.status === 'rejected') throw exitResult.reason;
+    settled = true;
+    return {
+      exitCode: exitResult.value,
+      signalCode:
+        typeof subprocess.signalCode === 'number'
+          ? subprocess.signalCode
+          : null,
+      stdout: stdoutResult.value.bytes,
+      stderr: stderrResult.value.bytes,
+      stdoutExceeded: stdoutResult.value.exceeded,
+      timedOut,
+    };
+  } finally {
+    settled = true;
+    clearTimeout(timeout);
+    signal.removeEventListener('abort', abort);
+  }
 }
 
 function invalidResultError(): ArtifactAuditExecutionError {
@@ -166,12 +239,45 @@ function infrastructureError(): ArtifactAuditExecutionError {
   return new ArtifactAuditExecutionError('AUDIT_ENGINE_FAILED', true);
 }
 
-function truncateDiagnostic(value: string): string {
-  return value.slice(0, 2_048);
-}
-
 function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === 'AbortError';
+}
+
+async function readBoundedStream(
+  stream: ReadableStream<Uint8Array>,
+  retainBytes: number,
+  excessThreshold = Number.POSITIVE_INFINITY,
+  onFirstExcess?: () => void
+): Promise<{ bytes: Uint8Array; exceeded: boolean }> {
+  const retained = new Uint8Array(retainBytes);
+  const reader = stream.getReader();
+  let retainedLength = 0;
+  let observedLength = 0;
+  let exceeded = false;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      observedLength += value.byteLength;
+      const writable = Math.min(value.byteLength, retainBytes - retainedLength);
+      if (writable > 0) {
+        retained.set(value.subarray(0, writable), retainedLength);
+        retainedLength += writable;
+      }
+      if (!exceeded && observedLength > excessThreshold) {
+        exceeded = true;
+        onFirstExcess?.();
+      }
+    }
+  } catch (error) {
+    if (!exceeded) throw error;
+  } finally {
+    reader.releaseLock();
+  }
+  return {
+    bytes: retained.subarray(0, retainedLength),
+    exceeded,
+  };
 }
 
 function isExplicitStdoutMaxBufferError(error: unknown): boolean {
