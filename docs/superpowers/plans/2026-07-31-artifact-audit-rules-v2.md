@@ -96,8 +96,11 @@ title-length or bundle-size heuristics into universal blocking rules.
 - Modify: `apps/server/src/domain/project.ts`
 - Modify: `apps/server/src/domain/schema.ts`
 - Modify: `apps/server/src/domain/artifactAuditJob.ts`
+- Modify: `apps/server/src/domain/artifactAuditJobTransitions.ts`
 - Modify: `apps/server/src/services/projectService.ts`
 - Modify: `apps/server/src/services/contracts.ts`
+- Modify: `apps/server/src/services/artifactAuditService.ts`
+- Modify: `apps/server/src/services/artifactAuditProtocol.ts`
 - Modify: `apps/server/src/routes/projects.ts`
 - Modify: `apps/server/src/repositories/sqliteSchema.ts`
 - Modify: `apps/server/src/repositories/sqliteProjectRepository.ts`
