@@ -46,88 +46,30 @@ import {
 } from '../utils/runtimeResourcePath';
 import { safeJoin } from '../utils/safePath';
 import { checksumDirectory } from './artifactService';
+import type {
+  BackupManifest,
+  BackupRestoreReport,
+  BackupService,
+  BackupServiceConfig,
+  BackupServiceDependencies,
+  BackupVerificationReport,
+  DatabaseAuxiliarySuffix,
+  RestoreFileSystem,
+  VerifiedBackupPayload,
+} from './backupTypes';
+import { DATABASE_AUXILIARY_SUFFIXES } from './backupTypes';
 import {
   acquireRuntimeOwnership,
   assertRuntimeResourceLeavesSafe,
 } from './runtimeOwnership';
 
-export interface BackupManifest {
-  formatVersion: 1;
-  createdAt: string;
-  schemaVersion: number;
-  databaseFile: string;
-  storageDirectory: 'storage';
-  metadataCounts: {
-    users: number;
-    projects: number;
-    versions: number;
-    artifactAudits: number;
-    artifactAuditJobs: number;
-    auditEvents: number;
-    releases: number;
-    sessions: number;
-    apiTokens?: number;
-    apiTokenSecurityEvents?: number;
-    ciIdempotencyRecords?: number;
-  };
-  artifactCounts: {
-    files: number;
-    bytes: number;
-    deployableVersions: number;
-  };
-}
+export type {
+  BackupManifest,
+  BackupRestoreReport,
+  BackupService,
+  BackupVerificationReport,
+} from './backupTypes';
 
-export interface BackupVerificationReport {
-  valid: boolean;
-  errors: string[];
-  warnings: string[];
-  manifest: BackupManifest | null;
-}
-
-export interface BackupRestoreReport {
-  restoredFrom: string;
-  rollbackPath: string;
-  verification: BackupVerificationReport;
-}
-
-export interface BackupService {
-  createBackup(destination: string): BackupManifest;
-  verifyBackup(backupPath: string): BackupVerificationReport;
-  restoreBackup(
-    backupPath: string,
-    options: { force: boolean }
-  ): BackupRestoreReport;
-}
-
-interface BackupServiceConfig {
-  databaseFile: string;
-  storageDir: string;
-}
-
-interface BackupServiceDependencies {
-  now?: () => Date;
-  afterCurrentStateMoved?: (rollbackPath: string) => void;
-  afterDatabaseInstalled?: (rollbackPath: string) => void;
-  afterRestoredStateInstalled?: (rollbackPath: string) => void;
-  restoreFileSystem?: RestoreFileSystem;
-  acquireOwnership?: (
-    databaseFile: string,
-    storageDir: string
-  ) => RuntimeOwnership;
-  createOperationId?: () => string;
-  afterInitialBackupVerified?: (backupPath: string) => void;
-  afterRestorePayloadStaged?: (
-    manifestStage: string,
-    databaseStage: string,
-    storageStage: string
-  ) => void;
-  afterRestoreStorageStageCreated?: (storageStage: string) => void;
-  createTemporaryRoot?: (prefix: string) => string;
-  cleanupTemporaryRoot?: (temporaryRoot: string) => void;
-}
-
-const DATABASE_AUXILIARY_SUFFIXES = ['-journal', '-wal', '-shm'] as const;
-type DatabaseAuxiliarySuffix = (typeof DATABASE_AUXILIARY_SUFFIXES)[number];
 const BACKUP_DATABASE_SNAPSHOT_UNSAFE = 'BACKUP_DATABASE_SNAPSHOT_UNSAFE';
 const BACKUP_SOURCE_UNSAFE = 'BACKUP_SOURCE_UNSAFE';
 const BACKUP_MIGRATION_PREFLIGHT_FAILED = 'BACKUP_MIGRATION_PREFLIGHT_FAILED';
@@ -135,28 +77,6 @@ const BACKUP_VALIDATION_CLEANUP_FAILED = 'BACKUP_VALIDATION_CLEANUP_FAILED';
 const RESTORE_BACKUP_SOURCE_CHANGED = 'RESTORE_BACKUP_SOURCE_CHANGED';
 const RESTORE_CONTROL_LAYOUT_UNSAFE = 'RESTORE_CONTROL_LAYOUT_UNSAFE';
 const RESTORE_DATABASE_STAGE_UNSAFE = 'RESTORE_DATABASE_STAGE_UNSAFE';
-
-interface RestoreFileSystem {
-  rename(source: string, target: string): void;
-  copy(
-    source: string,
-    target: string,
-    options?: {
-      recursive?: boolean;
-      preserveTimestamps?: boolean;
-      errorOnExist?: boolean;
-      force?: boolean;
-    }
-  ): void;
-  remove(
-    target: string,
-    options?: { recursive?: boolean; force?: boolean }
-  ): void;
-}
-
-interface RuntimeOwnership {
-  release(): void;
-}
 
 interface ResourceMoveProgress {
   rollbackPublished: boolean;
@@ -215,11 +135,6 @@ interface RestoreOperationLayout {
   databaseStageAuxiliaries: Readonly<Record<DatabaseAuxiliarySuffix, string>>;
   storageStage: string;
   manifestStage: string;
-}
-
-interface VerifiedBackupPayload {
-  report: BackupVerificationReport;
-  fingerprint?: string;
 }
 
 interface RestoreLivePayloadDigests {
