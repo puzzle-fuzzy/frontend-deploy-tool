@@ -246,6 +246,12 @@ For the document v8→v9 migration, assert that an existing malformed/unreadable
 JSON file fails startup instead of becoming an empty repository, and that a
 backup copy failure aborts before any v9 write while preserving the source
 bytes. Only an actually absent data file may create empty document data.
+Current v9 persistence validation must be strict and must not reuse
+default-bearing legacy hydration schemas: a v9 payload missing any current
+required field is invalid. Validate legacy JSON files and `deploykit_state`
+payloads through the complete in-memory migration before creating a backup,
+enabling WAL on the migration target, or making any other filesystem/database
+mutation.
 
 - [ ] **Step 5: Implement persistence and snapshot comparison**
 
