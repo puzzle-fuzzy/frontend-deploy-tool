@@ -842,6 +842,16 @@ root/operation/directory binding; if it changed, record a secondary recovery
 failure and preserve evidence rather than following the replacement path.
 Cover late database/storage stage swaps and a post-move rollback-operation swap.
 
+Installation is not final consumption. Move each stage binding from `active` to
+an `installed` state that retains the exact live target path and inode; continue
+validating that inode after install hooks, before cleanup, and before successful
+return. Only final commit moves it to `consumed`. Recovery may remove an
+installed live target only while that exact identity remains present. A
+different regular file/directory is uncertain evidence and must be preserved
+with a secondary recovery failure instead of recursively removed. Bind each
+successfully created manifest/database/storage stage immediately, so failure
+while capturing a later stage never falls back to deleting an unbound path.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
