@@ -739,6 +739,11 @@ git commit -m "feat: expose artifact audit freshness"
   migration, domain hydration, staged restore validation, and fail-closed
   cleanup. Task 4 is a hard prerequisite for the production assessment/gate
   assertions.
+- Execute Task 5 in two sequential review checkpoints: **5A** owns relational
+  hydration, backup staging/validation, cleanup, and focused recovery tests;
+  after an independent security review passes, **5B** owns the restart/gate
+  production smoke and documentation. Do not combine both risk surfaces into
+  one unreviewed commit.
 
 - [ ] **Step 1: Add failing historical and production smoke assertions**
 
@@ -841,10 +846,24 @@ git diff --check
 git status -sb
 ```
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Commit at the two review checkpoints**
 
 ```bash
-git add README.md TODO.md docs apps/server/src apps/server/tests
+git add apps/server/src/services/backupService.ts \
+  apps/server/src/repositories/artifactAuditJobMapper.ts \
+  apps/server/src/repositories/sqliteProjectRepository.ts \
+  apps/server/tests/services/backupService.test.ts \
+  apps/server/tests/services/backupRestoreSafety.test.ts \
+  apps/server/tests/services/sqliteProjectRepository.test.ts
+git commit -m "fix: validate staged backup restores"
+```
+
+Independently review and fix 5A before continuing. Then:
+
+```bash
+git add apps/server/tests/api/ciProductionProcessSmoke.test.ts \
+  apps/server/tests/fixtures/schema-v5-backup/README.md \
+  README.md TODO.md docs
 git commit -m "test: prove artifact audit rules v2 recovery"
 ```
 
