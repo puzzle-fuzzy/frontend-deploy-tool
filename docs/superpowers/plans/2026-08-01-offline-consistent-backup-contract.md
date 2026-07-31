@@ -201,7 +201,7 @@ reviewing the same checkout; do not revert or overwrite their work.
   not re-exported by `backupService.ts`, package exports, shared contracts, or
   Hono types.
 
-- [ ] **Step 1: Write direct and lifecycle failing tests first**
+- [x] **Step 1: Write direct and lifecycle failing tests first**
 
 Create `backupFailure.test.ts` with four direct cases:
 
@@ -724,7 +724,7 @@ Keep assertions for sidecars derived from deliberately unsafe alternate
 `storageDir` values as `false`; only the original fixture pair is persistent.
 This correction changes no restore implementation or restore failure ordering.
 
-- [ ] **Step 2: Run the new tests and confirm RED**
+- [x] **Step 2: Run the new tests and confirm RED**
 
 ```bash
 bun test apps/server/tests/services/backupFailure.test.ts \
@@ -735,7 +735,7 @@ Expected failures: `backupFailure.ts` and `BACKUP_OUTPUT_LAYOUT_UNSAFE` do not
 exist; live ownership still permits
 the current backup path.
 
-- [ ] **Step 3: Add the server-private backup failure leaf**
+- [x] **Step 3: Add the server-private backup failure leaf**
 
 Implement `attachBackupSecondaryFailures` with the same primary-authority
 discipline already used by restore, but with backup-specific metadata:
@@ -804,7 +804,7 @@ export function attachBackupSecondaryFailures(
 }
 ```
 
-- [ ] **Step 4: Add no-follow destination safety and cleanup authority**
+- [x] **Step 4: Add no-follow destination safety and cleanup authority**
 
 In `backupSnapshot.ts`, implement `assertBackupDestinationSafe` before any
 backup directory creation:
@@ -908,7 +908,7 @@ Then replace its catch block with:
 }
 ```
 
-- [ ] **Step 5: Add the explicit backup-local ownership lifecycle**
+- [x] **Step 5: Add the explicit backup-local ownership lifecycle**
 
 In `backupService.ts`, keep pure preflight before acquisition, then use the
 existing dependency seam or production function. Re-check leaves, database
@@ -982,7 +982,7 @@ not touch restore. Server shutdown intentionally retains locks on failed drain;
 restore releases only after compensation; backup has a different synchronous
 cleanup sequence.
 
-- [ ] **Step 6: Run focused implementation gates**
+- [x] **Step 6: Run focused implementation gates**
 
 ```bash
 bun test apps/server/tests/services/backupFailure.test.ts
@@ -1003,7 +1003,7 @@ git diff --check
 Expected: direct failure tests and every backup/restore characterization pass;
 no public export or restore-order change.
 
-- [ ] **Step 7: Independent review and commit**
+- [x] **Step 7: Independent review and commit**
 
 Review the exact acquire/recheck/open/snapshot/copy/verify/publish/cleanup/
 release order, no-follow destination behavior, primary identity, frozen Error
@@ -1042,7 +1042,7 @@ smoke, or documentation in this task.
   `gc` and `gc --dry-run` both execute inside `withOperationalOwnership`; the
   stable `RUNTIME_OWNERSHIP_HELD` diagnostic includes a stop-and-retry action.
 
-- [ ] **Step 1: Write CLI subprocess regressions first**
+- [x] **Step 1: Write CLI subprocess regressions first**
 
 In `ops.test.ts`, keep command execution in the per-test temporary directory so
 an intentionally failing parser test cannot create a `--force` path in the
@@ -1213,7 +1213,7 @@ function spawnOps(databaseFile: string, ...args: string[]) {
 }
 ```
 
-- [ ] **Step 2: Run the CLI test and confirm RED**
+- [x] **Step 2: Run the CLI test and confirm RED**
 
 ```bash
 bun test apps/server/tests/services/ops.test.ts
@@ -1223,7 +1223,7 @@ Expected after Task 1: backup contention already exits non-zero, but the new
 actionable stop/retry sentence assertion is RED; GC still bypasses ownership,
 and invalid backup arguments are still accepted or silently ignored.
 
-- [ ] **Step 3: Make operational command ownership and grammar explicit**
+- [x] **Step 3: Make operational command ownership and grammar explicit**
 
 Add this parser and use it only for the backup command:
 
@@ -1278,7 +1278,7 @@ Update CLI help to say backup, restore, GC, inspect, and audit-prune require an
 offline managed resource pair; verify only reads a completed backup. Do not add
 automatic stop, wait, retry, `--force`, or `--online` behavior.
 
-- [ ] **Step 4: Run focused ownership and CLI gates**
+- [x] **Step 4: Run focused ownership and CLI gates**
 
 ```bash
 bun test apps/server/tests/services/ops.test.ts
@@ -1294,7 +1294,7 @@ git diff --check
 Expected: all CLI subprocess and existing runtime ownership tests pass; no
 successful command JSON shape changes.
 
-- [ ] **Step 5: Independent review and commit**
+- [x] **Step 5: Independent review and commit**
 
 Review argument indexing, relative path behavior, active-owner exit/stdout/
 stderr contract, GC dry-run semantics, release after successful commands, and
@@ -1328,7 +1328,7 @@ production backup/ownership logic or historical plans.
 - Produces: one real process smoke assertion and one consistent operational
   contract across current docs.
 
-- [ ] **Step 1: Add a live-server rejection assertion before the existing stop**
+- [x] **Step 1: Add a live-server rejection assertion before the existing stop**
 
 Refactor the test-only ops runner into one common primitive that returns
 `exitCode`, `stdout`, and `stderr`; keep the existing success wrapper asserting
@@ -1452,7 +1452,7 @@ capturedLogs.push(await stopServer(server));
 const beforeBackup = inspectAutomationState(databaseFile, projectId);
 ```
 
-- [ ] **Step 2: Run the production process integration proof**
+- [x] **Step 2: Run the production process integration proof**
 
 ```bash
 bun test apps/server/tests/api/ciProductionProcessSmoke.test.ts
@@ -1463,7 +1463,7 @@ diagnostic, then the existing stopped-server backup/verify/restore/boot path
 passes. The preflight audit already recorded that the baseline implementation
 does not reject the live backup; do not revert Tasks 1-2 merely to recreate RED.
 
-- [ ] **Step 3: Tighten the supported-entry documentation boundary**
+- [x] **Step 3: Tighten the supported-entry documentation boundary**
 
 Change the `createApp()` JSDoc to state exactly:
 
@@ -1479,7 +1479,7 @@ Change the `createApp()` JSDoc to state exactly:
 Do not add a runtime environment check or change its signature; existing Hono
 tests deliberately use this seam without opening a production server.
 
-- [ ] **Step 4: Update current product and operations documentation**
+- [x] **Step 4: Update current product and operations documentation**
 
 Make the following exact contract consistent across the four docs:
 
@@ -1505,7 +1505,7 @@ Do not claim backup is side-effect-free: ownership sidecars and destination
 files are written, and opening a crashed WAL database may perform SQLite
 recovery under the lock. Do not rewrite historical plan text.
 
-- [ ] **Step 5: Run integration and documentation gates**
+- [x] **Step 5: Run integration and documentation gates**
 
 ```bash
 bun test apps/server/tests/api/ciProductionProcessSmoke.test.ts
@@ -1538,7 +1538,7 @@ Expected: live process rejects backup, stopped process completes existing
 backup/verify/restore/boot flow, all focused ownership/recovery tests pass, and
 tracked docs contain no stale statement that `createBackup` lacks ownership.
 
-- [ ] **Step 6: Independent review and commit**
+- [x] **Step 6: Independent review and commit**
 
 Review real-process placement before shutdown, process cleanup/timeouts,
 successful flow preservation, `createApp` boundary accuracy, the private DAG,
@@ -1565,7 +1565,7 @@ git commit -m "docs: define offline backup operations"
 whole-range review, push, and exact-SHA remote verification. Review/fix agents
 must not rewrite unrelated work.
 
-- [ ] **Step 1: Run complete local gates**
+- [x] **Step 1: Run complete local gates**
 
 ```bash
 bun run check
@@ -1579,7 +1579,7 @@ Expected: formatting/lint, secret scan, all workspace typechecks/tests,
 production build/package, high-severity dependency audit, and diff-check pass.
 Record exact server/client/desktop test counts in this plan and progress ledger.
 
-- [ ] **Step 2: Run two independent whole-range reviews**
+- [x] **Step 2: Run two independent whole-range reviews**
 
 From starting base `2ce6a05e2111b566dd4c1d5648d7c17882e0873b`, require:
 
@@ -1592,7 +1592,32 @@ From starting base `2ce6a05e2111b566dd4c1d5648d7c17882e0873b`, require:
 Fix every Critical/Important finding in one fix wave, re-run covering tests,
 regenerate the review package, and require clean re-review.
 
-- [ ] **Step 3: Commit the reviewed delivery candidate**
+Validation evidence on 2026-08-01:
+
+- The first whole-range reviews found no Critical issue and four unique
+  Important gaps: literal `--` bypassed backup grammar, trailing separators
+  derived a child temp, replacement temp cleanup could delete a foreign tree,
+  and unknown GC/audit-prune arguments could enter destructive mode.
+- Commit `0758f4df96c48f1be1b24266c9916bec693dc3b9` fixed all four in one
+  wave. Destination I/O now uses one absolute normalized path; temp roots use
+  exclusive creation plus dev/inode/type revalidation; backup, GC, and
+  audit-prune grammar fail closed; operational output waits for successful
+  ownership release. The trusted destination-ancestor boundary remains
+  explicit, with no `openat` parent-binding claim.
+- Both independent whole-range re-reviews approved
+  `2ce6a05e2111b566dd4c1d5648d7c17882e0873b..0758f4df96c48f1be1b24266c9916bec693dc3b9`
+  with zero Critical, Important, or Minor findings.
+- Focused ownership/backup/restore/CLI/recovery tests passed `195 / 195`
+  (`1,257` assertions); the real production process smoke passed `1 / 1`
+  (`171` assertions).
+- `bun run verify` passed the 303-file Biome check, secret scan, all five
+  workspace typechecks, `672` server tests (`3,617` assertions), `40` client
+  tests, `23` desktop tests, production web build, and packaging.
+- `npm_config_registry=https://registry.npmjs.org bun run security:audit` and
+  `git diff --check` passed. The tracked worktree was clean before this plan
+  bookkeeping edit.
+
+- [x] **Step 3: Commit the reviewed delivery candidate**
 
 ```bash
 git add docs/superpowers/plans/2026-08-01-offline-consistent-backup-contract.md
