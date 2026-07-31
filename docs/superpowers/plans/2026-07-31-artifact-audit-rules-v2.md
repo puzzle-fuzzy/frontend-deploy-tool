@@ -859,6 +859,13 @@ phase, and once more immediately before final commit. Any in-place database
 write or storage-tree mutation must fail and compensate; a restore must never
 return success merely because the same inode now contains different bytes.
 
+The pre-restore rollback copy needs the same content binding. Record a framed
+digest for every published database, auxiliary file, and storage tree before
+exposing the post-move hook. Revalidate both inode and digest before recovery
+reads it, verify the copied recovery sibling against that digest, and recheck
+immediately before installing it. A same-inode rollback mutation must be
+quarantined and reported; it must never be restored as trusted pre-state.
+
 Treat a direct or fallback rename error as an ambiguous commit until source and
 target identities prove otherwise. If the source disappeared and its exact
 identity is at the rollback target, record publication/removal and compensate
