@@ -99,8 +99,9 @@ lease。engine v2 使用稳定 rule ID/ruleVersion，报告 assessment 可能返
 `checksum_changed`、`engine_changed`、`rule_config_changed` 或
 `context_changed`。只改 enforcement 不使 queued job/current report 过期。
 六项后端预算为 total bytes、single-file bytes、file count、JavaScript、
-stylesheet、font；管理 UI、rendered DOM/profile、内部链接目标和实际图片文件
-验证尚未交付。
+stylesheet、font；engine v2 已检查根 HTML 中可静态判定的本地链接/图片目标。
+管理 UI、rendered DOM/profile、嵌套页面爬取、服务端路由验证，以及图片内容
+解码与尺寸/格式验证尚未交付。
 
 ### 前端（apps/web）
 

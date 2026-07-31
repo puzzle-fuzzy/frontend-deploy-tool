@@ -204,8 +204,9 @@ enforcement 不改变规则配置：既有 queued job 保持同一 ID，current 
 但不进入后台 Worker 的单任务 lease。同步、异步、assessment、取消和策略更新都
 不改变 `activeVersionId` 或删除 preview；生产只由显式 publish/rollback/activate
 改变。静态检查不执行 JavaScript、不访问网络，根 HTML 解析上限为 2MB，也不
-观察 rendered DOM、验证服务端路由、内部链接目标或实际图片文件；profile 化
-规则仍留待后续。
+观察 rendered DOM 或验证服务端路由。engine v2 会解析根 HTML 中可静态判定的
+本地链接/图片引用，确认目标在产物边界内且为常规文件；嵌套页面爬取、图片内容
+解码与尺寸/格式验证、profile 化规则仍留待后续。
 
 CI 上传契约是
 `POST /api/ci/projects/:id/versions`，multipart 字段与交互式上传相同，并额外

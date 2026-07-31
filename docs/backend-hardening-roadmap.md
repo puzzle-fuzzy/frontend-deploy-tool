@@ -231,9 +231,10 @@ SQLite 原子提交和共享上传限制均有 API/服务测试；Biome、类型
 
 - 在管理面板展示现有 audit job 的排队/运行/终态、可解释检查项、策略快照、
   重试和取消入口。
-- 在现有静态引擎上深化 SEO 规则与体积检测，包括内部链接目标与实际图片文件；
-  后端已有 total/single-file/file-count/JS/CSS/font 六项预算，下一步是管理 UI
-  配置与解释。继续禁止执行上传 JavaScript 或访问外网。
+- 在现有静态引擎上深化 SEO 规则与体积检测：engine v2 已检查根 HTML 中可静态
+  判定的本地链接/图片目标，后续补充有界的嵌套页面爬取及图片内容解码、尺寸/
+  格式验证。后端已有 total/single-file/file-count/JS/CSS/font 六项预算，
+  下一步是管理 UI 配置与解释。继续禁止执行上传 JavaScript 或访问外网。
 - 延续已交付的稳定 rule ID + `ruleVersion`、engine-v2 compatibility 和
   checksum/rule-config/context freshness 契约；管理 UI 需要解释 assessment，
   rendered-DOM/profile 审计仍独立延期。

@@ -177,7 +177,7 @@ function hasSameArtifactAuditRuleConfig(
   the stored policy inside its repository mutation before validating, so an
   older client cannot silently reset a previously customized asset budget.
 
-- [ ] **Step 1: Add failing shared/domain tests**
+- [x] **Step 1: Add failing shared/domain tests**
 
 Assert that omitted v8 asset budgets/context/rule versions hydrate to defaults,
 an old policy with `maxTotalBytes` below the new defaults remains valid, and
@@ -187,7 +187,7 @@ the existing client `Project` fixtures and assertions so the new required
 normalized policy fields are exercised by consumers rather than hidden behind
 casts.
 
-- [ ] **Step 2: Run the shared/domain tests and confirm failure**
+- [x] **Step 2: Run the shared/domain tests and confirm failure**
 
 Run:
 
@@ -199,7 +199,7 @@ bun test apps/server/tests/services/projectDomain.test.ts \
 
 Expected: failures for the missing v9 fields and helpers.
 
-- [ ] **Step 3: Implement the normalized shared contract**
+- [x] **Step 3: Implement the normalized shared contract**
 
 Use these defaults:
 
@@ -234,7 +234,7 @@ that field. Keep the existing engine type-correct by emitting
 `ruleVersion: 1` and zero-valued `assetBytes` in Task 1; Task 2 replaces those
 compatibility values with catalog-derived versions and measured asset totals.
 
-- [ ] **Step 4: Add relational v7 and document v9 migration tests**
+- [x] **Step 4: Add relational v7 and document v9 migration tests**
 
 Create a real v6-shaped SQLite database containing a project, report, and job;
 then assert startup:
@@ -282,7 +282,7 @@ any historical migration when it has no guard. CLI `inspect` and
 `audit-jobs-prune` hold real runtime ownership for the whole write-capable
 operation and release it in `finally`.
 
-- [ ] **Step 5: Implement persistence and snapshot comparison**
+- [x] **Step 5: Implement persistence and snapshot comparison**
 
 Fresh schema and v6→v7 migration add:
 
@@ -305,7 +305,7 @@ compare `enforcement`. The worker passes the claimed job's exact `context`
 through `ArtifactAuditExecutionInput`; it never re-reads mutable project
 settings outside the queue transaction.
 
-- [ ] **Step 6: Run focused persistence gates**
+- [x] **Step 6: Run focused persistence gates**
 
 Run:
 
@@ -326,7 +326,7 @@ bun biome check .
 git diff --check
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add packages/shared packages/client/tests apps/server/src apps/server/tests
@@ -379,7 +379,7 @@ export const ARTIFACT_AUDIT_RULES = {
   - `images.alt_attribute`
   - `images.local_target`
 
-- [ ] **Step 1: Write failing rule-catalog and engine tests**
+- [x] **Step 1: Write failing rule-catalog and engine tests**
 
 Cover:
 
@@ -401,7 +401,7 @@ Cover:
   `(other)` summary;
 - thousands of bad references still emit one aggregate check per rule.
 
-- [ ] **Step 2: Run engine tests and confirm failure**
+- [x] **Step 2: Run engine tests and confirm failure**
 
 Run:
 
@@ -409,7 +409,7 @@ Run:
 bun test apps/server/tests/services/artifactAuditEngine.test.ts
 ```
 
-- [ ] **Step 3: Implement the catalog and engine v2**
+- [x] **Step 3: Implement the catalog and engine v2**
 
 `createCheck()` accepts only a catalog ID and derives `ruleVersion`,
 `category`, and failed severity from that catalog. Passed checks remain
@@ -440,14 +440,14 @@ No path, URL, or file list is returned in a check; only aggregate counts.
 Malformed URL or percent-encoding is treated as one unverifiable target for the
 applicable aggregate rule; it must not escape as an engine crash.
 
-- [ ] **Step 4: Validate executor results against the catalog**
+- [x] **Step 4: Validate executor results against the catalog**
 
 The protocol accepts historic persisted checks through the shared schema, but
 new subprocess output must reject duplicate IDs, unknown IDs, wrong
 `ruleVersion`, wrong category, or a failed severity inconsistent with the
 catalog.
 
-- [ ] **Step 5: Run focused engine/service gates**
+- [x] **Step 5: Run focused engine/service gates**
 
 Run:
 
@@ -460,7 +460,7 @@ bun biome check .
 git diff --check
 ```
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/server/src apps/server/tests
@@ -513,7 +513,7 @@ type ArtifactAuditProcessEnvelope =
 - `FailArtifactAuditJobInput` carries `errorCode` and `errorMessage`, persisted
   identically by SQLite and JSON adapters.
 
-- [ ] **Step 1: Write failing executor/repository tests**
+- [x] **Step 1: Write failing executor/repository tests**
 
 Assert known engine failures exit through a valid envelope and become terminal
 without retry; process startup failure/crash/timeout remains retryable; an
@@ -543,7 +543,7 @@ effect of `kill()`. Trigger abort and timeout independently, and cover overflow
 combined with stderr-reader rejection and exit rejection while still proving
 one kill and complete settlement.
 
-- [ ] **Step 2: Run the tests and confirm failure**
+- [x] **Step 2: Run the tests and confirm failure**
 
 Run:
 
@@ -553,7 +553,7 @@ bun test apps/server/tests/services/artifactAuditExecutor.test.ts \
   apps/server/tests/services/sqliteArtifactAuditJobRepository.test.ts
 ```
 
-- [ ] **Step 3: Implement typed failures**
+- [x] **Step 3: Implement typed failures**
 
 Known engine exceptions produce a JSON envelope. Unexpected child crashes keep
 the non-zero process path and are retryable infrastructure failures. The
@@ -574,13 +574,13 @@ The synchronous compatibility `POST /audit` catches only known
 `AUDIT_FAILED` API contract. Unexpected engine exceptions still reach the
 generic crash handler.
 
-- [ ] **Step 4: Persist stable job reasons**
+- [x] **Step 4: Persist stable job reasons**
 
 Both repositories use the caller-supplied stable code and safe message for
 retry and terminal rows. Lease expiry retains the existing
 `AUDIT_JOB_FAILED` classification.
 
-- [ ] **Step 5: Run focused gates and commit**
+- [x] **Step 5: Run focused gates and commit**
 
 ```bash
 bun test apps/server/tests/services/artifactAuditExecutor.test.ts \
@@ -661,7 +661,7 @@ type ArtifactAuditAssessment =
   `audit_required`, a current failed report to `audit_blocked`, and a current
   passed or warning report to `current_report`.
 
-- [ ] **Step 1: Write the freshness matrix tests**
+- [x] **Step 1: Write the freshness matrix tests**
 
 Cover missing report, checksum change, engine v1, each budget change, routing
 context change, enforcement-only change, warning/passed/failed reports, and
@@ -670,7 +670,7 @@ multi-mismatch case that locks the canonical stale-reason order and a
 stale-plus-failed case that proves `audit_required` takes precedence over
 `audit_blocked`.
 
-- [ ] **Step 2: Implement one pure assessment function**
+- [x] **Step 2: Implement one pure assessment function**
 
 `assertArtifactAuditAllowsRelease()` delegates to the assessment instead of
 reimplementing freshness comparisons. The pure function accepts already-loaded
@@ -682,7 +682,7 @@ Compare checksum, the engine token imported directly from
 `domain/artifactAuditRules.ts`, `hasSameArtifactAuditRuleConfig()` across all
 six scan fields while excluding enforcement, and the exact routing context.
 
-- [ ] **Step 3: Add and test the Hono route**
+- [x] **Step 3: Add and test the Hono route**
 
 Authorize project read before revealing version or report existence. Only
 after authorization, validate version membership and read the current detailed
@@ -698,7 +698,7 @@ intentionally not added to the transport-neutral `ApiClient` until a browser
 or desktop feature consumes it, but the exported Hono route contract must
 remain type-visible.
 
-- [ ] **Step 4: Run focused gates and commit**
+- [x] **Step 4: Run focused gates and commit**
 
 ```bash
 bun test apps/server/tests/services/artifactAuditService.test.ts \
@@ -745,7 +745,7 @@ git commit -m "feat: expose artifact audit freshness"
   production smoke and documentation. Do not combine both risk surfaces into
   one unreviewed commit.
 
-- [ ] **Step 1: Add failing historical and production smoke assertions**
+- [x] **Step 1: Add failing historical and production smoke assertions**
 
 Prove:
 
@@ -788,7 +788,7 @@ Prove:
 - no audit operation publishes or deletes the preview; if warning acceptance is
   tested by publishing, production changes only at the explicit publish call.
 
-- [ ] **Step 2: Run migration/smoke tests and confirm failures**
+- [x] **Step 2: Run migration/smoke tests and confirm failures**
 
 ```bash
 bun test apps/server/tests/services/sqliteProjectRepository.test.ts \
@@ -797,7 +797,7 @@ bun test apps/server/tests/services/sqliteProjectRepository.test.ts \
   apps/server/tests/api/ciProductionProcessSmoke.test.ts
 ```
 
-- [ ] **Step 3: Complete compatibility fixes**
+- [x] **Step 3: Complete compatibility fixes**
 
 Use production migration and backup code only; do not add test-only migration
 logic to runtime. Export or reuse `loadRelationalData()` as the one production
@@ -903,7 +903,7 @@ Include all stage auxiliaries in control-layout checks and cleanup on success
 and failure. Inject each suffix in tests and prove restore fails without live
 mutation or control residue.
 
-- [ ] **Step 4: Update documentation**
+- [x] **Step 4: Update documentation**
 
 Document:
 
@@ -925,7 +925,7 @@ Document:
 
 Update roadmap/TODO only for functionality proven by tests.
 
-- [ ] **Step 5: Run full local gates**
+- [x] **Step 5: Run full local gates**
 
 ```bash
 bun run check:fix
@@ -935,7 +935,7 @@ git diff --check
 git status -sb
 ```
 
-- [ ] **Step 6: Commit at the two review checkpoints**
+- [x] **Step 6: Commit at the two review checkpoints**
 
 ```bash
 git add apps/server/src/services/backupService.ts \
@@ -961,16 +961,16 @@ git commit -m "test: prove artifact audit rules v2 recovery"
 **Files:**
 - Review all changes since the starting commit recorded before Task 1.
 
-- [ ] **Step 1: Generate one whole-range review package**
+- [x] **Step 1: Generate one whole-range review package**
 
 Use the recorded base commit, not `HEAD~1`.
 
-- [ ] **Step 2: Independent final review**
+- [x] **Step 2: Independent final review**
 
 Require separate spec-compliance and code-quality verdicts. Fix every Critical
 or Important finding and re-review.
 
-- [ ] **Step 3: Re-run full gates after all review fixes**
+- [x] **Step 3: Re-run full gates after all review fixes**
 
 ```bash
 bun run verify

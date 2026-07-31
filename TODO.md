@@ -105,7 +105,8 @@ Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs
 - [x] Static artifact audit for HTML metadata/SEO/social metadata, file
   inventory, entry/checksum structure, and total/file-count/largest-file
   budgets. The engine-v2 API also persists JavaScript, stylesheet and font
-  budget inputs/results; management UI controls remain deferred.
+  budget inputs/results, and checks locally verifiable link/image targets from
+  the root HTML; management UI controls remain deferred.
 - [x] SQLite-backed artifact audit queue with deduplication, leases, retries,
   cancellation, process isolation and restart recovery.
 - [x] Persist current reports and long-term history; bind freshness to artifact
@@ -115,10 +116,10 @@ Design: `docs/superpowers/specs/2026-07-01-version-audit-design.md`; plan: `docs
 - [ ] Add the management-panel Audit view for queue state, polling,
   cancellation, findings and policy explanation.
 - [ ] Deepen SEO and bundle-size detection on the **existing artifact audit
-  queue**: validate internal-link targets and actual image files, expose the
-  existing six scan budgets in the management UI, and evolve new checks under
-  stable rule IDs/rule versions without rebuilding the shipped queue. Do not
-  build a second queue.
+  queue**: crawl nested static HTML where bounded, validate image payload
+  format/dimensions, expose the existing six scan budgets in the management UI,
+  and evolve new checks under stable rule IDs/rule versions without rebuilding
+  the shipped queue. Do not build a second queue.
 - [ ] Consider rendered-DOM auditing only after the static queue UI and rule
   contracts are complete; it must remain isolated and separately budgeted.
 
