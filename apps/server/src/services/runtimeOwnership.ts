@@ -3,6 +3,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 import {
+  canonicalizeResourcePath,
   RUNTIME_OWNERSHIP_LAYOUT_UNSAFE,
   type RuntimeResourceLayout,
   type RuntimeResourceName,
@@ -10,7 +11,18 @@ import {
 } from '../utils/runtimeResourcePath';
 
 export interface RuntimeOwnership {
+  readonly migrationGuard: RuntimeMigrationGuard;
   release(): void;
+}
+
+declare const runtimeMigrationGuardBrand: unique symbol;
+export interface RuntimeMigrationGuard {
+  readonly [runtimeMigrationGuardBrand]: true;
+}
+
+interface RuntimeMigrationGuardState {
+  active: boolean;
+  databaseFile: string;
 }
 
 interface HeldSidecarLock {
@@ -21,7 +33,14 @@ interface HeldSidecarLock {
 export const RUNTIME_OWNERSHIP_HELD = 'RUNTIME_OWNERSHIP_HELD';
 export const RUNTIME_DATABASE_HARDLINK_UNSAFE =
   'RUNTIME_DATABASE_HARDLINK_UNSAFE';
+export const RUNTIME_MIGRATION_OWNERSHIP_REQUIRED =
+  'RUNTIME_MIGRATION_OWNERSHIP_REQUIRED';
 export { RUNTIME_OWNERSHIP_LAYOUT_UNSAFE };
+
+const migrationGuardStates = new WeakMap<
+  RuntimeMigrationGuard,
+  RuntimeMigrationGuardState
+>();
 
 /**
  * Acquires kernel-released SQLite transaction locks for both resources.
@@ -115,13 +134,34 @@ export function acquireRuntimeOwnership(
   }
 
   let released = false;
+  const migrationGuard = Object.freeze({}) as RuntimeMigrationGuard;
+  const migrationGuardState: RuntimeMigrationGuardState = {
+    active: true,
+    databaseFile: layout.databaseFile,
+  };
+  migrationGuardStates.set(migrationGuard, migrationGuardState);
   return {
+    migrationGuard,
     release() {
       if (released) return;
       released = true;
+      migrationGuardState.active = false;
       releaseSidecarLocks(held, true);
     },
   };
+}
+
+export function assertRuntimeMigrationGuard(
+  guard: RuntimeMigrationGuard | undefined,
+  databaseFile: string
+): void {
+  const state = guard ? migrationGuardStates.get(guard) : undefined;
+  const canonicalDatabaseFile = canonicalizeResourcePath(databaseFile);
+  if (!state?.active || state.databaseFile !== canonicalDatabaseFile) {
+    throw new Error(
+      `[${RUNTIME_MIGRATION_OWNERSHIP_REQUIRED}] Active runtime migration ownership is required for database "${canonicalDatabaseFile}"`
+    );
+  }
 }
 
 /** Returns the deterministic, sorted sidecar lock paths for a safe layout. */

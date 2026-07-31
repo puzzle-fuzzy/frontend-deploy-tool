@@ -56,6 +56,7 @@ import {
 import { createProjectService } from './services/projectService';
 import {
   acquireRuntimeOwnership,
+  type RuntimeMigrationGuard,
   type RuntimeOwnership,
 } from './services/runtimeOwnership';
 import { createSessionService } from './services/sessionService';
@@ -67,6 +68,7 @@ export interface CreateAppOptions {
   logger?: StructuredLogger;
   metrics?: MetricsRegistry;
   artifactAuditExecutor?: ArtifactAuditExecutor;
+  migrationGuard?: RuntimeMigrationGuard;
 }
 
 export interface DeployKitRuntime {
@@ -82,9 +84,11 @@ export interface DeployKitRuntime {
  * issue/clear) to the typed `/api` app. Then layers the deploy route, security
  * headers, static asset serving, and the SPA fallback. App creation is separated
  * from `Bun.serve` so tests can exercise `createApp()` without opening a port.
+ * `createApp()` never acquires runtime ownership: callers that intentionally
+ * exercise a historical migration must pass a real active migration guard.
  */
 export function createApp(config: AppConfig, options: CreateAppOptions = {}) {
-  return composeApp(config, options).app;
+  return composeApp(config, options, undefined, options.migrationGuard).app;
 }
 
 export function createDeployKitRuntime(
@@ -102,9 +106,14 @@ export function createDeployKitRuntime(
   );
   try {
     let artifactAuditWorker: ArtifactAuditWorker | null = null;
-    const composition = composeApp(config, options, (jobId) => {
-      artifactAuditWorker?.cancel(jobId);
-    });
+    const composition = composeApp(
+      config,
+      options,
+      (jobId) => {
+        artifactAuditWorker?.cancel(jobId);
+      },
+      runtimeOwnership.migrationGuard
+    );
     artifactAuditWorker = createArtifactAuditWorker({
       jobService: composition.artifactAuditJobService,
       executor:
@@ -126,7 +135,8 @@ export function createDeployKitRuntime(
 function composeApp(
   config: AppConfig,
   options: CreateAppOptions,
-  cancelArtifactAuditJob?: (jobId: string) => void
+  cancelArtifactAuditJob?: (jobId: string) => void,
+  migrationGuard?: RuntimeMigrationGuard
 ) {
   validateAppConfig(config);
   mkdirSync(config.storageDir, { recursive: true });
@@ -149,6 +159,7 @@ function composeApp(
     ? createSqliteProjectRepository({
         databaseFile: config.databaseFile,
         legacyDataFile: config.dataFile,
+        migrationGuard,
       })
     : createJsonProjectRepository(config.dataFile);
   const reconciliation = reconcileStorage(repo, config.storageDir, {

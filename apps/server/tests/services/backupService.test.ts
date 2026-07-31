@@ -312,7 +312,18 @@ describe('createBackupService', () => {
       expectDatabaseAuxiliariesAbsent(backupDatabase);
       service.restoreBackup(backupDir, { force: true });
 
-      fixture.repository.load();
+      const ownership = acquireRuntimeOwnership(
+        fixture.databaseFile,
+        fixture.storageDir
+      );
+      try {
+        createSqliteProjectRepository({
+          databaseFile: fixture.databaseFile,
+          migrationGuard: ownership.migrationGuard,
+        }).load();
+      } finally {
+        ownership.release();
+      }
       const migrated = new Database(fixture.databaseFile);
       const version = migrated
         .query<{ version: number | null }, []>(

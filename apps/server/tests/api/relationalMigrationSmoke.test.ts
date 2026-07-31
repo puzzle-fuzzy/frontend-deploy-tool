@@ -1,10 +1,11 @@
 import { Database } from 'bun:sqlite';
 import { expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Data, Project } from '@deploykit/shared';
 import { createApp } from '../../src/app';
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 import { withBearer } from './helpers';
 
 test('legacy database supports login, release, restart, and session revocation after migration', async () => {
@@ -59,9 +60,19 @@ test('legacy database supports login, release, restart, and session revocation a
     secureCookies: false,
     registrationEnabled: false,
   };
+  const originalDatabase = readFileSync(databaseFile);
+  expect(() => createApp(config)).toThrow(
+    'RUNTIME_MIGRATION_OWNERSHIP_REQUIRED'
+  );
+  expect(readFileSync(databaseFile)).toEqual(originalDatabase);
+  expect(existsSync(`${databaseFile}.pre-relational-v1.bak`)).toBe(false);
+
+  const ownership = acquireRuntimeOwnership(databaseFile, config.storageDir);
 
   try {
-    const app = createApp(config);
+    const app = createApp(config, {
+      migrationGuard: ownership.migrationGuard,
+    });
     const login = await app.request('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -114,7 +125,9 @@ test('legacy database supports login, release, restart, and session revocation a
     );
     expect(published.status).toBe(200);
 
-    const restarted = createApp(config);
+    const restarted = createApp(config, {
+      migrationGuard: ownership.migrationGuard,
+    });
     expect(
       (await restarted.request('/api/me', withBearer(undefined, token))).status
     ).toBe(200);
@@ -151,6 +164,7 @@ test('legacy database supports login, release, restart, and session revocation a
     expect(events?.count).toBe(3);
     expect(existsSync(`${databaseFile}.pre-relational-v1.bak`)).toBe(true);
   } finally {
+    ownership.release();
     rmSync(tempDir, { recursive: true, force: true });
   }
 });

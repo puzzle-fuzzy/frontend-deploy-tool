@@ -13,6 +13,7 @@ import {
   createRelationalSchema,
   RELATIONAL_SCHEMA_VERSION,
 } from '../../src/repositories/sqliteSchema';
+import { acquireRuntimeOwnership } from '../../src/services/runtimeOwnership';
 
 const NOW = '2026-07-30T00:00:00.000Z';
 const CURSOR_SECRET = 'sqlite-audit-job-repository-test-secret';
@@ -39,6 +40,21 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
+
+function migrateProjectRepository(): void {
+  const ownership = acquireRuntimeOwnership(
+    databaseFile,
+    join(tempDir, 'storage')
+  );
+  try {
+    createSqliteProjectRepository({
+      databaseFile,
+      migrationGuard: ownership.migrationGuard,
+    }).load();
+  } finally {
+    ownership.release();
+  }
+}
 
 describe('SQLite artifact audit queue', () => {
   test('migrates v4 to v7 with a backup and the complete queue index set', () => {
@@ -70,7 +86,7 @@ describe('SQLite artifact audit queue', () => {
     `);
     database.close();
 
-    createSqliteProjectRepository({ databaseFile }).load();
+    migrateProjectRepository();
 
     const verify = new Database(databaseFile);
     const version = verify
@@ -142,9 +158,7 @@ describe('SQLite artifact audit queue', () => {
     });
     database.close();
 
-    expect(() =>
-      createSqliteProjectRepository({ databaseFile }).load()
-    ).toThrow();
+    expect(() => migrateProjectRepository()).toThrow();
     expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(true);
 
     const verify = new Database(databaseFile);

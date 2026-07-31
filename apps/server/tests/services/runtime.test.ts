@@ -23,7 +23,10 @@ import {
 } from '../../src/runtime';
 import {
   acquireRuntimeOwnership,
+  assertRuntimeMigrationGuard,
   getRuntimeOwnershipPaths,
+  RUNTIME_MIGRATION_OWNERSHIP_REQUIRED,
+  type RuntimeMigrationGuard,
 } from '../../src/services/runtimeOwnership';
 
 describe('shutdown runtime', () => {
@@ -334,6 +337,36 @@ describe('shutdown runtime', () => {
 });
 
 describe('runtime ownership', () => {
+  test('migration guards are frozen, registry-authenticated, database-bound, and revoked before release', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-guard-'));
+    const databaseFile = join(tempDir, 'deploykit.sqlite');
+    const otherDatabaseFile = join(tempDir, 'other.sqlite');
+    const ownership = acquireRuntimeOwnership(
+      databaseFile,
+      join(tempDir, 'storage')
+    );
+    try {
+      expect(Object.isFrozen(ownership.migrationGuard)).toBe(true);
+      expect(() =>
+        assertRuntimeMigrationGuard(ownership.migrationGuard, databaseFile)
+      ).not.toThrow();
+      expect(() =>
+        assertRuntimeMigrationGuard({} as RuntimeMigrationGuard, databaseFile)
+      ).toThrow(RUNTIME_MIGRATION_OWNERSHIP_REQUIRED);
+      expect(() =>
+        assertRuntimeMigrationGuard(ownership.migrationGuard, otherDatabaseFile)
+      ).toThrow(RUNTIME_MIGRATION_OWNERSHIP_REQUIRED);
+
+      ownership.release();
+      expect(() =>
+        assertRuntimeMigrationGuard(ownership.migrationGuard, databaseFile)
+      ).toThrow(RUNTIME_MIGRATION_OWNERSHIP_REQUIRED);
+    } finally {
+      ownership.release();
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
   test('atomically rejects a second live owner and can be acquired after release', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-ownership-'));
     const databaseFile = join(tempDir, 'deploykit.sqlite');

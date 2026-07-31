@@ -6,6 +6,10 @@ import { createSqliteArtifactAuditJobRepository } from '../repositories/sqliteAr
 import { createSqliteProjectRepository } from '../repositories/sqliteProjectRepository';
 import { createArtifactIntegrityService } from '../services/artifactIntegrityService';
 import { createBackupService } from '../services/backupService';
+import {
+  acquireRuntimeOwnership,
+  type RuntimeMigrationGuard,
+} from '../services/runtimeOwnership';
 import { collectStorageGarbage } from '../services/storageGarbageCollector';
 
 const appDir = join(import.meta.dir, '..', '..');
@@ -13,11 +17,12 @@ const config = loadConfig({ appDir });
 if (!config.databaseFile) {
   throw new Error('DATABASE_FILE is required for operational commands');
 }
+const databaseFile = config.databaseFile;
 
 const args = process.argv.slice(2).filter((argument) => argument !== '--');
 const command = args[0] ?? 'help';
 const backupService = createBackupService({
-  databaseFile: config.databaseFile,
+  databaseFile,
   storageDir: config.storageDir,
 });
 const artifactAuditJobCursorCodec = createArtifactAuditJobCursorCodec(
@@ -73,61 +78,67 @@ switch (command) {
     break;
   }
   case 'audit-jobs-prune': {
-    const dryRun = args.includes('--dry-run');
-    const cutoff = new Date(
-      Date.now() -
-        (config.artifactAuditJobRetentionHours ?? 168) * 60 * 60 * 1000
-    ).toISOString();
-    createSqliteProjectRepository({
-      databaseFile: config.databaseFile,
-      legacyDataFile: config.dataFile,
-    }).load();
-    const repository = createSqliteArtifactAuditJobRepository({
-      databaseFile: config.databaseFile,
-      cursorCodec: artifactAuditJobCursorCodec,
-    });
-    output({
-      command,
-      dryRun,
-      cutoff,
-      report: repository.pruneTerminal({
-        cutoff,
-        batchSize: 1_000,
+    withOperationalOwnership((migrationGuard) => {
+      const dryRun = args.includes('--dry-run');
+      const cutoff = new Date(
+        Date.now() -
+          (config.artifactAuditJobRetentionHours ?? 168) * 60 * 60 * 1000
+      ).toISOString();
+      createSqliteProjectRepository({
+        databaseFile,
+        legacyDataFile: config.dataFile,
+        migrationGuard,
+      }).load();
+      const repository = createSqliteArtifactAuditJobRepository({
+        databaseFile,
+        cursorCodec: artifactAuditJobCursorCodec,
+      });
+      output({
+        command,
         dryRun,
-      }),
+        cutoff,
+        report: repository.pruneTerminal({
+          cutoff,
+          batchSize: 1_000,
+          dryRun,
+        }),
+      });
     });
     break;
   }
   case 'inspect': {
-    const repository = createSqliteProjectRepository({
-      databaseFile: config.databaseFile,
-      legacyDataFile: config.dataFile,
-    });
-    const inspector = createArtifactIntegrityService(
-      repository,
-      config.storageDir
-    );
-    const projectId = args[1];
-    const versionId = args[2];
-    if ((projectId && !versionId) || (!projectId && versionId)) {
-      throw new Error(
-        'inspect requires both projectId and versionId, or neither'
+    withOperationalOwnership((migrationGuard) => {
+      const repository = createSqliteProjectRepository({
+        databaseFile,
+        legacyDataFile: config.dataFile,
+        migrationGuard,
+      });
+      const inspector = createArtifactIntegrityService(
+        repository,
+        config.storageDir
       );
-    }
-    const targets =
-      projectId && versionId
-        ? [{ projectId, versionId }]
-        : repository.load().projects.flatMap((project) =>
-            project.versions.map((version) => ({
-              projectId: project.id,
-              versionId: version.id,
-            }))
-          );
-    output({
-      command,
-      reports: targets.map((target) =>
-        inspector.inspectVersion(target.projectId, target.versionId, 'system')
-      ),
+      const projectId = args[1];
+      const versionId = args[2];
+      if ((projectId && !versionId) || (!projectId && versionId)) {
+        throw new Error(
+          'inspect requires both projectId and versionId, or neither'
+        );
+      }
+      const targets =
+        projectId && versionId
+          ? [{ projectId, versionId }]
+          : repository.load().projects.flatMap((project) =>
+              project.versions.map((version) => ({
+                projectId: project.id,
+                versionId: version.id,
+              }))
+            );
+      output({
+        command,
+        reports: targets.map((target) =>
+          inspector.inspectVersion(target.projectId, target.versionId, 'system')
+        ),
+      });
     });
     break;
   }
@@ -158,6 +169,17 @@ function requireArgument(
 
 function output(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
+}
+
+function withOperationalOwnership<T>(
+  operation: (migrationGuard: RuntimeMigrationGuard) => T
+): T {
+  const ownership = acquireRuntimeOwnership(databaseFile, config.storageDir);
+  try {
+    return operation(ownership.migrationGuard);
+  } finally {
+    ownership.release();
+  }
 }
 
 function formatTimestamp(value: Date): string {

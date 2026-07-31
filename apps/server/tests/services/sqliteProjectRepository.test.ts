@@ -2,10 +2,15 @@ import { Database } from 'bun:sqlite';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import {
   existsSync,
+  linkSync,
+  lstatSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   renameSync,
   rmSync,
+  symlinkSync,
+  unlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -18,16 +23,39 @@ import {
   configureSqlite,
   createRelationalSchema,
 } from '../../src/repositories/sqliteSchema';
+import {
+  acquireRuntimeOwnership,
+  RUNTIME_MIGRATION_OWNERSHIP_REQUIRED,
+  type RuntimeMigrationGuard,
+  type RuntimeOwnership,
+} from '../../src/services/runtimeOwnership';
 
 let tempDir: string;
+let runtimeOwnerships: RuntimeOwnership[];
 
 beforeEach(() => {
   tempDir = mkdtempSync(join(tmpdir(), 'deploykit-sqlite-repo-'));
+  runtimeOwnerships = [];
 });
 
 afterEach(() => {
+  for (const ownership of runtimeOwnerships.reverse()) {
+    ownership.release();
+  }
   rmSync(tempDir, { recursive: true, force: true });
 });
+
+function acquireMigrationGuard(
+  databaseFile: string,
+  suffix: string | number = runtimeOwnerships.length
+): RuntimeMigrationGuard {
+  const ownership = acquireRuntimeOwnership(
+    databaseFile,
+    join(tempDir, `owned-storage-${suffix}`)
+  );
+  runtimeOwnerships.push(ownership);
+  return ownership.migrationGuard;
+}
 
 function createData(projectName = 'Signal Desk'): Data {
   return {
@@ -61,6 +89,30 @@ function createData(projectName = 'Signal Desk'): Data {
     artifactAudits: [],
     artifactAuditJobs: [],
   };
+}
+
+function createLegacyStateDatabase(databaseFile: string): Buffer {
+  const database = new Database(databaseFile, { create: true });
+  database.exec(`
+    CREATE TABLE deploykit_state (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      schema_version INTEGER NOT NULL,
+      payload TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    )
+  `);
+  database
+    .query(
+      `INSERT INTO deploykit_state
+        (id, schema_version, payload, updated_at)
+       VALUES (1, 0, ?, ?)`
+    )
+    .run(
+      JSON.stringify({ projects: [], users: [], history: [] }),
+      '2026-07-24T00:00:00.000Z'
+    );
+  database.close();
+  return readFileSync(databaseFile);
 }
 
 function downgradeSchemaToV6(database: Database): void {
@@ -295,7 +347,10 @@ test('upgrades relational v6 audit snapshots to v7 without rejecting small total
   `);
   database.close();
 
-  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const loaded = createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  }).load();
   const verify = new Database(databaseFile);
   const migration = verify
     .query<{ version: number | null }, []>(
@@ -337,6 +392,39 @@ test('upgrades relational v6 audit snapshots to v7 without rejecting small total
   });
 });
 
+test('relational v1-v6 upgrades require ownership before backup or writable open', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const database = new Database(databaseFile, { create: true });
+  configureSqlite(database);
+  createRelationalSchema(database);
+  downgradeSchemaToV6(database);
+  database.exec(`
+    DELETE FROM schema_migrations;
+    INSERT INTO schema_migrations (version, applied_at)
+    VALUES
+      (1, '2026-07-30T00:00:00.000Z'),
+      (2, '2026-07-30T00:00:00.000Z'),
+      (3, '2026-07-30T00:00:00.000Z'),
+      (4, '2026-07-30T00:00:00.000Z'),
+      (5, '2026-07-30T00:00:00.000Z'),
+      (6, '2026-07-30T00:00:00.000Z');
+  `);
+  database.close();
+
+  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
+    RUNTIME_MIGRATION_OWNERSHIP_REQUIRED
+  );
+  expect(existsSync(`${databaseFile}.pre-relational-v7.bak`)).toBe(false);
+  const verify = new Database(databaseFile, { readonly: true });
+  const version = verify
+    .query<{ version: number | null }, []>(
+      'SELECT MAX(version) AS version FROM schema_migrations'
+    )
+    .get()?.version;
+  verify.close();
+  expect(version).toBe(6);
+});
+
 test('fails relational v6 to v7 closed when an audit budget column has drifted', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const database = new Database(databaseFile, { create: true });
@@ -358,9 +446,12 @@ test('fails relational v6 to v7 closed when an audit budget column has drifted',
   `);
   database.close();
 
-  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
-    'duplicate column name: audit_max_javascript_bytes'
-  );
+  expect(() =>
+    createSqliteProjectRepository({
+      databaseFile,
+      migrationGuard: acquireMigrationGuard(databaseFile),
+    }).load()
+  ).toThrow('duplicate column name: audit_max_javascript_bytes');
 
   const verify = new Database(databaseFile);
   const migration = verify
@@ -401,7 +492,10 @@ test('upgrades the deployed relational v3 schema to v7 with a backup', () => {
   `);
   database.close();
 
-  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const loaded = createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  }).load();
   const verify = new Database(databaseFile);
   const migration = verify
     .query<{ version: number }, []>(
@@ -442,7 +536,10 @@ test('upgrades relational v5 to v7 with token tables and a backup', () => {
   `);
   database.close();
 
-  createSqliteProjectRepository({ databaseFile }).load();
+  createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  }).load();
 
   const verify = new Database(databaseFile);
   const migration = verify
@@ -500,9 +597,12 @@ test('refuses to mark v6 applied when a token table has drifted', () => {
   `);
   database.close();
 
-  expect(() => createSqliteProjectRepository({ databaseFile }).load()).toThrow(
-    'table project_api_tokens already exists'
-  );
+  expect(() =>
+    createSqliteProjectRepository({
+      databaseFile,
+      migrationGuard: acquireMigrationGuard(databaseFile),
+    }).load()
+  ).toThrow('table project_api_tokens already exists');
 
   const verify = new Database(databaseFile);
   const migration = verify
@@ -568,7 +668,10 @@ test('upgrades relational v1 through v7 with policy, audit, jobs, integrity, and
   `);
   database.close();
 
-  createSqliteProjectRepository({ databaseFile }).load();
+  createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  }).load();
 
   const verify = new Database(databaseFile);
   const columns = verify
@@ -628,7 +731,10 @@ test('upgrades the deployed relational v2 schema to v7 with a backup', () => {
   `);
   database.close();
 
-  const loaded = createSqliteProjectRepository({ databaseFile }).load();
+  const loaded = createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  }).load();
   const verify = new Database(databaseFile);
   const migration = verify
     .query<{ version: number }, []>(
@@ -665,6 +771,7 @@ test('imports legacy JSON only when the SQLite state is empty', () => {
   const repository = createSqliteProjectRepository({
     databaseFile,
     legacyDataFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
   });
 
   expect(repository.load().projects[0]?.name).toBe('Legacy Project');
@@ -768,6 +875,225 @@ test('invalid legacy JSON preflight creates no backup or SQLite target', () => {
   expect(existsSync(`${databaseFile}-shm`)).toBe(false);
 });
 
+test('legacy migration rejects fake, released, and wrong-database guards before backup or mutation', () => {
+  for (const guardCase of ['fake', 'released', 'wrong-database'] as const) {
+    const caseDir = join(tempDir, guardCase);
+    const databaseFile = join(caseDir, 'deploykit.sqlite');
+    const legacyDataFile = join(caseDir, 'data.json');
+    mkdirSync(caseDir, { recursive: true });
+    writeFileSync(legacyDataFile, JSON.stringify(createData(guardCase)));
+
+    let migrationGuard: RuntimeMigrationGuard;
+    if (guardCase === 'fake') {
+      migrationGuard = {} as RuntimeMigrationGuard;
+    } else if (guardCase === 'released') {
+      const ownership = acquireRuntimeOwnership(
+        databaseFile,
+        join(caseDir, 'storage')
+      );
+      runtimeOwnerships.push(ownership);
+      migrationGuard = ownership.migrationGuard;
+      ownership.release();
+    } else {
+      migrationGuard = acquireMigrationGuard(
+        join(caseDir, 'other.sqlite'),
+        guardCase
+      );
+    }
+
+    expect(() =>
+      createSqliteProjectRepository({
+        databaseFile,
+        legacyDataFile,
+        migrationGuard,
+      }).load()
+    ).toThrow(RUNTIME_MIGRATION_OWNERSHIP_REQUIRED);
+    expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
+    expect(existsSync(databaseFile)).toBe(false);
+  }
+});
+
+test('a path swap after FD-bound reading fails before validation can bind to replacement bytes', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const legacyDataFile = join(tempDir, 'data.json');
+  const displacedFile = `${legacyDataFile}.opened`;
+  const original = Buffer.from(JSON.stringify(createData('FD-bound source')));
+  const replacement = Buffer.from(JSON.stringify(createData('Replacement')));
+  writeFileSync(legacyDataFile, original);
+  let swapped = false;
+
+  const repository = createSqliteProjectRepository(
+    {
+      databaseFile,
+      legacyDataFile,
+      migrationGuard: acquireMigrationGuard(databaseFile),
+    },
+    {
+      afterMigrationSourceRead(path) {
+        if (path !== legacyDataFile || swapped) return;
+        swapped = true;
+        renameSync(legacyDataFile, displacedFile);
+        writeFileSync(legacyDataFile, replacement);
+      },
+    }
+  );
+
+  expect(() => repository.load()).toThrow(
+    'Legacy migration source changed while reading'
+  );
+  expect(readFileSync(displacedFile)).toEqual(original);
+  expect(readFileSync(legacyDataFile)).toEqual(replacement);
+  expect(existsSync(`${legacyDataFile}.sqlite-migration.bak`)).toBe(false);
+  expect(existsSync(databaseFile)).toBe(false);
+});
+
+test('backup installation replaces final symlinks and hardlinks without writing through them', () => {
+  for (const sourceType of ['json', 'sqlite'] as const) {
+    for (const aliasType of ['symlink', 'hardlink'] as const) {
+      const caseDir = join(tempDir, `${sourceType}-${aliasType}`);
+      const databaseFile = join(caseDir, 'deploykit.sqlite');
+      const legacyDataFile = join(caseDir, 'data.json');
+      const victimFile = join(caseDir, 'victim');
+      mkdirSync(caseDir, { recursive: true });
+      const victimBytes = Buffer.from(`victim-${sourceType}-${aliasType}`);
+      writeFileSync(victimFile, victimBytes);
+
+      let backupFile: string;
+      if (sourceType === 'json') {
+        writeFileSync(legacyDataFile, JSON.stringify(createData('Alias Safe')));
+        backupFile = `${legacyDataFile}.sqlite-migration.bak`;
+      } else {
+        createLegacyStateDatabase(databaseFile);
+        backupFile = `${databaseFile}.pre-relational-v1.bak`;
+      }
+      if (aliasType === 'symlink') {
+        symlinkSync(victimFile, backupFile);
+      } else {
+        linkSync(victimFile, backupFile);
+      }
+      const temporaryPaths: string[] = [];
+
+      createSqliteProjectRepository(
+        {
+          databaseFile,
+          legacyDataFile: sourceType === 'json' ? legacyDataFile : undefined,
+          migrationGuard: acquireMigrationGuard(
+            databaseFile,
+            `${sourceType}-${aliasType}`
+          ),
+        },
+        {
+          onMigrationTemporaryPathCreated(path) {
+            temporaryPaths.push(path);
+          },
+        }
+      ).load();
+
+      expect(readFileSync(victimFile)).toEqual(victimBytes);
+      const backupStats = lstatSync(backupFile, { bigint: true });
+      const victimStats = lstatSync(victimFile, { bigint: true });
+      expect(backupStats.isSymbolicLink()).toBe(false);
+      expect(`${backupStats.dev}:${backupStats.ino}`).not.toBe(
+        `${victimStats.dev}:${victimStats.ino}`
+      );
+      expect(Number(backupStats.mode & 0o777n)).toBe(0o600);
+      expect(temporaryPaths.length).toBeGreaterThan(0);
+      for (const path of temporaryPaths) {
+        expect(existsSync(path)).toBe(false);
+      }
+    }
+  }
+});
+
+test('journal, WAL, and SHM appearance, disappearance, identity, and content drift all abort and clean temporary paths', () => {
+  for (const suffix of ['-journal', '-wal', '-shm'] as const) {
+    for (const change of [
+      'appearance',
+      'disappearance',
+      'identity',
+      'content',
+    ] as const) {
+      const caseDir = join(tempDir, `${suffix.slice(1)}-${change}`);
+      const databaseFile = join(caseDir, 'deploykit.sqlite');
+      mkdirSync(caseDir, { recursive: true });
+      const originalMain = createLegacyStateDatabase(databaseFile);
+      const auxiliaryFile = `${databaseFile}${suffix}`;
+      if (change !== 'appearance') writeFileSync(auxiliaryFile, '');
+      const temporaryPaths: string[] = [];
+
+      const repository = createSqliteProjectRepository(
+        {
+          databaseFile,
+          migrationGuard: acquireMigrationGuard(
+            databaseFile,
+            `${suffix}-${change}`
+          ),
+        },
+        {
+          afterLegacySourceValidated() {
+            if (change === 'appearance') {
+              writeFileSync(auxiliaryFile, 'appeared');
+            } else if (change === 'disappearance') {
+              unlinkSync(auxiliaryFile);
+            } else if (change === 'identity') {
+              renameSync(auxiliaryFile, `${auxiliaryFile}.opened`);
+              writeFileSync(auxiliaryFile, '');
+            } else {
+              writeFileSync(auxiliaryFile, 'changed');
+            }
+          },
+          onMigrationTemporaryPathCreated(path) {
+            temporaryPaths.push(path);
+          },
+        }
+      );
+
+      expect(() => repository.load()).toThrow(
+        'Legacy migration source changed after validation'
+      );
+      expect(readFileSync(databaseFile).toString('hex')).toBe(
+        originalMain.toString('hex')
+      );
+      expect(temporaryPaths.length).toBeGreaterThan(0);
+      for (const path of temporaryPaths) {
+        expect(existsSync(path)).toBe(false);
+      }
+    }
+  }
+});
+
+test('releasing ownership after source revalidation aborts before writable open', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  const legacyDataFile = join(tempDir, 'data.json');
+  const original = Buffer.from(JSON.stringify(createData('Release guard')));
+  writeFileSync(legacyDataFile, original);
+  const ownership = acquireRuntimeOwnership(
+    databaseFile,
+    join(tempDir, 'release-storage')
+  );
+  runtimeOwnerships.push(ownership);
+
+  const repository = createSqliteProjectRepository(
+    {
+      databaseFile,
+      legacyDataFile,
+      migrationGuard: ownership.migrationGuard,
+    },
+    {
+      afterMigrationSourceRevalidated() {
+        ownership.release();
+      },
+    }
+  );
+
+  expect(() => repository.load()).toThrow(RUNTIME_MIGRATION_OWNERSHIP_REQUIRED);
+  expect(readFileSync(legacyDataFile)).toEqual(original);
+  expect(readFileSync(`${legacyDataFile}.sqlite-migration.bak`)).toEqual(
+    original
+  );
+  expect(existsSync(databaseFile)).toBe(false);
+});
+
 test('legacy JSON backup uses validated bytes and aborts on same-inode content drift', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   const legacyDataFile = join(tempDir, 'data.json');
@@ -778,7 +1104,11 @@ test('legacy JSON backup uses validated bytes and aborts on same-inode content d
   writeFileSync(legacyDataFile, original);
 
   const repository = createSqliteProjectRepository(
-    { databaseFile, legacyDataFile },
+    {
+      databaseFile,
+      legacyDataFile,
+      migrationGuard: acquireMigrationGuard(databaseFile),
+    },
     {
       afterLegacySourceValidated() {
         writeFileSync(legacyDataFile, replacement);
@@ -827,7 +1157,10 @@ test('migrates an older document payload once and keeps a database backup', () =
   database.close();
   writeFileSync(backupFile, 'stale backup');
 
-  const repository = createSqliteProjectRepository({ databaseFile });
+  const repository = createSqliteProjectRepository({
+    databaseFile,
+    migrationGuard: acquireMigrationGuard(databaseFile),
+  });
   expect(repository.load().schemaVersion).toBe(CURRENT_SCHEMA_VERSION);
   expect(existsSync(backupFile)).toBe(true);
   const firstBackup = readFileSync(backupFile);
@@ -876,7 +1209,10 @@ test('legacy SQLite backup uses the validated snapshot and aborts on identity re
   const replacement = Buffer.from('replacement database bytes');
 
   const repository = createSqliteProjectRepository(
-    { databaseFile },
+    {
+      databaseFile,
+      migrationGuard: acquireMigrationGuard(databaseFile),
+    },
     {
       afterLegacySourceValidated() {
         renameSync(databaseFile, displacedDatabaseFile);
