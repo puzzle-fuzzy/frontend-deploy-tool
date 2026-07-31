@@ -208,7 +208,7 @@ interface SequencedAuditRow extends AuditRow {
   sequence: number;
 }
 
-export interface ArtifactAuditRow {
+interface ArtifactAuditRow {
   id: string;
   project_id: string;
   version_id: string;
@@ -1123,9 +1123,7 @@ function rowToHistoryEvent(row: AuditRow): HistoryEvent {
   };
 }
 
-export function rowToArtifactAuditReport(
-  row: ArtifactAuditRow
-): ArtifactAuditReport {
+function rowToArtifactAuditReport(row: ArtifactAuditRow): ArtifactAuditReport {
   return artifactAuditReportSchema.parse({
     id: row.id,
     projectId: row.project_id,

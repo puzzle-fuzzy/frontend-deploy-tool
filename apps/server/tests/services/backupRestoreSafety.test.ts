@@ -7,6 +7,7 @@ import {
   lstatSync,
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   renameSync,
@@ -165,7 +166,7 @@ test('EXDEV partial storage copy never publishes rollback or replaces the live s
   }
 });
 
-test('a rollback rename that writes and then throws leaves no untrusted final target', () => {
+test('a fallback rollback rename that commits and throws is compensated from exact identity', () => {
   const fixture = createRestoreFixture();
   let rollbackTarget = '';
   let publishedTemp = '';
@@ -203,8 +204,112 @@ test('a rollback rename that writes and then throws leaves no untrusted final ta
     expect(readFileSync(fixture.storageMarker)).toEqual(liveStorageBytes);
     expect(rollbackTarget).not.toBe('');
     expect(publishedTemp).not.toBe('');
-    expect(existsSync(rollbackTarget)).toBe(false);
+    expect(existsSync(rollbackTarget)).toBe(true);
     expect(existsSync(publishedTemp)).toBe(false);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+for (const resource of [
+  'database',
+  'storage',
+  '-journal',
+  '-wal',
+  '-shm',
+] as const) {
+  test(`a direct ${resource} rollback rename that commits and throws is compensated from exact identity`, () => {
+    const fixture = createRestoreFixture();
+    const commitError = new Error(`injected committed ${resource} rename`);
+    let rollbackTarget = '';
+    try {
+      removeDatabaseAuxiliaries(fixture.databaseFile);
+      const auxiliaryBytes = new Map<string, Buffer>();
+      for (const suffix of ['-journal', '-wal', '-shm']) {
+        const bytes = Buffer.from(`live ${suffix}`);
+        writeFileSync(`${fixture.databaseFile}${suffix}`, bytes);
+        auxiliaryBytes.set(suffix, bytes);
+      }
+      const databaseBytes = readFileSync(fixture.databaseFile);
+      const storageBytes = readFileSync(fixture.storageMarker);
+      const selectedSource =
+        resource === 'database'
+          ? fixture.databaseFile
+          : resource === 'storage'
+            ? fixture.storageDir
+            : `${fixture.databaseFile}${resource}`;
+
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          restoreFileSystem: {
+            rename(source, target) {
+              renameSync(source, target);
+              if (source === selectedSource) {
+                rollbackTarget = target;
+                throw commitError;
+              }
+            },
+            copy: cpSync,
+            remove: rmSync,
+          },
+        })
+      );
+
+      expect(
+        captureError(() =>
+          service.restoreBackup(fixture.backupDir, { force: true })
+        )
+      ).toBe(commitError);
+      expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+      expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+      for (const [suffix, bytes] of auxiliaryBytes) {
+        expect(
+          readFileSync(`${fixture.databaseFile}${suffix}`).toString('hex')
+        ).toBe(bytes.toString('hex'));
+      }
+      expect(rollbackTarget).not.toBe('');
+      expect(existsSync(rollbackTarget)).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+test('an unproven direct rollback rename retains quarantined operation evidence', () => {
+  const fixture = createRestoreFixture();
+  const ambiguityError = new Error('injected unproven direct rename');
+  let rollbackTarget = '';
+  try {
+    const liveStorageBytes = readFileSync(fixture.storageMarker);
+    const service = createBackupService(
+      fixture,
+      restoreDependencies({
+        restoreFileSystem: {
+          rename(source, target) {
+            if (source === fixture.storageDir) {
+              rollbackTarget = target;
+              mkdirSync(target, { recursive: true });
+              writeFileSync(join(target, 'uncertain'), 'quarantined');
+              throw ambiguityError;
+            }
+            renameSync(source, target);
+          },
+          copy: cpSync,
+          remove: rmSync,
+        },
+      })
+    );
+
+    expect(
+      captureError(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      )
+    ).toBe(ambiguityError);
+    expect(readFileSync(fixture.storageMarker)).toEqual(liveStorageBytes);
+    expect(readFileSync(join(rollbackTarget, 'uncertain'), 'utf8')).toBe(
+      'quarantined'
+    );
   } finally {
     fixture.cleanup();
   }
@@ -408,7 +513,7 @@ test('restore keeps the finalize error authoritative while attempting every comp
       ])
     );
     expect(databaseRecoveryAttempts).toBe(1);
-    expect(stageCleanupAttempts).toHaveLength(2);
+    expect(stageCleanupAttempts).toHaveLength(5);
     expect(releaseAttempts).toBe(1);
     expect(readFileSync(fixture.storageMarker, 'utf8')).toBe(
       'pre-restore storage'
@@ -862,7 +967,7 @@ test('restore revalidates and cleans a replaced database stage before moving liv
 
     expect(() =>
       service.restoreBackup(fixture.backupDir, { force: true })
-    ).toThrow('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
+    ).toThrow('RESTORE_DATABASE_STAGE_UNSAFE');
     expect(ownershipAttempts).toBe(1);
     expect(releaseAttempts).toBe(1);
     expect(lstatSync(fixture.databaseFile).isSymbolicLink()).toBe(false);
@@ -879,6 +984,103 @@ test('restore revalidates and cleans a replaced database stage before moving liv
     fixture.cleanup();
   }
 });
+
+for (const swappedControl of ['rollback-root', 'rollback-operation'] as const) {
+  test(`restore rejects a late ${swappedControl} symlink without touching its target or live state`, () => {
+    const fixture = createRestoreFixture();
+    const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+    const operationId = `late-${swappedControl}`;
+    const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+    const rollbackRoot = join(
+      dirname(fixture.databaseFile),
+      '.deploykit-rollback'
+    );
+    const rollbackPath = join(rollbackRoot, operationName);
+    const external = join(
+      dirname(fixture.backupDir),
+      `external-${swappedControl}`
+    );
+    try {
+      const databaseBytes = readFileSync(fixture.databaseFile);
+      const storageBytes = readFileSync(fixture.storageMarker);
+      mkdirSync(external);
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          now: () => fixedNow,
+          createOperationId: () => operationId,
+          afterRestorePayloadStaged() {
+            const swappedPath =
+              swappedControl === 'rollback-root' ? rollbackRoot : rollbackPath;
+            rmSync(swappedPath, { recursive: true, force: true });
+            symlinkSync(external, swappedPath);
+          },
+        })
+      );
+
+      expect(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      ).toThrow('RESTORE_CONTROL_LAYOUT_UNSAFE');
+      expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+      expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+      expect(lstatSync(external).isDirectory()).toBe(true);
+      expect(readdirSync(external)).toEqual([]);
+      expect(existsSync(rollbackRoot)).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
+
+for (const suffix of ['-journal', '-wal', '-shm']) {
+  test(`restore rejects and cleans an injected database stage ${suffix} file`, () => {
+    const fixture = createRestoreFixture();
+    const fixedNow = new Date('2026-07-30T12:34:56.789Z');
+    const operationId = `stage${suffix.slice(1)}`;
+    const operationName = `2026-07-30T12-34-56-789Z-${operationId}`;
+    const rollbackRoot = join(
+      dirname(fixture.databaseFile),
+      '.deploykit-rollback'
+    );
+    const databaseStage = `${fixture.databaseFile}.restore-${operationName}`;
+    const storageStage = join(
+      dirname(fixture.storageDir),
+      `.${basename(fixture.storageDir)}.restore-${operationName}`
+    );
+    const manifestStage = `${fixture.databaseFile}.manifest-${operationName}`;
+    try {
+      const databaseBytes = readFileSync(fixture.databaseFile);
+      const storageBytes = readFileSync(fixture.storageMarker);
+      const service = createBackupService(
+        fixture,
+        restoreDependencies({
+          now: () => fixedNow,
+          createOperationId: () => operationId,
+          afterRestorePayloadStaged(_manifest, stagedDatabase) {
+            writeFileSync(`${stagedDatabase}${suffix}`, 'injected sidecar');
+          },
+        })
+      );
+
+      expect(() =>
+        service.restoreBackup(fixture.backupDir, { force: true })
+      ).toThrow('BACKUP_DATABASE_SNAPSHOT_UNSAFE');
+      expect(readFileSync(fixture.databaseFile)).toEqual(databaseBytes);
+      expect(readFileSync(fixture.storageMarker)).toEqual(storageBytes);
+      for (const control of [
+        databaseStage,
+        `${databaseStage}${suffix}`,
+        storageStage,
+        manifestStage,
+        rollbackRoot,
+      ]) {
+        expect(existsSync(control)).toBe(false);
+      }
+    } finally {
+      fixture.cleanup();
+    }
+  });
+}
 
 function createRestoreFixture() {
   const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-restore-safety-'));

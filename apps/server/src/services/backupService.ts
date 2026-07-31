@@ -1,6 +1,7 @@
 import { Database } from 'bun:sqlite';
 import {
   O_CREAT,
+  O_DIRECTORY,
   O_EXCL,
   O_NOFOLLOW,
   O_RDONLY,
@@ -21,7 +22,9 @@ import {
   readFileSync,
   readSync,
   renameSync,
+  rmdirSync,
   rmSync,
+  unlinkSync,
   writeFileSync,
   writeSync,
 } from 'node:fs';
@@ -156,7 +159,26 @@ interface RuntimeOwnership {
 
 interface ResourceMoveProgress {
   rollbackPublished: boolean;
+  rollbackAmbiguous: boolean;
   sourceRemoved: boolean;
+}
+
+interface PathIdentity {
+  dev: bigint;
+  ino: bigint;
+  kind: 'directory' | 'file';
+}
+
+interface BoundRestorePath {
+  identity: PathIdentity;
+  name: string;
+  path: string;
+}
+
+interface RestoreControlBinding {
+  paths: BoundRestorePath[];
+  quarantineOperation: boolean;
+  rollbackRootCreated: boolean;
 }
 
 interface RuntimeMoveProgress {
@@ -178,6 +200,7 @@ interface RestoreOperationLayout {
   rollbackDatabase: string;
   rollbackStorage: string;
   databaseStage: string;
+  databaseStageAuxiliaries: Readonly<Record<DatabaseAuxiliarySuffix, string>>;
   storageStage: string;
   manifestStage: string;
 }
@@ -348,14 +371,17 @@ export function createBackupService(
       )(layout.databaseFile, layout.storageDir);
       let report: BackupRestoreReport | undefined;
       let primaryError: Error | undefined;
+      let controlBinding: RestoreControlBinding | undefined;
       try {
         assertRestoreControlLayoutSafe(layout, operation);
+        controlBinding = bindRestoreControls(operation);
         const stagedVerification = prepareRestorePayload({
           backupPath,
           dependencies,
           expectedFingerprint: initialVerification.fingerprint,
           operation,
         });
+        bindRestoreStages(controlBinding, operation);
         report = executeRestore({
           backupPath,
           dependencies,
@@ -365,10 +391,11 @@ export function createBackupService(
           restoreFileSystem,
           verification: stagedVerification,
           expectedFingerprint: initialVerification.fingerprint,
+          controlBinding,
         });
       } catch (error) {
         primaryError = asError(error);
-        cleanupPreparedRestore(operation, primaryError);
+        cleanupPreparedRestore(operation, primaryError, controlBinding);
       }
 
       try {
@@ -402,6 +429,7 @@ function executeRestore({
   restoreFileSystem,
   verification,
   expectedFingerprint,
+  controlBinding,
 }: {
   backupPath: string;
   dependencies: BackupServiceDependencies;
@@ -411,6 +439,7 @@ function executeRestore({
   restoreFileSystem: RestoreFileSystem;
   verification: BackupVerificationReport;
   expectedFingerprint: string;
+  controlBinding: RestoreControlBinding;
 }): BackupRestoreReport {
   const moveProgress = createRuntimeMoveProgress();
   let preRestoreState: RuntimeStatePresence | undefined;
@@ -421,6 +450,9 @@ function executeRestore({
       operation.databaseStage,
       operation.storageStage
     );
+    assertRestoreDatabaseStageSafe(operation.databaseStage);
+    assertDatabaseAuxiliariesAbsent(operation.databaseStage);
+    assertRestoreControlsBound(controlBinding);
     const finalVerification = verifyStagedBackupPayload(
       operation.manifestStage,
       operation.databaseStage,
@@ -439,9 +471,12 @@ function executeRestore({
     }
     verification = finalVerification.report;
     assertRestoreDatabaseStageSafe(operation.databaseStage);
+    assertDatabaseAuxiliariesAbsent(operation.databaseStage);
+    assertRestoreControlsBound(controlBinding);
     assertRuntimeResourceLeavesSafe(layout);
     preRestoreState = captureRuntimeStatePresence(layout);
-    mkdirSync(operation.rollbackDatabaseDirectory, { recursive: true });
+    assertRestoreControlsBound(controlBinding);
+    assertDatabaseAuxiliariesAbsent(operation.databaseStage);
     moveIfPresent(
       layout.databaseFile,
       operation.rollbackDatabase,
@@ -476,9 +511,13 @@ function executeRestore({
     restoreFileSystem.rename(operation.storageStage, layout.storageDir);
     dependencies.afterRestoredStateInstalled?.(operation.rollbackPath);
     restoreFileSystem.remove(operation.manifestStage, { force: true });
+    for (const auxiliary of Object.values(operation.databaseStageAuxiliaries)) {
+      restoreFileSystem.remove(auxiliary, { force: true });
+    }
   } catch (error) {
     const primaryError = asError(error);
     const secondaryFailures: RestoreSecondaryFailure[] = [];
+    controlBinding.quarantineOperation = hasRollbackEvidence(moveProgress);
     if (preRestoreState) {
       recoverCurrentState(
         layout,
@@ -516,17 +555,18 @@ function executeRestore({
       'manifest-stage',
       secondaryFailures
     );
-    if (!hasPublishedRollback(moveProgress)) {
+    for (const [suffix, auxiliary] of Object.entries(
+      operation.databaseStageAuxiliaries
+    )) {
       removeBestEffort(
         restoreFileSystem,
-        operation.rollbackPath,
-        { recursive: true, force: true },
-        'cleanup-operation',
-        'rollback-operation',
+        auxiliary,
+        { force: true },
+        'cleanup-stage',
+        `database-stage${suffix}`,
         secondaryFailures
       );
     }
-
     attachRestoreSecondaryFailures(primaryError, secondaryFailures);
     throw primaryError;
   }
@@ -548,6 +588,7 @@ function createRestoreOperationLayout(
   );
   const rollbackPath = join(rollbackRoot, operationId);
   const rollbackDatabaseDirectory = join(rollbackPath, 'database');
+  const databaseStage = `${layout.databaseFile}.restore-${operationId}`;
   return {
     rollbackRoot,
     rollbackPath,
@@ -557,7 +598,12 @@ function createRestoreOperationLayout(
       basename(layout.databaseFile)
     ),
     rollbackStorage: join(rollbackPath, 'storage'),
-    databaseStage: `${layout.databaseFile}.restore-${operationId}`,
+    databaseStage,
+    databaseStageAuxiliaries: {
+      '-journal': `${databaseStage}-journal`,
+      '-wal': `${databaseStage}-wal`,
+      '-shm': `${databaseStage}-shm`,
+    },
     storageStage: join(
       dirname(layout.storageDir),
       `.${basename(layout.storageDir)}.restore-${operationId}`
@@ -583,6 +629,13 @@ function assertRestoreControlLayoutSafe(
   for (const [controlName, controlPath] of [
     ['rollback-operation', operation.rollbackPath],
     ['database-stage', operation.databaseStage],
+    ...DATABASE_AUXILIARY_SUFFIXES.map(
+      (suffix) =>
+        [
+          `database-stage${suffix}`,
+          operation.databaseStageAuxiliaries[suffix],
+        ] as const
+    ),
     ['storage-stage', operation.storageStage],
     ['manifest-stage', operation.manifestStage],
   ] as const) {
@@ -607,6 +660,13 @@ function assertRestoreControlLayoutSafe(
     ),
     ['rollback-storage', operation.rollbackStorage],
     ['database-stage', operation.databaseStage],
+    ...DATABASE_AUXILIARY_SUFFIXES.map(
+      (suffix) =>
+        [
+          `database-stage${suffix}`,
+          operation.databaseStageAuxiliaries[suffix],
+        ] as const
+    ),
     ['storage-stage', operation.storageStage],
     ['manifest-stage', operation.manifestStage],
   ] as const;
@@ -621,6 +681,264 @@ function assertRestoreControlLayoutSafe(
       }
     }
   }
+}
+
+function bindRestoreControls(
+  operation: RestoreOperationLayout
+): RestoreControlBinding {
+  const binding: RestoreControlBinding = {
+    paths: [],
+    quarantineOperation: false,
+    rollbackRootCreated: false,
+  };
+  try {
+    bindDirectoryOnce(
+      binding,
+      'rollback-parent',
+      dirname(operation.rollbackRoot)
+    );
+    bindDirectoryOnce(
+      binding,
+      'database-stage-parent',
+      dirname(operation.databaseStage)
+    );
+    bindDirectoryOnce(
+      binding,
+      'storage-stage-parent',
+      dirname(operation.storageStage)
+    );
+
+    if (!pathEntryExistsNoFollow(operation.rollbackRoot)) {
+      mkdirSync(operation.rollbackRoot, {
+        recursive: false,
+        mode: 0o700,
+      });
+      binding.rollbackRootCreated = true;
+    }
+    bindDirectoryOnce(binding, 'rollback-root', operation.rollbackRoot);
+
+    mkdirSync(operation.rollbackPath, { recursive: false, mode: 0o700 });
+    bindDirectoryOnce(binding, 'rollback-operation', operation.rollbackPath);
+    mkdirSync(operation.rollbackDatabaseDirectory, {
+      recursive: false,
+      mode: 0o700,
+    });
+    bindDirectoryOnce(
+      binding,
+      'rollback-database-directory',
+      operation.rollbackDatabaseDirectory
+    );
+    return binding;
+  } catch (error) {
+    const primaryError = asError(error);
+    const failures: RestoreSecondaryFailure[] = [];
+    cleanupBoundRestoreControls(binding, operation, failures);
+    attachRestoreSecondaryFailures(primaryError, failures);
+    throw primaryError;
+  }
+}
+
+function bindRestoreStages(
+  binding: RestoreControlBinding,
+  operation: RestoreOperationLayout
+): void {
+  assertDatabaseAuxiliariesAbsent(operation.databaseStage);
+  bindPathOnce(binding, 'manifest-stage', operation.manifestStage, 'file');
+  bindPathOnce(binding, 'database-stage', operation.databaseStage, 'file');
+  bindPathOnce(binding, 'storage-stage', operation.storageStage, 'directory');
+  assertRestoreControlsBound(binding);
+}
+
+function bindDirectoryOnce(
+  binding: RestoreControlBinding,
+  name: string,
+  path: string
+): void {
+  bindPathOnce(binding, name, path, 'directory');
+}
+
+function bindPathOnce(
+  binding: RestoreControlBinding,
+  name: string,
+  path: string,
+  kind: PathIdentity['kind']
+): void {
+  if (binding.paths.some((entry) => entry.path === path)) return;
+  binding.paths.push({ identity: capturePathIdentity(path, kind), name, path });
+}
+
+function capturePathIdentity(
+  path: string,
+  expectedKind: PathIdentity['kind']
+): PathIdentity {
+  const descriptor = openSync(
+    path,
+    O_RDONLY | O_NOFOLLOW | (expectedKind === 'directory' ? O_DIRECTORY : 0)
+  );
+  try {
+    const descriptorStats = fstatSync(descriptor, { bigint: true });
+    const pathStats = lstatSync(path, { bigint: true });
+    const descriptorIdentity = pathIdentityFromStats(descriptorStats);
+    const pathIdentity = pathIdentityFromStats(pathStats);
+    if (
+      pathStats.isSymbolicLink() ||
+      descriptorIdentity.kind !== expectedKind ||
+      pathIdentity.kind !== expectedKind ||
+      !samePathIdentity(descriptorIdentity, pathIdentity)
+    ) {
+      throw new Error(
+        `[${RESTORE_CONTROL_LAYOUT_UNSAFE}] Restore control path must remain a real ${expectedKind}: ${path}`
+      );
+    }
+    return descriptorIdentity;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+function pathIdentityFromStats(stats: {
+  dev: bigint;
+  ino: bigint;
+  isDirectory(): boolean;
+  isFile(): boolean;
+}): PathIdentity {
+  const kind = stats.isDirectory()
+    ? 'directory'
+    : stats.isFile()
+      ? 'file'
+      : undefined;
+  if (!kind) {
+    throw new Error(
+      `[${RESTORE_CONTROL_LAYOUT_UNSAFE}] Restore control path has an unsupported type`
+    );
+  }
+  return { dev: stats.dev, ino: stats.ino, kind };
+}
+
+function assertRestoreControlsBound(binding: RestoreControlBinding): void {
+  for (const bound of binding.paths) {
+    let current: PathIdentity;
+    try {
+      current = capturePathIdentity(bound.path, bound.identity.kind);
+    } catch (error) {
+      const unsafe = new Error(
+        `[${RESTORE_CONTROL_LAYOUT_UNSAFE}] Bound restore control changed: ${bound.name}`
+      );
+      (unsafe as Error & { cause?: unknown }).cause = error;
+      throw unsafe;
+    }
+    if (!samePathIdentity(bound.identity, current)) {
+      throw new Error(
+        `[${RESTORE_CONTROL_LAYOUT_UNSAFE}] Bound restore control changed: ${bound.name}`
+      );
+    }
+  }
+}
+
+function samePathIdentity(left: PathIdentity, right: PathIdentity): boolean {
+  return (
+    left.dev === right.dev && left.ino === right.ino && left.kind === right.kind
+  );
+}
+
+function cleanupBoundRestoreControls(
+  binding: RestoreControlBinding,
+  operation: RestoreOperationLayout,
+  failures: RestoreSecondaryFailure[]
+): void {
+  const rollbackRoot = binding.paths.find(
+    (entry) => entry.name === 'rollback-root'
+  );
+  if (!rollbackRoot) return;
+  if (!boundPathStillMatches(rollbackRoot)) {
+    unlinkChangedSymlink(operation.rollbackRoot, 'rollback-root', failures);
+    return;
+  }
+
+  const rollbackOperation = binding.paths.find(
+    (entry) => entry.name === 'rollback-operation'
+  );
+  if (rollbackOperation && !boundPathStillMatches(rollbackOperation)) {
+    unlinkChangedSymlink(
+      operation.rollbackPath,
+      'rollback-operation',
+      failures
+    );
+  } else if (
+    rollbackOperation &&
+    boundPathStillMatches(rollbackOperation) &&
+    !binding.quarantineOperation &&
+    !rollbackOperationContainsEvidence(operation)
+  ) {
+    try {
+      rmSync(operation.rollbackPath, { recursive: true, force: true });
+    } catch (error) {
+      failures.push({
+        step: 'cleanup-operation',
+        resource: 'rollback-operation',
+        error,
+      });
+    }
+  }
+
+  if (binding.rollbackRootCreated) {
+    try {
+      rmdirSync(operation.rollbackRoot);
+    } catch (error) {
+      if (!isMissingPathError(error) && !isDirectoryNotEmptyError(error)) {
+        failures.push({
+          step: 'cleanup-operation',
+          resource: 'rollback-root',
+          error,
+        });
+      }
+    }
+  }
+}
+
+function boundPathStillMatches(bound: BoundRestorePath): boolean {
+  try {
+    return samePathIdentity(
+      bound.identity,
+      capturePathIdentity(bound.path, bound.identity.kind)
+    );
+  } catch {
+    return false;
+  }
+}
+
+function unlinkChangedSymlink(
+  path: string,
+  resource: string,
+  failures: RestoreSecondaryFailure[]
+): void {
+  try {
+    const stats = lstatIfPresent(path);
+    if (stats?.isSymbolicLink()) unlinkSync(path);
+  } catch (error) {
+    failures.push({ step: 'cleanup-operation', resource, error });
+  }
+}
+
+function rollbackOperationContainsEvidence(
+  operation: RestoreOperationLayout
+): boolean {
+  try {
+    return readdirSync(operation.rollbackPath).some((entry) => {
+      if (entry !== 'database') return true;
+      return readdirSync(operation.rollbackDatabaseDirectory).length > 0;
+    });
+  } catch {
+    return true;
+  }
+}
+
+function isDirectoryNotEmptyError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    'code' in error &&
+    (error as Error & { code?: string }).code === 'ENOTEMPTY'
+  );
 }
 
 function createRuntimeMoveProgress(): RuntimeMoveProgress {
@@ -638,16 +956,21 @@ function createRuntimeMoveProgress(): RuntimeMoveProgress {
 function createResourceMoveProgress(): ResourceMoveProgress {
   return {
     rollbackPublished: false,
+    rollbackAmbiguous: false,
     sourceRemoved: false,
   };
 }
 
-function hasPublishedRollback(progress: RuntimeMoveProgress): boolean {
+function hasRollbackEvidence(progress: RuntimeMoveProgress): boolean {
   return (
     progress.database.rollbackPublished ||
+    progress.database.rollbackAmbiguous ||
     progress.storage.rollbackPublished ||
+    progress.storage.rollbackAmbiguous ||
     DATABASE_AUXILIARY_SUFFIXES.some(
-      (suffix) => progress.databaseAuxiliaries[suffix].rollbackPublished
+      (suffix) =>
+        progress.databaseAuxiliaries[suffix].rollbackPublished ||
+        progress.databaseAuxiliaries[suffix].rollbackAmbiguous
     )
   );
 }
@@ -689,13 +1012,17 @@ function prepareRestorePayload({
 
 function cleanupPreparedRestore(
   operation: RestoreOperationLayout,
-  primaryError: Error
+  primaryError: Error,
+  controlBinding?: RestoreControlBinding
 ): void {
   const failures: RestoreSecondaryFailure[] = [];
   for (const [path, recursive] of [
     [operation.databaseStage, false],
     [operation.storageStage, true],
     [operation.manifestStage, false],
+    ...DATABASE_AUXILIARY_SUFFIXES.map(
+      (suffix) => [operation.databaseStageAuxiliaries[suffix], false] as const
+    ),
   ] as const) {
     try {
       rmSync(path, { recursive, force: true });
@@ -709,6 +1036,9 @@ function cleanupPreparedRestore(
         error,
       });
     }
+  }
+  if (controlBinding) {
+    cleanupBoundRestoreControls(controlBinding, operation, failures);
   }
   attachRestoreSecondaryFailures(primaryError, failures);
 }
@@ -984,6 +1314,11 @@ function verifyStagedBackupPayload(
       `Unsupported relational schema version ${manifest.schemaVersion}; supported range is 5-${RELATIONAL_SCHEMA_VERSION}`
     );
   }
+  try {
+    assertDatabaseAuxiliariesAbsent(databaseFile);
+  } catch (error) {
+    errors.push(error instanceof Error ? error.message : String(error));
+  }
   const databaseSnapshotError = inspectBackupDatabaseSnapshot(databaseFile);
   if (databaseSnapshotError) errors.push(databaseSnapshotError);
   if (!existsSync(storageDir)) errors.push('Artifact storage is missing');
@@ -1018,6 +1353,7 @@ function verifyStagedBackupPayload(
     } finally {
       database.close();
     }
+    assertDatabaseAuxiliariesAbsent(databaseFile);
 
     if (metadata.schemaVersion !== manifest.schemaVersion) {
       errors.push('Manifest schema version does not match the database');
@@ -1057,6 +1393,21 @@ function verifyStagedBackupPayload(
     );
   }
 
+  let fingerprint: string | undefined;
+  if (errors.length === 0) {
+    try {
+      fingerprint = fingerprintBackupPayload(
+        manifestPath,
+        databaseFile,
+        storageDir
+      );
+      assertDatabaseAuxiliariesAbsent(databaseFile);
+    } catch (error) {
+      errors.push(
+        `Backup fingerprint failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
   const report = {
     valid: errors.length === 0,
     errors,
@@ -1065,15 +1416,7 @@ function verifyStagedBackupPayload(
   };
   return {
     report,
-    ...(report.valid
-      ? {
-          fingerprint: fingerprintBackupPayload(
-            manifestPath,
-            databaseFile,
-            storageDir
-          ),
-        }
-      : {}),
+    ...(report.valid && fingerprint ? { fingerprint } : {}),
   };
 }
 
@@ -1572,7 +1915,8 @@ function moveIfPresent(
   progress: ResourceMoveProgress,
   restoreFileSystem: RestoreFileSystem
 ): void {
-  if (!existsSync(source)) return;
+  if (!pathEntryExistsNoFollow(source)) return;
+  const sourceIdentity = captureMoveIdentity(source);
   mkdirSync(dirname(target), { recursive: true });
   if (pathEntryExistsNoFollow(target)) {
     throw new Error(
@@ -1585,10 +1929,20 @@ function moveIfPresent(
     progress.sourceRemoved = true;
     return;
   } catch (error) {
+    const commitState = inspectRenameCommit(source, target, sourceIdentity);
+    if (commitState === 'committed') {
+      progress.rollbackPublished = true;
+      progress.sourceRemoved = true;
+      throw error;
+    }
+    if (commitState === 'ambiguous') {
+      progress.rollbackAmbiguous = true;
+      throw error;
+    }
     if (!isCrossDeviceError(error)) throw error;
   }
 
-  const isDirectory = lstatSync(source).isDirectory();
+  const isDirectory = sourceIdentity.kind === 'directory';
   const temporaryTarget = createUnusedSiblingPath(target, 'pending');
   try {
     restoreFileSystem.copy(source, temporaryTarget, {
@@ -1597,46 +1951,122 @@ function moveIfPresent(
       recursive: isDirectory,
       preserveTimestamps: true,
     });
-    if (pathEntryExistsNoFollow(target)) {
-      throw new Error(
-        `[RESTORE_ROLLBACK_TARGET_EXISTS] Refusing to overwrite rollback target for ${source}`
-      );
-    }
-    restoreFileSystem.rename(temporaryTarget, target);
-    // Publication is atomic and authoritative from this point onward. If
-    // source removal fails or only partially completes, compensation restores
-    // from this known-complete rollback copy.
-    progress.rollbackPublished = true;
-    restoreFileSystem.remove(source, {
-      recursive: isDirectory,
-      force: true,
-    });
-    progress.sourceRemoved = true;
   } catch (error) {
     const primaryError = asError(error);
-    if (!progress.rollbackPublished) {
-      const secondaryFailures: RestoreSecondaryFailure[] = [];
-      removeBestEffort(
-        restoreFileSystem,
-        temporaryTarget,
-        { recursive: isDirectory, force: true },
-        'cleanup-move-temp',
-        source,
-        secondaryFailures
-      );
-      // A final target that appeared before publication was recorded is
-      // untrusted, including an injected rename that wrote and then failed.
-      removeBestEffort(
-        restoreFileSystem,
-        target,
-        { recursive: isDirectory, force: true },
-        'cleanup-unpublished-rollback',
-        source,
-        secondaryFailures
-      );
-      attachRestoreSecondaryFailures(primaryError, secondaryFailures);
-    }
+    const secondaryFailures: RestoreSecondaryFailure[] = [];
+    removeBestEffort(
+      restoreFileSystem,
+      temporaryTarget,
+      { recursive: isDirectory, force: true },
+      'cleanup-move-temp',
+      source,
+      secondaryFailures
+    );
+    attachRestoreSecondaryFailures(primaryError, secondaryFailures);
     throw primaryError;
+  }
+
+  if (pathEntryExistsNoFollow(target)) {
+    progress.rollbackAmbiguous = true;
+    throw new Error(
+      `[RESTORE_ROLLBACK_TARGET_EXISTS] Refusing to overwrite rollback target for ${source}`
+    );
+  }
+  const temporaryIdentity = captureMoveIdentity(temporaryTarget);
+  try {
+    restoreFileSystem.rename(temporaryTarget, target);
+  } catch (error) {
+    const commitState = inspectRenameCommit(
+      temporaryTarget,
+      target,
+      temporaryIdentity
+    );
+    if (commitState === 'committed') {
+      progress.rollbackPublished = true;
+      throw error;
+    }
+    if (commitState === 'ambiguous') {
+      progress.rollbackAmbiguous = true;
+      throw error;
+    }
+    const primaryError = asError(error);
+    const secondaryFailures: RestoreSecondaryFailure[] = [];
+    removeBestEffort(
+      restoreFileSystem,
+      temporaryTarget,
+      { recursive: isDirectory, force: true },
+      'cleanup-move-temp',
+      source,
+      secondaryFailures
+    );
+    attachRestoreSecondaryFailures(primaryError, secondaryFailures);
+    throw primaryError;
+  }
+
+  // Publication is atomic and authoritative from this point onward. If
+  // source removal fails or only partially completes, compensation restores
+  // from this known-complete rollback copy.
+  progress.rollbackPublished = true;
+  restoreFileSystem.remove(source, {
+    recursive: isDirectory,
+    force: true,
+  });
+  progress.sourceRemoved = true;
+}
+
+function captureMoveIdentity(path: string): PathIdentity {
+  const stats = lstatSync(path, { bigint: true });
+  if (stats.isSymbolicLink()) {
+    throw new Error(
+      `[RESTORE_CONTROL_LAYOUT_UNSAFE] Refusing to move a symbolic link: ${path}`
+    );
+  }
+  const kind = stats.isDirectory()
+    ? 'directory'
+    : stats.isFile()
+      ? 'file'
+      : undefined;
+  if (!kind) {
+    throw new Error(
+      `[RESTORE_CONTROL_LAYOUT_UNSAFE] Refusing to move an unsupported path: ${path}`
+    );
+  }
+  return { dev: stats.dev, ino: stats.ino, kind };
+}
+
+function inspectRenameCommit(
+  source: string,
+  target: string,
+  expected: PathIdentity
+): 'ambiguous' | 'committed' | 'not-committed' {
+  const sourceState = inspectMovePath(source);
+  const targetState = inspectMovePath(target);
+  if (
+    sourceState.status === 'missing' &&
+    targetState.status === 'identity' &&
+    samePathIdentity(expected, targetState.identity)
+  ) {
+    return 'committed';
+  }
+  if (
+    sourceState.status === 'identity' &&
+    samePathIdentity(expected, sourceState.identity) &&
+    targetState.status === 'missing'
+  ) {
+    return 'not-committed';
+  }
+  return 'ambiguous';
+}
+
+function inspectMovePath(
+  path: string
+):
+  | { status: 'identity'; identity: PathIdentity }
+  | { status: 'missing' | 'unknown' } {
+  try {
+    return { status: 'identity', identity: captureMoveIdentity(path) };
+  } catch (error) {
+    return { status: isMissingPathError(error) ? 'missing' : 'unknown' };
   }
 }
 
