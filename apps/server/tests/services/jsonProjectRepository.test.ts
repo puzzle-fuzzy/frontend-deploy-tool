@@ -59,19 +59,12 @@ test('load hydrates projects that are missing settings with defaults', () => {
   expect(repo.load().projects[0].settings).toEqual(DEFAULT_PROJECT_SETTINGS);
 });
 
-test('load returns empty data on malformed JSON instead of throwing', () => {
+test('load fails closed on malformed JSON', () => {
   const dataFile = join(tempDir, 'data.json');
   writeFileSync(dataFile, '{ not valid json');
 
   const repo = createJsonProjectRepository(dataFile);
-  expect(repo.load()).toEqual({
-    schemaVersion: CURRENT_SCHEMA_VERSION,
-    projects: [],
-    users: [],
-    history: [],
-    artifactAudits: [],
-    artifactAuditJobs: [],
-  });
+  expect(() => repo.load()).toThrow();
 });
 
 test('save persists data that load can read back', () => {

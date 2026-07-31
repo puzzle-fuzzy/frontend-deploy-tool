@@ -1,6 +1,6 @@
 import {
   copyFileSync,
-  existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   renameSync,
@@ -17,10 +17,10 @@ import type {
 
 /**
  * JSON-file backed repository. Reads migrate the stored data up to the current
- * schema (which also hydrates missing project settings) and tolerate a
- * missing/corrupt file. Writes are atomic: data is serialized to a sibling temp
- * file and renamed into place (POSIX `rename(2)` is atomic on the same
- * filesystem).
+ * schema (which also hydrates missing project settings). Only a missing file
+ * creates empty data; unreadable or malformed persisted data fails startup.
+ * Writes are atomic: data is serialized to a sibling temp file and renamed
+ * into place (POSIX `rename(2)` is atomic on the same filesystem).
  */
 export function createJsonProjectRepository(
   dataFile: string
@@ -42,24 +42,15 @@ export function createJsonProjectRepository(
   }
 
   function loadData(): Data {
-    if (!existsSync(dataFile)) return createEmptyData();
-    let raw: unknown;
-    try {
-      raw = JSON.parse(readFileSync(dataFile, 'utf-8'));
-    } catch {
-      return createEmptyData();
-    }
+    if (!dataFileExists(dataFile)) return createEmptyData();
+    const raw: unknown = JSON.parse(readFileSync(dataFile, 'utf-8'));
 
     const { data, migrated } = migrate(raw);
 
     // Persist the upgraded shape once so later loads skip migration. Back up
     // the pre-migration file first so the change is always reversible.
     if (migrated) {
-      try {
-        copyFileSync(dataFile, `${dataFile}.bak`);
-      } catch {
-        // Best-effort backup; migration still proceeds.
-      }
+      copyFileSync(dataFile, `${dataFile}.bak`);
       writeData(data);
     }
 
@@ -108,6 +99,18 @@ export function createJsonProjectRepository(
       return paginateHistory(visibleHistory, limit, cursor);
     },
   };
+}
+
+function dataFileExists(dataFile: string): boolean {
+  try {
+    lstatSync(dataFile);
+    return true;
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+      return false;
+    }
+    throw error;
+  }
 }
 
 function idempotencyRecordKey(input: CommitVersionUploadInput): string {

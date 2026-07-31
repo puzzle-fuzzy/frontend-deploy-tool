@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import {
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -306,4 +307,32 @@ test('repository backs up a deployed v8 document before versioning audit snapsho
   const persisted = JSON.parse(readFileSync(dataFile, 'utf-8'));
   expect(persisted.schemaVersion).toBe(9);
   expect(persisted.artifactAuditJobs).toEqual([]);
+});
+
+test('repository fails closed when an existing document contains malformed JSON', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const original = Buffer.from('{"schemaVersion":8,"projects":[');
+  writeFileSync(dataFile, original);
+
+  const repo = createJsonProjectRepository(dataFile);
+
+  expect(() => repo.load()).toThrow();
+  expect(readFileSync(dataFile)).toEqual(original);
+  expect(existsSync(`${dataFile}.bak`)).toBe(false);
+});
+
+test('repository preserves v8 bytes when the migration backup cannot be copied', () => {
+  const dataFile = join(tempDir, 'data.json');
+  const current = migrate(v0Payload).data;
+  const original = Buffer.from(
+    JSON.stringify({ ...current, schemaVersion: 8 })
+  );
+  writeFileSync(dataFile, original);
+  mkdirSync(`${dataFile}.bak`);
+
+  const repo = createJsonProjectRepository(dataFile);
+
+  expect(() => repo.load()).toThrow();
+  expect(readFileSync(dataFile)).toEqual(original);
+  expect(JSON.parse(readFileSync(dataFile, 'utf-8')).schemaVersion).toBe(8);
 });
