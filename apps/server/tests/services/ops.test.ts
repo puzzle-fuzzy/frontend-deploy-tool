@@ -1,7 +1,15 @@
 import { afterEach, beforeEach, expect, test } from 'bun:test';
-import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  utimesSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { executeOwnedOperation } from '../../src/cli/opsLifecycle';
 import { createSqliteProjectRepository } from '../../src/repositories/sqliteProjectRepository';
 import {
   acquireRuntimeOwnership,
@@ -19,6 +27,94 @@ afterEach(() => {
   rmSync(tempDir, { recursive: true, force: true });
 });
 
+test('owned operation returns success only after ownership release', () => {
+  const calls: string[] = [];
+  const result = executeOwnedOperation(
+    {
+      migrationGuard: 'guard',
+      release() {
+        calls.push('release');
+      },
+    },
+    (migrationGuard) => {
+      calls.push(`operation:${migrationGuard}`);
+      return { command: 'gc' };
+    }
+  );
+  calls.push('output');
+
+  expect(result).toEqual({ command: 'gc' });
+  expect(calls).toEqual(['operation:guard', 'release', 'output']);
+});
+
+test('owned operation suppresses success when ownership release fails', () => {
+  const calls: string[] = [];
+  const releaseError = new Error('release failed');
+  let caught: unknown;
+  try {
+    const result = executeOwnedOperation(
+      {
+        migrationGuard: 'guard',
+        release() {
+          calls.push('release');
+          throw releaseError;
+        },
+      },
+      () => {
+        calls.push('operation');
+        return { command: 'gc' };
+      }
+    );
+    calls.push(`output:${result.command}`);
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBe(releaseError);
+  expect(calls).toEqual(['operation', 'release']);
+});
+
+test('owned operation preserves its primary error when release also fails', () => {
+  const calls: string[] = [];
+  const primaryError = new Error('operation failed');
+  const releaseError = new Error('release failed');
+  let caught: unknown;
+  try {
+    executeOwnedOperation(
+      {
+        migrationGuard: 'guard',
+        release() {
+          calls.push('release');
+          throw releaseError;
+        },
+      },
+      () => {
+        calls.push('operation');
+        throw primaryError;
+      }
+    );
+  } catch (error) {
+    caught = error;
+  }
+
+  expect(caught).toBe(primaryError);
+  expect(calls).toEqual(['operation', 'release']);
+  expect(
+    (
+      primaryError as Error & {
+        operationalSecondaryFailures?: unknown[];
+      }
+    ).operationalSecondaryFailures
+  ).toEqual([
+    {
+      step: 'release',
+      resource: 'runtime-ownership',
+      error: releaseError,
+    },
+  ]);
+  expect(primaryError.cause).toBeInstanceOf(AggregateError);
+});
+
 test('runs terminal audit-job prune in dry-run mode', () => {
   const databaseFile = join(tempDir, 'deploykit.sqlite');
   createSqliteProjectRepository({ databaseFile }).load();
@@ -29,6 +125,27 @@ test('runs terminal audit-job prune in dry-run mode', () => {
   expect(JSON.parse(result.stdout.toString())).toEqual({
     command: 'audit-jobs-prune',
     dryRun: true,
+    cutoff: expect.any(String),
+    report: { matched: 0, removed: 0 },
+  });
+
+  const ownership = acquireRuntimeOwnership(
+    databaseFile,
+    join(tempDir, 'storage')
+  );
+  ownership.release();
+});
+
+test('runs terminal audit-job prune with zero arguments', () => {
+  const databaseFile = join(tempDir, 'deploykit.sqlite');
+  createSqliteProjectRepository({ databaseFile }).load();
+  const result = spawnOps(databaseFile, 'audit-jobs-prune');
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr.toString()).toBe('');
+  expect(JSON.parse(result.stdout.toString())).toEqual({
+    command: 'audit-jobs-prune',
+    dryRun: false,
     cutoff: expect.any(String),
     report: { matched: 0, removed: 0 },
   });
@@ -152,6 +269,100 @@ test('backup rejects flags and extra positional arguments before output', () => 
   }
 });
 
+test('backup rejects literal delimiters before ownership or writes', () => {
+  const { databaseFile, storageDir } = createOpsFixture(
+    'backup-literal-delimiter'
+  );
+  const destination = join(tempDir, 'backup-literal-delimiter-output');
+  const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+  try {
+    for (const arguments_ of [
+      ['backup', '--'],
+      ['backup', destination, '--'],
+    ] as const) {
+      const result = spawnOps(databaseFile, ...arguments_);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stdout.toString()).toBe('');
+      expect(result.stderr.toString()).toContain(
+        'backup accepts zero or one destination path and no flags'
+      );
+      expect(result.stderr.toString()).not.toContain(RUNTIME_OWNERSHIP_HELD);
+      expect(existsSync(destination)).toBe(false);
+      expect(backupTemporarySiblings(destination)).toEqual([]);
+    }
+  } finally {
+    ownership.release();
+  }
+});
+
+for (const command of ['gc', 'audit-jobs-prune'] as const) {
+  test(`${command} rejects invalid dry-run grammar before ownership`, () => {
+    const { databaseFile, storageDir } = createOpsFixture(
+      `${command}-invalid-grammar`
+    );
+    const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
+    try {
+      for (const arguments_ of [
+        ['--dryrun'],
+        ['--force'],
+        ['--dry-run', '--dry-run'],
+        ['position'],
+        ['--dry-run', 'position'],
+      ] as const) {
+        const result = spawnOps(databaseFile, command, ...arguments_);
+        expect(result.exitCode).not.toBe(0);
+        expect(result.stdout.toString()).toBe('');
+        expect(result.stderr.toString()).toContain(
+          `${command} accepts no arguments except a single optional --dry-run`
+        );
+        expect(result.stderr.toString()).not.toContain(RUNTIME_OWNERSHIP_HELD);
+      }
+    } finally {
+      ownership.release();
+    }
+  });
+}
+
+test('gc rejects a misspelled dry-run flag without deleting stale staging', () => {
+  const { databaseFile, storageDir } = createOpsFixture('gc-dryrun-typo');
+  const staleEntry = join(storageDir, '.staging', 'stale-entry');
+  mkdirSync(staleEntry, { recursive: true });
+  const staleTime = new Date('2020-01-01T00:00:00.000Z');
+  utimesSync(staleEntry, staleTime, staleTime);
+
+  const result = spawnOps(databaseFile, 'gc', '--dryrun');
+
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stdout.toString()).toBe('');
+  expect(result.stderr.toString()).toContain(
+    'gc accepts no arguments except a single optional --dry-run'
+  );
+  expect(existsSync(staleEntry)).toBe(true);
+});
+
+test('bun run ops consumes its delimiter and forwards gc dry-run', () => {
+  const { databaseFile, storageDir } = createOpsFixture('bun-run-delimiter');
+  const staleEntry = join(storageDir, '.staging', 'stale-entry');
+  mkdirSync(staleEntry, { recursive: true });
+  const staleTime = new Date('2020-01-01T00:00:00.000Z');
+  utimesSync(staleEntry, staleTime, staleTime);
+
+  const result = spawnRootOps(databaseFile, 'gc', '--dry-run');
+
+  expect(result.exitCode).toBe(0);
+  expect(result.stderr.toString()).toBe('');
+  expect(JSON.parse(result.stdout.toString())).toEqual({
+    command: 'gc',
+    dryRun: true,
+    report: {
+      removedStagingEntries: 1,
+      removedCommittedTrashEntries: 0,
+      removedOrphanEntries: 0,
+    },
+  });
+  expect(existsSync(staleEntry)).toBe(true);
+});
+
 test('backup accepts zero positional arguments before ownership validation', () => {
   const { databaseFile, storageDir } = createOpsFixture('default-backup');
   const ownership = acquireRuntimeOwnership(databaseFile, storageDir);
@@ -179,16 +390,30 @@ function spawnOps(databaseFile: string, ...args: string[]) {
       ...args,
     ],
     cwd: dirname(databaseFile),
-    env: {
-      ...process.env,
-      DEPLOYKIT_ENV: 'test',
-      DATABASE_FILE: databaseFile,
-      DATA_FILE: join(dirname(databaseFile), 'data.json'),
-      STORAGE_DIR: join(dirname(databaseFile), 'storage'),
-      PUBLIC_DIR: join(dirname(databaseFile), 'public'),
-      ARTIFACT_AUDIT_JOB_RETENTION_HOURS: '24',
-    },
+    env: opsEnvironment(databaseFile),
     stdout: 'pipe',
     stderr: 'pipe',
   });
+}
+
+function spawnRootOps(databaseFile: string, ...args: string[]) {
+  return Bun.spawnSync({
+    cmd: [process.execPath, 'run', '--silent', 'ops', '--', ...args],
+    cwd: repositoryRoot,
+    env: opsEnvironment(databaseFile),
+    stdout: 'pipe',
+    stderr: 'pipe',
+  });
+}
+
+function opsEnvironment(databaseFile: string): Record<string, string> {
+  return {
+    ...process.env,
+    DEPLOYKIT_ENV: 'test',
+    DATABASE_FILE: databaseFile,
+    DATA_FILE: join(dirname(databaseFile), 'data.json'),
+    STORAGE_DIR: join(dirname(databaseFile), 'storage'),
+    PUBLIC_DIR: join(dirname(databaseFile), 'public'),
+    ARTIFACT_AUDIT_JOB_RETENTION_HOURS: '24',
+  };
 }

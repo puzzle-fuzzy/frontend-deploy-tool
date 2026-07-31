@@ -367,8 +367,10 @@ facade。
 `acquire -> leaf/existence recheck -> VACUUM INTO -> storage copy -> manifest -> prepared verify/fingerprint -> (atomic destination rename | failed-temp cleanup) -> release`。
 这是一份 quiescent、协作式捕获，而不是跨资源原子瞬间：必须先停止服务和每个未受管
 写入者，争用会以 `RUNTIME_OWNERSHIP_HELD` fail closed，且没有 force bypass。它的
-范围严格限于单机规范 database/storage pair 和由可信服务账号独占写入的父目录；不
-提供热备份、分布式协调、断电持久性或无副作用保证。ownership sidecar 和目标文件
+范围严格限于单机规范 database/storage pair、由可信服务账号独占写入的 runtime
+父目录，以及同样受控的备份目标最近既有祖先目录。备份临时根会绑定文件身份并在发布
+或递归清理前复核，但目标父目录本身没有 `openat` 身份绑定；不可信目标祖先不在支持
+范围内。该契约不提供热备份、分布式协调、断电持久性或无副作用保证。ownership sidecar 和目标文件
 会被写入，锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。版本化
 `manifest.json` 记录 schema、数据库文件名、元数据计数和产物计数；schema v6 清单
 强制记录 Token、安全事件和 CI 幂等记录三项计数；v5/v6 备份仍可验证和恢复，并在

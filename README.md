@@ -425,7 +425,10 @@ bun run ops -- restore <备份目录> --force
   停机在备份命令完成其内部验证后结束，此时可以重启服务；独立的只读 `verify`
   可以在线运行。备份在 ownership 内依次执行 `VACUUM INTO`、完整 `STORAGE_DIR`
   复制和包含 schema、元数据计数及产物计数的 `manifest.json` 写入；默认保存到
-  `apps/server/.voasx/backups/`。
+  `apps/server/.voasx/backups/`。目标路径会在服务边界统一解析为绝对、无尾分隔符
+  的路径；临时 sibling 只在身份仍匹配时发布或递归清理。若备份已经发布、但最后的
+  ownership release 失败，命令仍以失败退出且保留已发布目录；显式目标可直接检查，
+  默认目标则按 `backup-<ISO timestamp>` 在上述目录中核验后再决定是否重试。
 - `verify` 检查 SQLite `integrity_check`、外键、清单计数、符号链接、每个正常
   版本的 `index.html` 和 checksum。关系型 v5/v6 备份先在一次性副本上执行与
   生产启动相同的迁移到 v7，再通过生产数据 hydrator/domain schema；当前 v7
@@ -434,9 +437,11 @@ bun run ops -- restore <备份目录> --force
 - `inspect` 会显式重算版本 checksum 并写入完整性状态与审计历史；如果线上
   版本缺失或被篡改，它会下线该版本但不会自动选择替代版本。
 - `gc --dry-run` 只报告过期项；不带 `--dry-run` 才会删除过期 staging、已提交
-  trash 和 orphan。未提交 trash 不会自动删除。
+  trash 和 orphan。未提交 trash 不会自动删除。`gc` 只接受零参数或唯一一个
+  `--dry-run`；拼写错误、重复参数和额外位置参数都会在获取 ownership 和删除前失败。
 - `audit-jobs-prune --dry-run` 只报告达到任务保留期的终态传输记录；不带
-  `--dry-run` 时每次最多删除 1000 条。详细报告、历史和发布台账不受影响。
+  `--dry-run` 时每次最多删除 1000 条。它同样只接受零参数或唯一一个
+  `--dry-run`；未知或额外参数会 fail closed。详细报告、历史和发布台账不受影响。
 - `restore` 是破坏性运维，必须先停止 DeployKit 服务并显式传入 `--force`。
   初始 verify 后，manifest、数据库和 storage 会重新捕获到 control-owned stage，
   对该精确 staged payload 完整验证并在 live move 前再次核对 fingerprint；可变
@@ -453,8 +458,10 @@ bun run ops -- restore <备份目录> --force
   operation 会尽力清理。任何无法证明身份/内容或 rename 是否已提交的 rollback
   证据会保留为隔离的 recovery evidence，不能当作可信副本自动覆盖 live 数据。
 
-备份/恢复的互斥只覆盖单机上的规范 database/storage pair，且其父目录必须由可信
-服务账号独占写入。未受管写入者不属于该协作协议，必须由运维在备份前停止。它不是
+备份/恢复的互斥只覆盖单机上的规范 database/storage pair；runtime 资源父目录以及
+备份目标的最近既有祖先目录必须由可信服务账号独占写入。临时目录身份会在发布和
+清理前复核，但当前没有以 `openat` 绑定目标父目录；若目标祖先可被其他账号替换，
+该位置不属于支持边界。未受管写入者不属于该协作协议，必须由运维在备份前停止。它不是
 热备份，不承诺跨资源原子瞬间、分布式协调或断电后的持久性，也不是无副作用：会写入
 ownership sidecar 和目标文件；在锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。
 

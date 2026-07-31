@@ -2,6 +2,7 @@ import { Database } from 'bun:sqlite';
 import { describe, expect, test } from 'bun:test';
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -1228,6 +1229,47 @@ describe('createBackupService', () => {
     }
   });
 
+  for (const [label, suffix] of [
+    ['trailing separator', '/'],
+    ['dot segment', '/.'],
+  ] as const) {
+    test(`normalizes a destination with a ${label} before deriving its temporary sibling`, () => {
+      const tempDir = mkdtempSync(
+        join(tmpdir(), 'deploykit-backup-normalize-')
+      );
+      try {
+        const fixture = createFixture(tempDir);
+        const normalizedDestination = join(
+          tempDir,
+          'backups',
+          `backup-${label.replace(' ', '-')}`
+        );
+        const destination = `${normalizedDestination}${suffix}`;
+        const temporaryId = `normalize-${label.replace(' ', '-')}`;
+        const temporaryPath = `${normalizedDestination}.tmp-${temporaryId}`;
+        let observedTemporarySibling = false;
+        const service = createBackupService(fixture, {
+          createBackupTemporaryId: () => temporaryId,
+          now() {
+            observedTemporarySibling = true;
+            expect(lstatSync(temporaryPath).isDirectory()).toBe(true);
+            expect(dirname(temporaryPath)).toBe(dirname(normalizedDestination));
+            return new Date('2026-08-01T00:00:00.000Z');
+          },
+        });
+
+        expect(service.createBackup(destination).formatVersion).toBe(1);
+        expect(observedTemporarySibling).toBe(true);
+        expect(existsSync(join(normalizedDestination, 'manifest.json'))).toBe(
+          true
+        );
+        expect(backupTemporarySiblings(normalizedDestination)).toEqual([]);
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('backup releases ownership and removes output after a primary failure', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-primary-'));
     try {
@@ -1355,6 +1397,75 @@ describe('createBackupService', () => {
     }
   });
 
+  for (const [label, createPrimary] of [
+    ['undefined', () => undefined],
+    ['primitive', () => 'primitive primary'],
+    ['frozen', () => Object.freeze(new Error('frozen primary'))],
+    [
+      'hostile',
+      () =>
+        new Proxy(new Error('hostile primary'), {
+          get(target, property, receiver) {
+            if (
+              property === 'backupSecondaryFailures' ||
+              property === 'cause'
+            ) {
+              throw new Error(`hostile get ${String(property)}`);
+            }
+            return Reflect.get(target, property, receiver);
+          },
+          set(_target, property) {
+            throw new Error(`hostile set ${String(property)}`);
+          },
+        }),
+    ],
+  ] as const) {
+    test(`backup preserves ${label} primary through cleanup and release failures`, () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-primary-'));
+      try {
+        const fixture = createFixture(tempDir);
+        const destination = join(tempDir, 'backup-output');
+        const primary = createPrimary();
+        let cleanupAttempts = 0;
+        let releases = 0;
+        const service = createBackupService(fixture, {
+          now() {
+            throw primary;
+          },
+          removeBackupTemporaryPath() {
+            cleanupAttempts += 1;
+            throw new Error('cleanup failure');
+          },
+          acquireOwnership(databaseFile, storageDir) {
+            const real = acquireRuntimeOwnership(databaseFile, storageDir);
+            return {
+              release() {
+                releases += 1;
+                real.release();
+                throw new Error('release failure');
+              },
+            };
+          },
+        });
+
+        expect(captureThrown(() => service.createBackup(destination))).toBe(
+          primary
+        );
+        expect(cleanupAttempts).toBe(1);
+        expect(releases).toBe(1);
+        expect(existsSync(destination)).toBe(false);
+        const retained = backupTemporarySiblings(destination);
+        expect(retained).toHaveLength(1);
+        rmSync(join(dirname(destination), retained[0]), {
+          recursive: true,
+          force: true,
+        });
+      } finally {
+        rmSync(tempDir, { recursive: true, force: true });
+      }
+    });
+  }
+
   test('backup destination cannot be inside artifact storage', () => {
     const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-overlap-'));
     try {
@@ -1422,6 +1533,105 @@ describe('createBackupService', () => {
         fixture.storageDir
       );
       retry.release();
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup rechecks destination immediately before publish', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-publish-recheck-')
+    );
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const destinationMarker = join(destination, 'foreign-marker');
+      const service = createBackupService(fixture, {
+        createBackupTemporaryId: () => 'fixed',
+        now() {
+          mkdirSync(destination);
+          writeFileSync(destinationMarker, 'foreign destination');
+          return new Date('2026-08-01T00:00:00.000Z');
+        },
+      });
+
+      expect(() => service.createBackup(destination)).toThrow(
+        'Backup destination already exists'
+      );
+      expect(readFileSync(destinationMarker, 'utf8')).toBe(
+        'foreign destination'
+      );
+      expect(backupTemporarySiblings(destination)).toEqual([]);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup revalidates temporary root identity before publish', () => {
+    const tempDir = mkdtempSync(join(tmpdir(), 'deploykit-backup-temp-swap-'));
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const temporaryPath = `${destination}.tmp-fixed`;
+      const originalTemporaryPath = `${temporaryPath}.original`;
+      const foreignMarker = join(temporaryPath, 'foreign-marker');
+      const service = createBackupService(fixture, {
+        createBackupTemporaryId: () => 'fixed',
+        now() {
+          renameSync(temporaryPath, originalTemporaryPath);
+          cpSync(originalTemporaryPath, temporaryPath, { recursive: true });
+          writeFileSync(foreignMarker, 'foreign replacement');
+          return new Date('2026-08-01T00:00:00.000Z');
+        },
+      });
+
+      const primary = captureThrown(() => service.createBackup(destination));
+      expect(primary).toBeInstanceOf(Error);
+      expect((primary as Error).message).toContain(
+        'Backup temporary path identity changed'
+      );
+      expect(existsSync(destination)).toBe(false);
+      expect(readFileSync(foreignMarker, 'utf8')).toBe('foreign replacement');
+      expect(existsSync(originalTemporaryPath)).toBe(true);
+    } finally {
+      rmSync(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  test('backup preserves the primary when replacement makes temporary cleanup unsafe', () => {
+    const tempDir = mkdtempSync(
+      join(tmpdir(), 'deploykit-backup-temp-cleanup-swap-')
+    );
+    try {
+      const fixture = createFixture(tempDir);
+      const destination = join(tempDir, 'backup-output');
+      const temporaryPath = `${destination}.tmp-fixed`;
+      const originalTemporaryPath = `${temporaryPath}.original`;
+      const foreignMarker = join(temporaryPath, 'foreign-marker');
+      const primary = new Error(
+        'injected primary after replacement'
+      ) as Error & {
+        backupSecondaryFailures?: Array<{ step: string; error: unknown }>;
+      };
+      const service = createBackupService(fixture, {
+        createBackupTemporaryId: () => 'fixed',
+        now() {
+          renameSync(temporaryPath, originalTemporaryPath);
+          mkdirSync(temporaryPath);
+          writeFileSync(foreignMarker, 'foreign replacement');
+          throw primary;
+        },
+      });
+
+      expect(captureThrown(() => service.createBackup(destination))).toBe(
+        primary
+      );
+      expect(primary.backupSecondaryFailures?.map(({ step }) => step)).toEqual([
+        'cleanup-temporary',
+      ]);
+      expect(existsSync(destination)).toBe(false);
+      expect(readFileSync(foreignMarker, 'utf8')).toBe('foreign replacement');
+      expect(existsSync(originalTemporaryPath)).toBe(true);
     } finally {
       rmSync(tempDir, { recursive: true, force: true });
     }

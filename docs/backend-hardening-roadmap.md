@@ -113,8 +113,9 @@ DeployKit 是一个用户可自主管理前端产物、显式发布、手动回�
 
 下一阶段门槛：`releases`、`audit_events` 必须逐条通过语义验证；production schema
 必须通过精确 round-trip 状态断言。enforced-offline 的单机协作选择已完成：backup
-必须与 server、restore、GC 共享 ownership，要求可信父目录并排除未受管写入者；它
-不表示热备份、跨资源原子瞬间、分布式协调、断电持久性或无副作用。
+必须与 server、restore、GC 共享 ownership，要求 runtime 父目录和备份目标的最近
+既有祖先均可信并排除未受管写入者；备份临时根会复核身份，但目标父目录尚无
+`openat` 身份绑定。它不表示热备份、跨资源原子瞬间、分布式协调、断电持久性或无副作用。
 
 - [x] 选择并实施 enforced-offline 备份契约：先停止写入者和服务，再进行 backup，
   成功后重启，随后可选只读 verify；`RUNTIME_OWNERSHIP_HELD` 无 force bypass。

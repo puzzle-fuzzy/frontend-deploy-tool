@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { resolveRuntimeResourceLayout } from '../utils/runtimeResourcePath';
 import { attachBackupSecondaryFailures } from './backupFailure';
 import { restoreVerifiedBackup } from './backupRestoreTransaction';
@@ -37,6 +38,7 @@ export function createBackupService(
 
   return {
     createBackup(destination) {
+      const normalizedDestination = resolve(destination);
       const layout = resolveRuntimeResourceLayout(
         config.databaseFile,
         config.storageDir
@@ -45,7 +47,7 @@ export function createBackupService(
       if (!existsSync(layout.databaseFile)) {
         throw new Error(`Database does not exist: ${layout.databaseFile}`);
       }
-      assertBackupDestinationSafe(destination, layout);
+      assertBackupDestinationSafe(normalizedDestination, layout);
 
       const ownership = (
         dependencies.acquireOwnership ?? acquireRuntimeOwnership
@@ -56,11 +58,11 @@ export function createBackupService(
         if (!existsSync(layout.databaseFile)) {
           throw new Error(`Database does not exist: ${layout.databaseFile}`);
         }
-        assertBackupDestinationSafe(destination, layout);
+        assertBackupDestinationSafe(normalizedDestination, layout);
         outcome = {
           kind: 'success',
           manifest: createBackupSnapshotAt({
-            destination,
+            destination: normalizedDestination,
             layout,
             now,
             createTemporaryId: dependencies.createBackupTemporaryId,

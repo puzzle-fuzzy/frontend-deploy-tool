@@ -11,6 +11,7 @@ import {
   type RuntimeMigrationGuard,
 } from '../services/runtimeOwnership';
 import { collectStorageGarbage } from '../services/storageGarbageCollector';
+import { executeOwnedOperation } from './opsLifecycle';
 
 const appDir = join(import.meta.dir, '..', '..');
 const config = loadConfig({ appDir });
@@ -19,7 +20,7 @@ if (!config.databaseFile) {
 }
 const databaseFile = config.databaseFile;
 
-const args = process.argv.slice(2).filter((argument) => argument !== '--');
+const args = process.argv.slice(2);
 const command = args[0] ?? 'help';
 const backupService = createBackupService({
   databaseFile,
@@ -65,24 +66,26 @@ switch (command) {
     break;
   }
   case 'gc': {
-    withOperationalOwnership(() => {
-      output({
+    const dryRun = parseOptionalDryRun(args.slice(1), command);
+    const result = withOperationalOwnership(() => {
+      return {
         command,
-        dryRun: args.includes('--dry-run'),
+        dryRun,
         report: collectStorageGarbage(config.storageDir, {
           stagingRetentionMs:
             (config.stagingRetentionHours ?? 24) * 60 * 60 * 1000,
           recoveryRetentionMs:
             (config.recoveryRetentionHours ?? 168) * 60 * 60 * 1000,
-          dryRun: args.includes('--dry-run'),
+          dryRun,
         }),
-      });
+      };
     });
+    output(result);
     break;
   }
   case 'audit-jobs-prune': {
-    withOperationalOwnership((migrationGuard) => {
-      const dryRun = args.includes('--dry-run');
+    const dryRun = parseOptionalDryRun(args.slice(1), command);
+    const result = withOperationalOwnership((migrationGuard) => {
       const cutoff = new Date(
         Date.now() -
           (config.artifactAuditJobRetentionHours ?? 168) * 60 * 60 * 1000
@@ -96,7 +99,7 @@ switch (command) {
         databaseFile,
         cursorCodec: artifactAuditJobCursorCodec,
       });
-      output({
+      return {
         command,
         dryRun,
         cutoff,
@@ -105,12 +108,13 @@ switch (command) {
           batchSize: 1_000,
           dryRun,
         }),
-      });
+      };
     });
+    output(result);
     break;
   }
   case 'inspect': {
-    withOperationalOwnership((migrationGuard) => {
+    const result = withOperationalOwnership((migrationGuard) => {
       const repository = createSqliteProjectRepository({
         databaseFile,
         legacyDataFile: config.dataFile,
@@ -136,13 +140,14 @@ switch (command) {
                 versionId: version.id,
               }))
             );
-      output({
+      return {
         command,
         reports: targets.map((target) =>
           inspector.inspectVersion(target.projectId, target.versionId, 'system')
         ),
-      });
+      };
     });
+    output(result);
     break;
   }
   case 'help': {
@@ -181,6 +186,17 @@ function parseBackupDestination(arguments_: string[]): string | undefined {
   return arguments_[0];
 }
 
+function parseOptionalDryRun(
+  arguments_: string[],
+  command: 'gc' | 'audit-jobs-prune'
+): boolean {
+  if (arguments_.length === 0) return false;
+  if (arguments_.length === 1 && arguments_[0] === '--dry-run') return true;
+  throw new Error(
+    `${command} accepts no arguments except a single optional --dry-run`
+  );
+}
+
 function output(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
 }
@@ -189,11 +205,7 @@ function withOperationalOwnership<T>(
   operation: (migrationGuard: RuntimeMigrationGuard) => T
 ): T {
   const ownership = acquireRuntimeOwnership(databaseFile, config.storageDir);
-  try {
-    return operation(ownership.migrationGuard);
-  } finally {
-    ownership.release();
-  }
+  return executeOwnedOperation(ownership, operation);
 }
 
 function formatTimestamp(value: Date): string {

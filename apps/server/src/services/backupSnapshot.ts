@@ -61,6 +61,12 @@ interface CreateBackupSnapshotInput {
   verifyPreparedBackup: (backupPath: string) => BackupVerificationReport;
 }
 
+interface BackupTemporaryRootIdentity {
+  dev: bigint;
+  ino: bigint;
+  type: 'directory';
+}
+
 export const BACKUP_OUTPUT_LAYOUT_UNSAFE = 'BACKUP_OUTPUT_LAYOUT_UNSAFE';
 
 export function assertBackupDestinationSafe(
@@ -114,12 +120,14 @@ export function createBackupSnapshotAt(
   const temporaryPath = `${destination}.tmp-${temporaryId}`;
   assertBackupTemporaryPathSafe(temporaryPath, layout);
   mkdirSync(dirname(destination), { recursive: true });
+  mkdirSync(temporaryPath, { recursive: false, mode: 0o700 });
+  const temporaryIdentity = captureBackupTemporaryRootIdentity(temporaryPath);
   const databaseDirectory = join(temporaryPath, 'database');
   const snapshotFile = join(databaseDirectory, basename(layout.databaseFile));
   const backupStorage = join(temporaryPath, 'storage');
 
   try {
-    mkdirSync(databaseDirectory, { recursive: true });
+    mkdirSync(databaseDirectory, { recursive: false, mode: 0o700 });
     const database = new Database(layout.databaseFile);
     try {
       database.exec('PRAGMA busy_timeout = 5000');
@@ -172,10 +180,21 @@ export function createBackupSnapshotAt(
         `Backup verification failed: ${verification.errors.join('; ')}`
       );
     }
+    assertBackupTemporaryRootIdentity(
+      temporaryPath,
+      temporaryIdentity,
+      'publish'
+    );
+    assertBackupDestinationSafe(destination, layout);
     renameSync(temporaryPath, destination);
     return manifest;
   } catch (error) {
     try {
+      assertBackupTemporaryRootIdentity(
+        temporaryPath,
+        temporaryIdentity,
+        'cleanup'
+      );
       (
         input.removeTemporaryPath ??
         ((path: string) => rmSync(path, { recursive: true, force: true }))
@@ -190,6 +209,49 @@ export function createBackupSnapshotAt(
       ]);
     }
     throw error;
+  }
+}
+
+function captureBackupTemporaryRootIdentity(
+  temporaryPath: string
+): BackupTemporaryRootIdentity {
+  const stats = lstatSync(temporaryPath, { bigint: true });
+  if (stats.isSymbolicLink() || !stats.isDirectory()) {
+    throw new Error(
+      `[${BACKUP_OUTPUT_LAYOUT_UNSAFE}] Backup temporary path must be a non-symbolic directory: ${temporaryPath}`
+    );
+  }
+  return {
+    dev: stats.dev,
+    ino: stats.ino,
+    type: 'directory',
+  };
+}
+
+function assertBackupTemporaryRootIdentity(
+  temporaryPath: string,
+  expected: BackupTemporaryRootIdentity,
+  operation: 'publish' | 'cleanup'
+): void {
+  let stats: ReturnType<typeof lstatSync>;
+  try {
+    stats = lstatSync(temporaryPath, { bigint: true });
+  } catch (error) {
+    throw new Error(
+      `[${BACKUP_OUTPUT_LAYOUT_UNSAFE}] Backup temporary path identity changed; refusing ${operation}: ${temporaryPath}`,
+      { cause: error }
+    );
+  }
+  if (
+    expected.type !== 'directory' ||
+    stats.isSymbolicLink() ||
+    !stats.isDirectory() ||
+    stats.dev !== expected.dev ||
+    stats.ino !== expected.ino
+  ) {
+    throw new Error(
+      `[${BACKUP_OUTPUT_LAYOUT_UNSAFE}] Backup temporary path identity changed; refusing ${operation}: ${temporaryPath}`
+    );
   }
 }
 

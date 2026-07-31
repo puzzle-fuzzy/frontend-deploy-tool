@@ -65,7 +65,8 @@ leaf symlink 不受支持；已存在数据库必须是普通文件、存储必�
 其 SQLite auxiliary 必须是非 symlink、单链接普通文件，且所有既有 runtime
 资源不得共享 dev/inode；完成全部 preflight 后 sidecar 固定为
 `journal_mode=DELETE`。backup、restore 和 GC 都是 ownership 参与者；backup/restore
-在打开源数据库或变更目标前复用同一 preflight；备份只安装 `VACUUM INTO` 快照，不安装 journal/WAL/SHM，失败恢复
+在打开源数据库或变更目标前复用同一 preflight；备份负载只包含 `VACUUM INTO`
+快照，恢复只安装该快照而不安装 journal/WAL/SHM，失败恢复
 按显式 pre-state presence 与逐资源 published/source-removed 状态从 rollback
 还原，原本缺失的 DB/storage/auxiliary 仍保持缺失。跨卷 move 先复制到全新
 sibling temp 并原子发布，不能把部分副本当成 rollback；补偿、stage 清理与
@@ -74,7 +75,8 @@ failure。完整 published rollback operation 会保留，未发布部分副本�
 HTTP/worker drain 全部确认后才显式
 release；timeout、drain/force-stop 失败或未完成时保留 ownership 到进程退出。
 sidecar 内的 PID/token 只是诊断数据，不参与正确性判断。该协议仅适用于单机上的
-规范 database/storage pair，且所有 runtime 资源父目录必须由可信服务账号独占写入；
+规范 database/storage pair；所有 runtime 资源父目录和备份目标的最近既有祖先目录
+必须由可信服务账号独占写入。备份会复核临时根身份，但不以 `openat` 绑定目标父目录；
 未受管写入者不参与互斥，必须在运维备份前自行停止。Bun 的 path-based
 SQLite/file API 不能原子合并 leaf preflight 与 no-follow open，因此所有 runtime
 资源父目录必须仅由可信服务账号写入；这是本机进程锁，不支持多主机同时读写同一份
@@ -157,7 +159,9 @@ rollback operation 可能包含完整数据库、产物与 live storage 内的�
 离线备份顺序是：停止所有写入者 -> 停止服务 -> `backup` -> 重启服务 -> 可选的
 只读 `verify`。这是 enforced-offline 的协作捕获，不是热备份，也不承诺跨资源原子
 瞬间、分布式协调、断电持久性或无副作用；ownership sidecar 和目标文件会被写入，
-锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。
+锁内打开崩溃后的 WAL 数据库也可能触发 SQLite 恢复。备份目标的最近既有祖先必须
+由服务账号独占；临时根在发布和递归清理前会复核身份，但目标父目录没有 `openat`
+身份绑定。
 
 `verify` 对 v5/v6 关系型备份先复制到一次性根，执行生产 v7 migration，再走
 生产 `loadRelationalData` 及 project/report/job schema；current v7 直接走同一
